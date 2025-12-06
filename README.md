@@ -1,4 +1,4 @@
-# ComfyUI-TrentNodes
+# TrentNodes
 
 A comprehensive collection of custom ComfyUI nodes for advanced video processing, keyframe management, scene detection, and video analysis workflows.
 
@@ -51,8 +51,8 @@ comfy node registry-install comfyui-trentnodes
 ### Manual Installation
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/yourusername/ComfyUI-TrentNodes.git
-cd ComfyUI-TrentNodes
+git clone https://github.com/yourusername/TrentNodes.git
+cd TrentNodes
 pip install -r requirements.txt
 ```
 
@@ -150,7 +150,7 @@ MIT License - see LICENSE file for details
 
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 - [ComfyUI Manager](https://github.com/ltdrdata/ComfyUI-Manager)
-- [Report Issues](https://github.com/yourusername/ComfyUI-TrentNodes/issues)
+- [Report Issues](https://github.com/yourusername/TrentNodes/issues)
 
 ---
 

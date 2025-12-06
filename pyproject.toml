@@ -1,7 +1,7 @@
 [project]
-name = "comfyui-trentnodes"
+name = "trentnodes"
 description = "Comprehensive custom nodes for video processing, keyframe management, scene detection, and video analysis in ComfyUI"
-version = "1.0.0"
+version = "1.1.0"
 license = { file = "LICENSE" }
 dependencies = [
     "opencv-python>=4.8.0",
@@ -12,8 +12,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/TrentHunter82/ComfyUI-TrentNodes"
-Issues = "https://github.com/TrentHunter82/ComfyUI-TrentNodes/issues"
+Repository = "https://github.com/TrentHunter82/TrentNodes"
+Issues = "https://github.com/TrentHunter82/TrentNodes/issues"
 
 [tool.comfy]
 PublisherId = "flippingsigmas"  # Publisher ID configured
