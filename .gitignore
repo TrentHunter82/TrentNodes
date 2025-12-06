@@ -56,3 +56,4 @@ input/
 .env.local
 test_outputs/
 debug/
+*:Zone.Identifier
