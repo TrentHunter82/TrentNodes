@@ -119,7 +119,7 @@ class CUN_NumberCounter:
     RETURN_TYPES = ("NUMBER", "FLOAT", "INT")
     RETURN_NAMES = ("number", "float", "int")
     FUNCTION = "increment_number"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Utilities"
 
     def increment_number(self, number_type, mode, start, stop, step, unique_id, reset_bool=0):
         counter = float(start)
@@ -178,7 +178,7 @@ class CUN_TextFileLineLoader:
     RETURN_TYPES = (TEXT_TYPE, "INT")
     RETURN_NAMES = ("line_text", "line_count")
     FUNCTION = "load_file_line"
-    CATEGORY = "Custom_Utility_Nodes"
+    CATEGORY = "Trent/Utilities"
 
     def load_file_line(self, file_path='', label='TextBatch', mode='automatic', index=0):
         if not file_path or not os.path.exists(file_path):

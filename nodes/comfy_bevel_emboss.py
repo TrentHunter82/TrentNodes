@@ -80,7 +80,7 @@ class BevelEmbossNode:
     
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "apply_bevel_emboss"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Image"
     
     def apply_bevel_emboss(self, image, depth, angle, highlight_opacity, shadow_opacity, soften, mode, 
                            bevel_width=5.0, debug_device=False, mask=None, mask_mode="apply_to_masked", mask_blur=0.0):

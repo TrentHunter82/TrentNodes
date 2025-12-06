@@ -49,7 +49,7 @@ class ImageBatchAnalyzer:
     RETURN_TYPES = ("IMAGE", "STRING")
     RETURN_NAMES = ("analysis_graph", "statistics_text")
     FUNCTION = "analyze_batch"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Image"
     
     def analyze_batch(self, images, analysis_type="comprehensive", graph_width=1920, graph_height=1080):
         """

@@ -72,7 +72,7 @@ class WanVaceKeyframeBuilder:
     )
     
     FUNCTION = "build_sequence"
-    CATEGORY = "Wan/Vace"
+    CATEGORY = "Trent/Keyframes"
     DESCRIPTION = "Creates keyframe image and mask sequences for Wan Vace video generation."
     
     @classmethod

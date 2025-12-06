@@ -409,7 +409,7 @@ class UltimateSceneCutterNode:
     RETURN_TYPES = ("IMAGE", "STRING", "STRING", "INT")
     RETURN_NAMES = ("original_images", "cuts_report", "output_paths", "num_segments")
     FUNCTION = "detect_and_split"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Video"
     
     def detect_and_split(self, images, detection_method, sensitivity, output_folder, 
                         base_filename, create_videos, frame_rate,

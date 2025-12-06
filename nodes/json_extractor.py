@@ -25,7 +25,7 @@ class JSONParamsExtractorNode:
 
     FUNCTION = "extract_and_format"
 
-    CATEGORY = "utils"
+    CATEGORY = "Trent/Utilities"
 
     def extract_and_format(self, json_input="{}", json_file_path="", prefix=""):
         json_data = None

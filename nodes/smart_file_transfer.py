@@ -53,7 +53,7 @@ class SmartFileTransferNode:
     RETURN_TYPES = ("STRING", "STRING", "BOOLEAN")
     RETURN_NAMES = ("result_message", "final_path", "success")
     FUNCTION = "smart_transfer_file"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Utilities"
     OUTPUT_NODE = True
     
     def find_unique_filename(self, base_path, rename_pattern):
@@ -206,7 +206,7 @@ class FileCollisionTestNode:
     RETURN_TYPES = ("STRING", "BOOLEAN")
     RETURN_NAMES = ("result_message", "success")
     FUNCTION = "create_test_file"
-    CATEGORY = "file_operations"
+    CATEGORY = "Trent/Utilities"
     OUTPUT_NODE = True
     
     def create_test_file(self, file_path, file_content):
@@ -254,7 +254,7 @@ class FileListNode:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("file_list",)
     FUNCTION = "list_directory_files"
-    CATEGORY = "file_operations"
+    CATEGORY = "Trent/Utilities"
     OUTPUT_NODE = True
     
     def list_directory_files(self, directory_path, show_full_paths):

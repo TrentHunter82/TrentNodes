@@ -49,7 +49,7 @@ class CrossDissolveOverlap:
     RETURN_TYPES = ("IMAGE", "INT", "STRING")  # Added output info
     RETURN_NAMES = ("images", "frame_count", "blend_info")
     FUNCTION = "cross_dissolve_overlap"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Video"
     DESCRIPTION = "Cross-dissolve two image batches with precise overlap control"
     
     def validate_inputs(self, images_a: torch.Tensor, images_b: torch.Tensor, overlap_frames: int) -> Tuple[bool, str]:

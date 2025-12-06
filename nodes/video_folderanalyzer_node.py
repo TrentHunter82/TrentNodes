@@ -34,7 +34,7 @@ class VideoFolderAnalyzer:
     RETURN_TYPES = ("STRING", "STRING")
     RETURN_NAMES = ("report", "json_data")
     FUNCTION = "analyze_videos"
-    CATEGORY = "video/analysis"
+    CATEGORY = "Trent/Video"
     OUTPUT_NODE = True
 
     def analyze_videos(self, folder_path, include_subfolders, output_format, file_extensions="mp4,avi,mov,mkv,wmv,flv,webm,m4v,mpg,mpeg"):

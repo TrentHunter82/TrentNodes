@@ -26,7 +26,7 @@ class CustomFilenameGenerator:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("filename",)
     FUNCTION = "generate_filename"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Utilities"
     
     def generate_filename(self, project, sequence, shot, department, workflow, 
                          pass_name, initials, version, separator="_", force_uppercase=True):

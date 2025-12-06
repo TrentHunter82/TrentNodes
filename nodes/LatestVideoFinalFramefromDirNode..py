@@ -45,7 +45,7 @@ class LatestVideoFinalFrameNode:
     RETURN_NAMES = ("final_frame", "video_filename")
     
     # This helps ComfyUI categorize the node in the interface
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Video"
     
     # A unique identifier for this node type
     FUNCTION = "extract_final_frame"

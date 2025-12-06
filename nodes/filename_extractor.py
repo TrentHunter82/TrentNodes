@@ -28,7 +28,7 @@ class FilenameExtractor:
     RETURN_NAMES = ("extracted_name", "pattern_found", "full_filename")
     
     FUNCTION = "extract_filename"
-    CATEGORY = "utils"
+    CATEGORY = "Trent/Utilities"
     
     def extract_filename(self, filename):
         """

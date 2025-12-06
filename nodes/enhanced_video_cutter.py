@@ -24,7 +24,7 @@ class EnhancedVideoCutter:
     RETURN_TYPES = ("STRING", "STRING", "STRING",)
     RETURN_NAMES = ("video_paths", "output_folder", "metadata_json",)
     FUNCTION = "process_video_cuts"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Video"
     
     DESCRIPTION = """
     Enhanced Video Cutter with improved accuracy and file management:

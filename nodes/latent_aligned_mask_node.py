@@ -58,7 +58,7 @@ class LatentAlignedMask:
     RETURN_TYPES = ("MASK", "MASK", "INT")
     RETURN_NAMES = ("aligned_mask", "latent_preview", "compression_factor")
     FUNCTION = "align_mask"
-    CATEGORY = "mask/processing"
+    CATEGORY = "Trent/Masks"
     
     def get_vae_compression_factor(self, vae):
         """
@@ -273,7 +273,7 @@ class LatentAlignedMaskAdvanced:
     RETURN_TYPES = ("MASK", "STRING")
     RETURN_NAMES = ("mask", "info")
     FUNCTION = "process_mask"
-    CATEGORY = "mask/processing"
+    CATEGORY = "Trent/Masks"
     
     def process_mask(self, mask, vae, mode="balanced", 
                     prevent_edge_artifacts=True, smooth_boundaries=True):
@@ -362,7 +362,7 @@ class LatentAlignedMaskSimple:
     RETURN_TYPES = ("MASK", "MASK")
     RETURN_NAMES = ("aligned_mask", "latent_preview")
     FUNCTION = "align_mask"
-    CATEGORY = "mask/processing"
+    CATEGORY = "Trent/Masks"
     
     def align_mask(self, mask, compression_factor=8, expansion_pixels=8, 
                    blur_latent_units=1, threshold=0.5):
@@ -482,7 +482,7 @@ class LatentAlignedMaskWan:
     RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("aligned_mask",)
     FUNCTION = "align_mask"
-    CATEGORY = "mask/Wan"
+    CATEGORY = "Trent/Masks"
     
     def align_mask(self, mask, preset="standard", expansion_pixels=64, blur_pixels=8):
         """

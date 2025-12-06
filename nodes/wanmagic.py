@@ -22,7 +22,7 @@ class Wan21FrameAdjusterNode:
     RETURN_TYPES = ("IMAGE", "INT", "INT")
     RETURN_NAMES = ("adjusted_images", "final_frame_count", "frames_added")
     FUNCTION = "adjust_frame_count"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Utilities"
     
     def adjust_frame_count(self, images):
         """

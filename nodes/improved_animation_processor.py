@@ -77,7 +77,7 @@ class AnimationDuplicateFrameProcessor:
     RETURN_TYPES = ("IMAGE", "MASK", "STRING")
     RETURN_NAMES = ("processed_frames", "duplicate_mask", "timing_report")
     FUNCTION = "process_animation_timing"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Video"
     
     def calculate_ssim(self, frame1, frame2):
         """

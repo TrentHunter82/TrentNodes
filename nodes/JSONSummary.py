@@ -38,7 +38,7 @@ class JSONSummary:
 
     RETURN_TYPES = ("STRING",)
     FUNCTION = "run"
-    CATEGORY = "Trent Nodes"
+    CATEGORY = "Trent/Utilities"
 
     # ------------------------------- Helpers ------------------------------- #
     def _parse_json(self, json_in):
