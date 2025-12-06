@@ -1,0 +1,24 @@
+{
+  "last_node_id": 2,
+  "last_link_id": 1,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "HelloImageNode",
+      "pos": [
+        80,
+        120
+      ],
+      "size": [
+        320,
+        80
+      ],
+      "widgets_values": [
+        512,
+        512
+      ]
+    }
+  ],
+  "links": [],
+  "groups": []
+}

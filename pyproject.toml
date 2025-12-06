@@ -1,0 +1,28 @@
+[project]
+name = "comfyui-trentnodes"
+description = "Comprehensive custom nodes for video processing, keyframe management, scene detection, and video analysis in ComfyUI"
+version = "1.0.0"
+license = { file = "LICENSE" }
+dependencies = [
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "pillow>=10.0.0",
+    "matplotlib>=3.7.0",
+    "colorama>=0.4.6",
+]
+
+[project.urls]
+Repository = "https://github.com/TrentHunter82/ComfyUI-TrentNodes"
+Issues = "https://github.com/TrentHunter82/ComfyUI-TrentNodes/issues"
+
+[tool.comfy]
+PublisherId = "flippingsigmas"  # TODO: Get this from https://registry.comfy.org after creating publisher
+DisplayName = "Trent Nodes"
+Icon = "https://ibb.co/0pKwKC71"  # Optional: Add icon URL (SVG, PNG, JPG, or GIF - max 800x400px)
+
+# Additional metadata (optional but recommended)
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+]

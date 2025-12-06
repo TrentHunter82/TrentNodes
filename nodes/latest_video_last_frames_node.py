@@ -1,0 +1,242 @@
+import os
+import glob
+from pathlib import Path
+import cv2
+import torch
+import numpy as np
+from PIL import Image
+
+class LatestVideoLastFramesNode:
+    """
+    A ComfyUI node that finds the latest video file in a directory 
+    and extracts the last N frames from it.
+    """
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        """
+        Define the input parameters for this node.
+        ComfyUI uses this method to understand what inputs the node expects.
+        """
+        return {
+            "required": {
+                # Directory path where we'll look for video files
+                "directory_path": ("STRING", {
+                    "default": "", 
+                    "multiline": False,
+                    "tooltip": "Path to directory containing video files"
+                }),
+                # Number of frames to extract from the end
+                "num_frames": ("INT", {
+                    "default": 6,
+                    "min": 1,
+                    "max": 1000,
+                    "step": 1,
+                    "tooltip": "Number of frames to extract from the end of the video"
+                }),
+                # Whether to search subdirectories recursively
+                "recursive_search": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Search subdirectories for video files"
+                }),
+                # File extensions to consider as video files
+                "video_extensions": ("STRING", {
+                    "default": "mp4,avi,mov,mkv,webm,flv,wmv",
+                    "multiline": False,
+                    "tooltip": "Comma-separated list of video file extensions"
+                })
+            }
+        }
+    
+    # Define what type of data this node returns
+    RETURN_TYPES = ("IMAGE", "STRING", "INT")
+    RETURN_NAMES = ("frames", "video_filename", "frames_extracted")
+    
+    # This helps ComfyUI categorize the node in the interface
+    CATEGORY = "Trent Nodes"
+    
+    # A unique identifier for this node type
+    FUNCTION = "extract_last_frames"
+    
+    # Custom color for the node in ComfyUI interface
+    COLOR = (8, 21, 35)  # Dark blue-green color
+
+    def extract_last_frames(self, directory_path, num_frames, recursive_search, video_extensions):
+        """
+        Main function that performs the video processing.
+        This is where the actual work happens.
+        """
+        try:
+            # First, let's find all video files in the specified directory
+            video_files = self._find_video_files(directory_path, recursive_search, video_extensions)
+            
+            if not video_files:
+                # If no videos found, create a black placeholder image
+                # This prevents the node from crashing the workflow
+                placeholder = self._create_placeholder_image("No video files found")
+                return (placeholder, "No video found", 0)
+            
+            # Find the most recently modified video file
+            # We use os.path.getmtime() to get modification time
+            latest_video = max(video_files, key=os.path.getmtime)
+            
+            # Extract the last N frames from this video
+            frames, actual_frames_extracted = self._extract_last_frames(latest_video, num_frames)
+            
+            # Get just the filename for return value
+            video_filename = os.path.basename(latest_video)
+            
+            return (frames, video_filename, actual_frames_extracted)
+            
+        except Exception as e:
+            # Error handling - create placeholder with error message
+            error_msg = f"Error: {str(e)}"
+            placeholder = self._create_placeholder_image(error_msg)
+            return (placeholder, error_msg, 0)
+    
+    def _find_video_files(self, directory_path, recursive_search, video_extensions):
+        """
+        Helper method to find all video files in the directory.
+        This separates the file-finding logic for better organization.
+        """
+        if not os.path.exists(directory_path):
+            raise FileNotFoundError(f"Directory does not exist: {directory_path}")
+        
+        # Parse the extensions string into a list
+        # We strip whitespace and convert to lowercase for consistency
+        extensions = [ext.strip().lower().lstrip('.') for ext in video_extensions.split(',')]
+        
+        video_files = []
+        
+        # Create search patterns for each extension
+        for ext in extensions:
+            if recursive_search:
+                # Use ** for recursive search (Python 3.5+)
+                pattern = os.path.join(directory_path, f"**/*.{ext}")
+                video_files.extend(glob.glob(pattern, recursive=True))
+            else:
+                # Search only in the specified directory
+                pattern = os.path.join(directory_path, f"*.{ext}")
+                video_files.extend(glob.glob(pattern))
+        
+        return video_files
+    
+    def _extract_last_frames(self, video_path, num_frames):
+        """
+        Extract the last N frames from a video file.
+        This is the core video processing logic.
+        """
+        # OpenCV is the most reliable library for video processing
+        cap = cv2.VideoCapture(video_path)
+        
+        if not cap.isOpened():
+            raise ValueError(f"Could not open video file: {video_path}")
+        
+        try:
+            # Get total number of frames in the video
+            # This helps us calculate where to start reading
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            if total_frames <= 0:
+                raise ValueError("Video appears to have no frames")
+            
+            # Calculate how many frames we can actually extract
+            # If the video has fewer frames than requested, we'll get all of them
+            actual_frames_to_extract = min(num_frames, total_frames)
+            
+            # Calculate the starting frame index
+            # We want the last N frames, so we start at (total - N)
+            start_frame = total_frames - actual_frames_to_extract
+            
+            # Jump to the starting position
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            
+            frames = []
+            frames_read = 0
+            
+            # Read the frames sequentially from start_frame to the end
+            for i in range(actual_frames_to_extract):
+                ret, frame = cap.read()
+                
+                if not ret or frame is None:
+                    # If we can't read a frame, stop here
+                    print(f"Warning: Could only read {frames_read} of {actual_frames_to_extract} requested frames")
+                    break
+                
+                # Convert each frame to ComfyUI format and add to our list
+                converted_frame = self._opencv_to_comfyui_image(frame)
+                frames.append(converted_frame)
+                frames_read += 1
+            
+            if not frames:
+                raise ValueError("Could not read any frames from the video")
+            
+            # Combine all frames into a single tensor
+            # Each frame is shape [1, height, width, channels]
+            # We want final shape [num_frames, height, width, channels]
+            combined_frames = torch.cat(frames, dim=0)
+            
+            return combined_frames, frames_read
+            
+        finally:
+            # Always release the video capture object
+            # This prevents memory leaks and file handle issues
+            cap.release()
+    
+    def _opencv_to_comfyui_image(self, opencv_frame):
+        """
+        Convert OpenCV image format to ComfyUI's expected format.
+        This handles the color space and tensor conversions.
+        """
+        # OpenCV uses BGR color order, but most systems expect RGB
+        rgb_frame = cv2.cvtColor(opencv_frame, cv2.COLOR_BGR2RGB)
+        
+        # Convert to PIL Image for easier manipulation
+        pil_image = Image.fromarray(rgb_frame)
+        
+        # Convert PIL image to numpy array
+        image_array = np.array(pil_image).astype(np.float32) / 255.0
+        
+        # ComfyUI expects images in the format [batch, height, width, channels]
+        # Add batch dimension at the beginning
+        image_tensor = torch.from_numpy(image_array)[None,]
+        
+        return image_tensor
+    
+    def _create_placeholder_image(self, message, width=512, height=512):
+        """
+        Create a placeholder image with text when something goes wrong.
+        This provides visual feedback in the ComfyUI interface.
+        """
+        # Create a black image
+        placeholder = np.zeros((height, width, 3), dtype=np.uint8)
+        
+        # Add text to the image using OpenCV
+        # This helps users understand what happened
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        color = (255, 255, 255)  # White text
+        thickness = 2
+        
+        # Calculate text size to center it
+        text_size = cv2.getTextSize(message, font, font_scale, thickness)[0]
+        text_x = (width - text_size[0]) // 2
+        text_y = (height + text_size[1]) // 2
+        
+        cv2.putText(placeholder, message, (text_x, text_y), 
+                   font, font_scale, color, thickness)
+        
+        # Convert to ComfyUI format
+        return self._opencv_to_comfyui_image(placeholder)
+
+
+# This is how ComfyUI discovers and registers custom nodes
+# The key should match your class name
+NODE_CLASS_MAPPINGS = {
+    "LatestVideoLastFramesNode": LatestVideoLastFramesNode
+}
+
+# Display names that appear in the ComfyUI interface
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "LatestVideoLastFramesNode": "Latest Video Last N Frames"
+}

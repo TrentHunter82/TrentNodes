@@ -1,0 +1,14 @@
+# Core dependencies for video processing
+opencv-python>=4.8.0
+numpy>=1.24.0
+pillow>=10.0.0
+
+# For matplotlib-based visualizations
+matplotlib>=3.7.0
+
+# Torch is typically provided by ComfyUI environment
+# torch>=2.0.0
+# torchvision>=0.15.0
+
+# Optional: For ANSI color support on Windows
+colorama>=0.4.6
