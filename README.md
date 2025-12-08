@@ -50,7 +50,10 @@ Creates smooth frame transitions with configurable overlap duration. Blends adja
 **Enhanced Animation Timing Processor**  
 Analyzes animation sequences to detect duplicate frames, timing patterns, and frame holds. Optimizes animation frame sequences.
 
-### 🖼️ Trent/Image (2 nodes)
+### 🖼️ Trent/Image (3 nodes)
+
+**Cherry Pick Frames**  
+Flexible frame selector with multiple modes for extracting specific frames from image batches. Supports first N frames, last N frames, specific indices (comma-separated like "0,5,10,75"), or every Nth frame. Dynamic outputs adjust based on your selection. Perfect for grabbing keyframes, endpoints, or evenly-spaced samples from video batches.
 
 **Bevel/Emboss Effect**  
 Applies depth and dimensionality to images through configurable bevel and emboss filters. Includes adjustable angle, depth, and smoothing parameters.
@@ -103,7 +106,7 @@ Dynamic keyframe sequencing for Wan Vace video generation. Features interactive 
 
 ## Features
 
-✅ **23 professional nodes** for video and image workflows  
+✅ **24 professional nodes** for video and image workflows  
 ✅ **Organized categories** - all nodes under `Trent/` namespace  
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart  
 ✅ **Colorful startup banner** with load validation  
