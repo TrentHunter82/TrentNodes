@@ -113,16 +113,46 @@ app.registerExtension({
         };
         
         /**
+         * Sort frame widgets so they always appear in numerical order
+         */
+        const sortFrameWidgets = () => {
+            if (!node.widgets) return;
+
+            // Separate frame widgets from other widgets
+            const frameWidgets = [];
+            const otherWidgets = [];
+
+            for (const widget of node.widgets) {
+                if (widget.name.match(/^image_\d+_frame$/)) {
+                    frameWidgets.push(widget);
+                } else {
+                    otherWidgets.push(widget);
+                }
+            }
+
+            // Sort frame widgets by their index number
+            frameWidgets.sort((a, b) => {
+                const aNum = parseInt(a.name.match(/^image_(\d+)_frame$/)[1]);
+                const bNum = parseInt(b.name.match(/^image_(\d+)_frame$/)[1]);
+                return aNum - bNum;
+            });
+
+            // Rebuild widgets array: other widgets first, then sorted frame widgets
+            node.widgets.length = 0;
+            node.widgets.push(...otherWidgets, ...frameWidgets);
+        };
+
+        /**
          * Update widget visibility - show only for connected inputs
          */
         const updateWidgetVisibility = () => {
             const indices = getImageInputIndices();
-            
+
             for (const idx of indices) {
                 const frameName = `image_${idx}_frame`;
                 const widget = node.widgets?.find(w => w.name === frameName);
                 const connected = isInputConnected(idx);
-                
+
                 if (connected) {
                     // Ensure widget exists and is visible
                     if (!widget) {
@@ -138,6 +168,9 @@ app.registerExtension({
                     }
                 }
             }
+
+            // Always sort after updating visibility
+            sortFrameWidgets();
         };
         
         /**
