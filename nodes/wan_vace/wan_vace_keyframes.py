@@ -86,8 +86,9 @@ class WanVaceKeyframeBuilder:
         Build the keyframe sequence and matching mask batch.
         """
         
-        # Hardcoded gray value: exactly RGB(128, 128, 128)
-        GRAY_VALUE = 128.0 / 255.0  # = 0.5019607843137255
+        # Hardcoded gray value: 0.5 in 0-1 space = 0 in -1 to 1 space (after * 2 - 1 normalization)
+        # This is what VACE uses for "empty" frames that should be generated
+        GRAY_VALUE = 0.5  # RGB(127.5, 127.5, 127.5) ≈ RGB(128, 128, 128)
         
         # Get widget values from the prompt data for this node
         # This is how we access dynamically-added widget values
@@ -143,13 +144,16 @@ class WanVaceKeyframeBuilder:
             w = first_img.shape[2]
             c = first_img.shape[3] if len(first_img.shape) > 3 else 3
             device = first_img.device
-            dtype = first_img.dtype
         else:
             h, w, c = default_height, default_width, 3
             device = torch.device('cpu')
-            dtype = torch.float32
         
-        # Create templates - exact RGB(128, 128, 128)
+        # Always use float32 for consistent values
+        dtype = torch.float32
+        
+        # Create templates with exact values
+        # Gray: 0.5 (= 0 after *2-1 normalization, which VACE interprets as "generate this")
+        # White mask: 1.0 (keyframe - keep this), Black mask: 0.0 (filler - generate this)
         gray_frame = torch.full((1, h, w, c), GRAY_VALUE, dtype=dtype, device=device)
         white_mask = torch.ones((1, h, w), dtype=dtype, device=device)
         black_mask = torch.zeros((1, h, w), dtype=dtype, device=device)
@@ -165,6 +169,9 @@ class WanVaceKeyframeBuilder:
                 # Take first frame if input is batched
                 if img.shape[0] > 1:
                     img = img[0:1]
+                
+                # Ensure float32
+                img = img.to(dtype=torch.float32)
                 
                 # Resize if dimensions don't match
                 if img.shape[1] != h or img.shape[2] != w:
@@ -187,7 +194,8 @@ class WanVaceKeyframeBuilder:
         images_out = torch.cat(image_list, dim=0)
         masks_out = torch.cat(mask_list, dim=0)
         
-        print(f"[WanVaceKeyframeBuilder] Output shapes: images={images_out.shape}, masks={masks_out.shape}")
+        print(f"[WanVaceKeyframeBuilder] Output shapes: images={images_out.shape}, masks={masks_out.shape}, dtype={images_out.dtype}")
+        print(f"[WanVaceKeyframeBuilder] Gray value: {GRAY_VALUE} (= 0 in -1 to 1 space after normalization)")
         
         return (images_out, masks_out)
 
