@@ -61,7 +61,7 @@ class WanVaceKeyframeBuilder:
     RETURN_NAMES = ("images", "masks")
     OUTPUT_TOOLTIPS = (
         "Batch of frames: keyframes at specified positions, gray filler elsewhere",
-        "Batch of masks: white (1.0) for keyframes, black (0.0) for filler frames"
+        "Batch of masks: 0 for keyframes (preserve), 1 for filler frames (generate)"
     )
     
     FUNCTION = "build_sequence"
