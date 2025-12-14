@@ -27,13 +27,10 @@ pip install -r requirements.txt
 
 All nodes are organized under the `Trent/` category for easy navigation.
 
-### 📹 Trent/Video (7 nodes)
+### 📹 Trent/Video (6 nodes)
 
-**Enhanced Video Cutter**  
-Advanced scene detection with adaptive thresholding and motion analysis. Exports scenes as individual MP4 files with clean naming and comprehensive metadata tracking.
-
-**Ultimate Scene Detect**  
-High-precision scene boundary detection using configurable threshold algorithms. Identifies cuts, fades, and transitions in video sequences.
+**Chop Cuts**
+Accurate scene detection and video splitting. Automatically detects cuts, fades, and transitions using multi-metric analysis, then exports each scene as a separate MP4 file with a detailed report of cut locations and timestamps.
 
 **Video Folder Analyzer**  
 Scans directories for video files and generates detailed reports including resolution, frame rate, codec, duration, and file size. Outputs as text, JSON, or markdown.
