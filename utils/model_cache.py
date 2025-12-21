@@ -91,6 +91,13 @@ def clear_model_cache():
     from .birefnet_wrapper import clear_birefnet_cache
     clear_birefnet_cache()
 
+    # Also clear MiniCPM cache
+    try:
+        from .minicpm_wrapper import clear_minicpm_cache
+        clear_minicpm_cache()
+    except ImportError:
+        pass  # MiniCPM wrapper not available
+
     # Force garbage collection
     import gc
     gc.collect()
