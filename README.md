@@ -94,6 +94,25 @@ Creates precision masks aligned to latent space dimensions. Ensures proper mask 
 **Wan Vace Keyframe Builder**
 Dynamic keyframe sequencing for Wan Vace video generation. Features interactive UI with drag-and-drop image inputs, frame-accurate positioning, automatic resizing, and synchronized mask generation. Supports up to 256 frames with customizable filler frames.
 
+### 📝 Trent/Text (1 node)
+
+**Auto Style Dataset**
+Generates 35 prompt strings for synthetic dataset creation. Reads prompts from an external config file and applies optional prepend/append text to each output. Perfect for batch generation of training data with consistent formatting.
+
+### 👁️ Trent/VLM (2 nodes)
+
+**VidScribe MiniCPM Beta**
+GPU-accelerated vision-language model for describing images and video frames using MiniCPM-V 4.5. Features:
+- int4 quantization (~6-8GB VRAM)
+- Smart frame sampling (auto-selects ~32 frames from longer videos)
+- Auto-unload after 60s idle to free VRAM
+- System prompt presets (default, detailed, concise, narrator, technical, accessible, creative)
+- Three modes: single image, multi-image comparison, video frame sequence with temporal understanding
+- Deep thinking mode for more thorough analysis
+
+**Unload MiniCPM**
+Manually unload MiniCPM model to immediately free VRAM. Connect any output to trigger. Useful when you need GPU memory for other operations without waiting for the 60-second auto-unload timeout.
+
 ### 🎤 Trent/LipSync (9 nodes)
 
 Complete lip sync pipeline for non-human character animation. Converts audio to mouth shapes and composites them onto tracked positions in video frames.
@@ -156,11 +175,12 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 - matplotlib >= 3.7.0
 - colorama >= 0.4.6
 - vosk >= 0.3.45 (for lip sync speech recognition)
-- transformers >= 4.36.0 (for BiRefNet background removal)
+- transformers >= 4.40.0 (for BiRefNet and MiniCPM-V)
+- accelerate (for MiniCPM-V model loading)
 
 ## Features
 
-✅ **28 professional nodes** for video, image, and lip sync workflows  
+✅ **31 professional nodes** for video, image, VLM, and lip sync workflows  
 ✅ **Organized categories** - all nodes under `Trent/` namespace  
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart  
 ✅ **Colorful startup banner** with load validation  

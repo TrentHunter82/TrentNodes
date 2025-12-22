@@ -238,13 +238,7 @@ class UnloadMiniCPM:
         return {
             "required": {},
             "optional": {
-                "trigger": (
-                    "STRING",
-                    {
-                        "default": "",
-                        "tooltip": "Connect any output to trigger unload"
-                    }
-                ),
+                "trigger": ("*", {"tooltip": "Connect any output to trigger unload"}),
             }
         }
 
@@ -257,7 +251,7 @@ class UnloadMiniCPM:
         "Model auto-unloads after 60s idle, but use this for immediate cleanup."
     )
 
-    def unload(self, trigger: str = ""):
+    def unload(self, trigger=None):
         """Unload the MiniCPM model."""
         clear_minicpm_cache()
         return ("MiniCPM model unloaded",)
