@@ -27,7 +27,7 @@ pip install -r requirements.txt
 
 All nodes are organized under the `Trent/` category for easy navigation.
 
-### 📹 Trent/Video (6 nodes)
+### 📹 Trent/Video (7 nodes)
 
 **Chop Cuts**
 Accurate scene detection and video splitting. Automatically detects cuts, fades, and transitions using multi-metric analysis, then exports each scene as a separate MP4 file with a detailed report of cut locations and timestamps.
@@ -46,6 +46,9 @@ Creates smooth frame transitions with configurable overlap duration. Blends adja
 
 **Enhanced Animation Timing Processor**  
 Analyzes animation sequences to detect duplicate frames, timing patterns, and frame holds. Optimizes animation frame sequences.
+
+**Batch Slowdown**
+GPU-accelerated frame duplication to slow down image, mask, or latent batches. Supports multiple input modes: direct multiplier (2x, 3x, 1.5x), target frame count, or FPS conversion (24fps to 60fps). Features smart decimal distribution for non-integer slowdowns and optional speedup mode for sampling every Nth frame.
 
 ### 🖼️ Trent/Image (4 nodes)
 
@@ -81,8 +84,8 @@ Extracts specific values from JSON objects using path notation. Simplifies worki
 **Number Counter**  
 Generates sequential numbers with configurable start, step, and padding. Essential for batch processing and frame numbering.
 
-**Wan2.1 Frame Adjuster**  
-Specialized utility for adjusting frame timing and synchronization in Wan 2.1 video generation workflows.
+**Wan2.1 Frame Adjuster**
+Adjusts frame amount to always satisfy Wan 4x+1 requirements by adding gray frames to the end of a batch; use a Get Frame Range from Batch node before combining video with the original amount of frames for less headaches when using Wan.
 
 ### 🎭 Trent/Masks (1 node)
 
@@ -180,7 +183,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 
 ## Features
 
-✅ **31 professional nodes** for video, image, VLM, and lip sync workflows  
+✅ **32 professional nodes** for video, image, VLM, and lip sync workflows  
 ✅ **Organized categories** - all nodes under `Trent/` namespace  
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart  
 ✅ **Colorful startup banner** with load validation  
