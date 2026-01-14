@@ -12,34 +12,35 @@ with carefully crafted prompts to test various scenarios.
 
 PROMPT_TEMPLATES = {
     "subject_person": [
-        "A photo of {trigger}, neutral expression, studio lighting, "
-        "gray background",
+        "A medium shot photo of {trigger}, three-quarter view, "
+        "neutral expression, studio lighting, gray background",
 
-        "A photo of {trigger}, sitting in a sunlit cafe, candid moment",
+        "A medium close-up of {trigger}, front-facing, "
+        "sitting in a sunlit cafe, candid moment",
 
-        "A photo of {trigger}, Rembrandt lighting, dark moody background, "
-        "cinematic",
+        "A close-up portrait of {trigger}, three-quarter view, "
+        "Rembrandt lighting, dark moody background, cinematic",
 
-        "A full body photo of {trigger}, standing on a city rooftop, "
-        "golden hour",
+        "A full body photo of {trigger}, low angle shot, "
+        "standing on a city rooftop, golden hour",
 
-        "A photo of {trigger}, genuine laughter, eyes crinkled, "
-        "joyful expression",
+        "A medium shot of {trigger}, slight high angle, "
+        "genuine laughter, eyes crinkled, joyful expression",
 
-        "A side profile photo of {trigger}, clean background, "
-        "soft rim lighting",
+        "A side profile photo of {trigger}, medium close-up, "
+        "clean background, soft rim lighting",
 
-        "A photo of {trigger}, walking through autumn leaves, "
-        "motion and movement",
+        "A full body photo of {trigger}, three-quarter rear view, "
+        "walking through autumn leaves, motion and movement",
 
-        "An extreme close-up portrait of {trigger}, sharp focus on eyes, "
-        "f/1.4 bokeh",
+        "An extreme close-up portrait of {trigger}, front-facing, "
+        "sharp focus on eyes, f/1.4 bokeh",
 
-        "A photo of {trigger}, in the style of 1970s film photography, "
-        "warm tones, grain",
+        "A medium shot of {trigger}, over-the-shoulder angle, "
+        "1970s film photography style, warm tones, grain",
 
-        "A photo of {trigger}, lit only by neon signs, "
-        "blue and pink color cast, night",
+        "A cowboy shot of {trigger}, low angle, "
+        "lit only by neon signs, blue and pink color cast, night",
     ],
 
     "style": [
