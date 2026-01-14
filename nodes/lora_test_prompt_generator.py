@@ -12,111 +12,114 @@ with carefully crafted prompts to test various scenarios.
 
 PROMPT_TEMPLATES = {
     "subject_person": [
-        "A medium shot photo of {trigger}, three-quarter view, "
+        "A headshot of {trigger}, front-facing, direct eye contact, "
         "neutral expression, studio lighting, gray background",
 
-        "A medium close-up of {trigger}, front-facing, "
-        "sitting in a sunlit cafe, candid moment",
+        "A medium shot of {trigger}, three-quarter view, "
+        "sitting in a sunlit cafe, natural candid moment",
 
         "A close-up portrait of {trigger}, three-quarter view, "
         "Rembrandt lighting, dark moody background, cinematic",
 
-        "A full body photo of {trigger}, low angle shot, "
-        "standing on a city rooftop, golden hour",
+        "A full body shot of {trigger}, low angle, "
+        "standing on a city rooftop at golden hour, confident pose",
 
-        "A medium shot of {trigger}, slight high angle, "
+        "A medium close-up of {trigger}, front-facing, slight high angle, "
         "genuine laughter, eyes crinkled, joyful expression",
 
-        "A side profile photo of {trigger}, medium close-up, "
-        "clean background, soft rim lighting",
+        "A side profile portrait of {trigger}, clean background, "
+        "dramatic rim lighting, sharp jawline detail",
 
-        "A full body photo of {trigger}, three-quarter rear view, "
-        "walking through autumn leaves, motion and movement",
+        "A full body shot of {trigger}, walking towards camera, "
+        "autumn park setting, natural movement, shallow depth of field",
 
-        "An extreme close-up portrait of {trigger}, front-facing, "
-        "sharp focus on eyes, f/1.4 bokeh",
+        "An extreme close-up of {trigger}, front-facing, "
+        "sharp focus on eyes and skin texture, f/1.4 bokeh",
 
-        "A medium shot of {trigger}, over-the-shoulder angle, "
-        "1970s film photography style, warm tones, grain",
+        "A medium shot of {trigger}, looking back over shoulder, "
+        "1970s film photography aesthetic, warm tones, film grain",
 
-        "A cowboy shot of {trigger}, low angle, "
-        "lit only by neon signs, blue and pink color cast, night",
+        "A cowboy shot of {trigger}, low angle, three-quarter view, "
+        "lit by neon signs, blue and pink color cast, urban night",
     ],
 
     "style": [
-        "A portrait of a woman, {trigger}",
-        "A mountain lake at sunrise, {trigger}",
-        "An old European cathedral, {trigger}",
-        "A vase of flowers on a wooden table, {trigger}",
-        "A knight fighting a dragon, {trigger}",
-        "The feeling of loneliness, {trigger}",
-        "A wolf howling at the moon, {trigger}",
-        "A rainy Tokyo street at night, {trigger}",
-        "An enchanted forest with glowing mushrooms, {trigger}",
-        "A single apple on white background, {trigger}",
+        "A portrait of an elderly man with weathered face, {trigger}",
+        "A mountain lake reflecting snow-capped peaks at sunrise, {trigger}",
+        "An ancient European cathedral interior with light streaming "
+        "through stained glass, {trigger}",
+        "A still life of flowers in a ceramic vase on rustic wood, {trigger}",
+        "An armored knight battling a fire-breathing dragon, {trigger}",
+        "A solitary figure sitting on a bench in an empty park, {trigger}",
+        "A wolf howling on a cliff under a full moon, {trigger}",
+        "A rainy Tokyo alley at night with glowing signs and umbrellas, "
+        "{trigger}",
+        "A mystical forest path with bioluminescent mushrooms, {trigger}",
+        "A red apple with water droplets on white background, {trigger}",
     ],
 
     "product": [
-        "A photo of {trigger}, centered on white background, "
-        "studio lighting, product photography",
+        "{trigger} centered on pure white background, "
+        "professional studio lighting, e-commerce product photo",
 
-        "A photo of {trigger}, on a modern desk in a home office, "
-        "natural window light",
+        "{trigger} on a minimalist desk setup, "
+        "soft natural window light, modern workspace context",
 
-        "A photo of {trigger}, being held in a person's hand, "
-        "shallow depth of field",
+        "{trigger} held in a person's hand, "
+        "shallow depth of field, lifestyle product shot",
 
-        "A photo of {trigger}, on a coffee shop table, morning light, "
-        "bokeh background",
+        "{trigger} on marble surface in bright cafe, "
+        "morning light, artful bokeh background",
 
-        "A macro photo of {trigger}, extreme close-up showing "
-        "material texture and details",
+        "Macro detail shot of {trigger}, "
+        "extreme close-up revealing texture and craftsmanship",
 
-        "A photo of {trigger}, three-quarter view from above, soft shadows",
+        "{trigger} hero shot, three-quarter view from above, "
+        "soft gradient shadows, floating appearance",
 
-        "A photo of {trigger}, next to everyday objects for size comparison, "
-        "clean composition",
+        "{trigger} with scale reference objects nearby, "
+        "clean editorial composition, size context",
 
-        "A photo of {trigger}, single spotlight on black background, "
-        "high contrast",
+        "{trigger} dramatically lit with single spotlight, "
+        "black background, high contrast product art",
 
-        "A photo of {trigger}, on a rock by the ocean at sunset, "
-        "adventure lifestyle",
+        "{trigger} in outdoor adventure context, "
+        "golden hour on rocks by ocean, lifestyle branding",
 
-        "A photo of {trigger}, top-down view with complementary props, "
-        "styled flat lay composition",
+        "Flat lay of {trigger} with styled props, "
+        "top-down view, curated color palette, social media ready",
     ],
 
     "vehicle": [
-        "A photo of {trigger}, three-quarter front view, on empty asphalt, "
-        "overcast soft light",
+        "{trigger}, three-quarter front view, "
+        "clean asphalt surface, soft overcast lighting",
 
-        "A photo of {trigger}, perfect side profile, clean background, "
-        "studio lighting",
+        "{trigger}, perfect side profile, "
+        "infinite white studio background, showroom lighting",
 
-        "A photo of {trigger}, rear three-quarter angle, sunset lighting, "
-        "low angle",
+        "{trigger}, rear three-quarter angle, "
+        "sunset backlighting, low camera angle, dramatic",
 
-        "A close-up photo of {trigger}, front grille and headlights, "
-        "shallow depth of field",
+        "Front fascia detail of {trigger}, "
+        "grille and headlights in focus, shallow depth of field",
 
-        "A photo of {trigger}, parked on a wet city street at night, "
-        "reflections, neon lights",
+        "{trigger} parked on wet city street at night, "
+        "reflections in puddles, neon sign ambiance",
 
-        "A photo of {trigger}, on a winding mountain road, "
-        "dramatic landscape background",
+        "{trigger} on winding mountain road, "
+        "dramatic cliff backdrop, adventure automotive",
 
-        "A photo of {trigger}, driving at speed, motion blur on wheels "
-        "and background, panning shot",
+        "{trigger} in motion, panning shot, "
+        "wheels and background showing motion blur, dynamic",
 
-        "Interior photo of {trigger}, dashboard and steering wheel, "
-        "natural daylight through windows",
+        "Interior cabin of {trigger}, "
+        "dashboard and steering wheel, natural daylight, luxurious",
 
-        "A photo of {trigger}, low angle hero shot, dramatic clouds, "
-        "epic composition",
+        "{trigger}, low angle hero shot, "
+        "dramatic storm clouds, epic wide composition",
 
-        "An aerial photo of {trigger}, directly overhead, "
-        "on geometric pavement pattern",
+        "{trigger} in rain, water droplets on body, "
+        "moody overcast lighting, cinematic atmosphere",
     ],
 }
 
