@@ -16,6 +16,7 @@ from ..utils.minicpm_wrapper import (
     sample_frames,
     tensors_to_pil,
     clear_minicpm_cache,
+    complete_minicpm_inference,
     SYSTEM_PROMPTS,
     SYSTEM_PROMPT_CHOICES,
 )
@@ -29,6 +30,9 @@ class VidScribeMiniCPMBeta:
     Supports single images, multi-image comparison, and video frame
     sequences with temporal understanding.
     """
+
+    # Class-level cache for lock feature
+    _cached_output = None
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -132,11 +136,23 @@ class VidScribeMiniCPMBeta:
                         )
                     }
                 ),
+                "lock_output": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": (
+                            "When enabled, returns the last cached output "
+                            "without re-running inference. Useful for "
+                            "iterating on downstream nodes without "
+                            "reloading the model."
+                        )
+                    }
+                ),
             }
         }
 
-    RETURN_TYPES = ("STRING", "IMAGE")
-    RETURN_NAMES = ("response", "images")
+    RETURN_TYPES = ("STRING", "IMAGE", "STRING")
+    RETURN_NAMES = ("response", "images", "vram_cleared")
     FUNCTION = "describe"
     CATEGORY = "Trent/VLM"
     DESCRIPTION = (
@@ -156,7 +172,8 @@ class VidScribeMiniCPMBeta:
         max_tokens: int = 512,
         temperature: float = 0.7,
         seed: int = 0,
-        custom_system_prompt: str = ""
+        custom_system_prompt: str = "",
+        lock_output: bool = False
     ):
         """
         Run vision-language inference on images.
@@ -174,8 +191,13 @@ class VidScribeMiniCPMBeta:
             custom_system_prompt: Custom system prompt (when system_prompt="custom")
 
         Returns:
-            Tuple of (response_text, passthrough_images)
+            Tuple of (response_text, passthrough_images, vram_cleared)
         """
+        # If locked and we have cached output, return it without inference
+        if lock_output and VidScribeMiniCPMBeta._cached_output is not None:
+            print("[TrentNodes] VidScribe: Using locked/cached output")
+            return VidScribeMiniCPMBeta._cached_output
+
         # Check dependencies
         if not is_minicpm_available():
             return (
@@ -219,10 +241,17 @@ class VidScribeMiniCPMBeta:
             seed=seed
         )
 
+        # Immediately unload MiniCPM and clear VRAM
+        vram_status = complete_minicpm_inference()
+
         print(f"[TrentNodes] VidScribe response: {len(response)} chars")
 
-        # Return response and passthrough original images
-        return (response, images)
+        # Cache output for lock feature
+        result = (response, images, vram_status)
+        VidScribeMiniCPMBeta._cached_output = result
+
+        # Return response, passthrough images, and VRAM gate signal
+        return result
 
 
 class UnloadMiniCPM:

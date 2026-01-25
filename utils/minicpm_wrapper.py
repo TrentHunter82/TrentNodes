@@ -18,6 +18,7 @@ import torch
 from PIL import Image
 
 import folder_paths
+import comfy.model_management
 
 
 # Model cache
@@ -179,6 +180,9 @@ def load_minicpm_model(
             _touch_model()
             return _minicpm_model, _minicpm_tokenizer
 
+        # Free ComfyUI models before loading MiniCPM
+        prepare_vram_for_minicpm()
+
         if not is_minicpm_available():
             print("[TrentNodes] MiniCPM dependencies not available.")
             print("[TrentNodes] Install: pip install transformers accelerate")
@@ -237,11 +241,15 @@ def load_minicpm_model(
 
 
 def clear_minicpm_cache():
-    """Clear MiniCPM model from memory."""
+    """Clear MiniCPM model completely from GPU and CPU memory."""
     global _minicpm_model, _minicpm_tokenizer
 
     with _minicpm_lock:
         if _minicpm_model is not None:
+            try:
+                _minicpm_model.to("cpu")
+            except Exception:
+                pass
             del _minicpm_model
             _minicpm_model = None
 
@@ -249,12 +257,79 @@ def clear_minicpm_cache():
             del _minicpm_tokenizer
             _minicpm_tokenizer = None
 
-    # Force cleanup
-    gc.collect()
+    # Multiple GC passes for thorough cleanup
+    for _ in range(3):
+        gc.collect()
+
     if torch.cuda.is_available():
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
     print("[TrentNodes] MiniCPM cache cleared.")
+
+
+def prepare_vram_for_minicpm():
+    """Free all ComfyUI-managed models before loading MiniCPM."""
+    try:
+        device = comfy.model_management.get_torch_device()
+        comfy.model_management.unload_all_models()
+        comfy.model_management.soft_empty_cache()
+        if torch.cuda.is_available():
+            free_vram = torch.cuda.mem_get_info(device)[0] / (1024**3)
+            print(f"[TrentNodes] VRAM cleared: {free_vram:.1f}GB free")
+    except Exception as e:
+        print(f"[TrentNodes] VRAM prep warning: {e}")
+
+
+def complete_minicpm_inference():
+    """
+    Aggressively unload MiniCPM from GPU and CPU memory.
+
+    Performs multiple cleanup passes to ensure complete memory release.
+    """
+    global _minicpm_model, _minicpm_tokenizer
+
+    with _minicpm_lock:
+        if _minicpm_model is not None:
+            try:
+                # Move model to CPU first (helps CUDA release memory)
+                _minicpm_model.to("cpu")
+            except Exception:
+                pass
+
+            # Clear any internal caches
+            if hasattr(_minicpm_model, "clear_cache"):
+                try:
+                    _minicpm_model.clear_cache()
+                except Exception:
+                    pass
+
+            del _minicpm_model
+            _minicpm_model = None
+
+        if _minicpm_tokenizer is not None:
+            del _minicpm_tokenizer
+            _minicpm_tokenizer = None
+
+    # Aggressive garbage collection (multiple passes)
+    for _ in range(3):
+        gc.collect()
+
+    # Clear CUDA memory
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+
+    # Clear ComfyUI's cache too
+    try:
+        comfy.model_management.soft_empty_cache()
+    except Exception:
+        pass
+
+    print("[TrentNodes] MiniCPM fully unloaded from GPU and CPU memory.")
+    return "VRAM_CLEARED"
 
 
 def sample_frames(
