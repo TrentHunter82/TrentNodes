@@ -1,7 +1,6 @@
 """
-Image Caption Layout
+Image+Text Grid
 A ComfyUI custom node for creating grid layouts of images with captions.
-Accepts dynamic image/caption input pairs.
 """
 
 import torch
@@ -15,7 +14,7 @@ class ImageTextGrid:
     """
     Creates a grid layout of images with text captions below each.
 
-    Dynamically adds image/text input pairs as you connect them.
+    Connect up to 9 images with optional captions for each.
     """
 
     BACKGROUND_COLORS = {
@@ -47,7 +46,7 @@ class ImageTextGrid:
                     "min": 0,
                     "max": 256,
                     "step": 8,
-                    "tooltip": "Height reserved for caption text below each image"
+                    "tooltip": "Height reserved for caption text"
                 }),
                 "font_size": ("INT", {
                     "default": 12,
@@ -69,8 +68,24 @@ class ImageTextGrid:
                 }),
             },
             "optional": {
-                # JS dynamically adds image_N and caption_N pairs
                 "image_1": ("IMAGE",),
+                "image_2": ("IMAGE",),
+                "image_3": ("IMAGE",),
+                "image_4": ("IMAGE",),
+                "image_5": ("IMAGE",),
+                "image_6": ("IMAGE",),
+                "image_7": ("IMAGE",),
+                "image_8": ("IMAGE",),
+                "image_9": ("IMAGE",),
+                "caption_1": ("STRING", {"forceInput": True}),
+                "caption_2": ("STRING", {"forceInput": True}),
+                "caption_3": ("STRING", {"forceInput": True}),
+                "caption_4": ("STRING", {"forceInput": True}),
+                "caption_5": ("STRING", {"forceInput": True}),
+                "caption_6": ("STRING", {"forceInput": True}),
+                "caption_7": ("STRING", {"forceInput": True}),
+                "caption_8": ("STRING", {"forceInput": True}),
+                "caption_9": ("STRING", {"forceInput": True}),
             },
         }
 
@@ -79,11 +94,7 @@ class ImageTextGrid:
 
     FUNCTION = "create_layout"
     CATEGORY = "Trent/Image"
-    DESCRIPTION = "Creates a grid layout of images with captions."
-
-    @classmethod
-    def VALIDATE_INPUTS(cls, **kwargs):
-        return True
+    DESCRIPTION = "Creates a grid layout of up to 9 images with captions."
 
     def tensor_to_pil(self, tensor: torch.Tensor) -> Image.Image:
         """Convert a single image tensor to PIL Image."""
@@ -100,25 +111,33 @@ class ImageTextGrid:
         font_size: int,
         padding: int,
         background_color: str,
-        **kwargs
+        image_1=None, image_2=None, image_3=None,
+        image_4=None, image_5=None, image_6=None,
+        image_7=None, image_8=None, image_9=None,
+        caption_1=None, caption_2=None, caption_3=None,
+        caption_4=None, caption_5=None, caption_6=None,
+        caption_7=None, caption_8=None, caption_9=None,
     ) -> Tuple[torch.Tensor]:
         """Create the grid layout with images and captions."""
 
         # Collect all connected images and their captions
+        images = [
+            image_1, image_2, image_3,
+            image_4, image_5, image_6,
+            image_7, image_8, image_9
+        ]
+        captions = [
+            caption_1, caption_2, caption_3,
+            caption_4, caption_5, caption_6,
+            caption_7, caption_8, caption_9
+        ]
+
+        # Build list of (index, image, caption) for connected images
         image_data: List[Tuple[int, torch.Tensor, str]] = []
-
-        for key, value in kwargs.items():
-            if key.startswith("image_") and value is not None:
-                try:
-                    idx = int(key.split("_")[1])
-                    caption_key = f"caption_{idx}"
-                    caption = kwargs.get(caption_key, "") or ""
-                    image_data.append((idx, value, str(caption)))
-                except (ValueError, IndexError):
-                    continue
-
-        # Sort by index to maintain order
-        image_data.sort(key=lambda x: x[0])
+        for i, img in enumerate(images):
+            if img is not None:
+                cap = captions[i] if captions[i] else ""
+                image_data.append((i + 1, img, str(cap)))
 
         if not image_data:
             # Return a placeholder if no images connected
@@ -126,20 +145,26 @@ class ImageTextGrid:
             return (placeholder,)
 
         # Get colors
-        bg_color = self.BACKGROUND_COLORS.get(background_color, (255, 255, 255))
-        text_color = (0, 0, 0) if background_color == "white" else (255, 255, 255)
-        if background_color == "gray":
-            text_color = (255, 255, 255)
+        bg_color = self.BACKGROUND_COLORS.get(
+            background_color, (255, 255, 255)
+        )
+        text_color = (0, 0, 0) if background_color == "white" else (
+            255, 255, 255
+        )
 
         # Calculate layout dimensions
         num_images = len(image_data)
         num_rows = (num_images + images_per_row - 1) // images_per_row
 
         total_width = images_per_row * (image_size + padding) + padding
-        total_height = num_rows * (image_size + caption_height + padding) + padding
+        total_height = num_rows * (
+            image_size + caption_height + padding
+        ) + padding
 
         # Create layout canvas
-        layout = Image.new('RGB', (total_width, total_height), color=bg_color)
+        layout = Image.new(
+            'RGB', (total_width, total_height), color=bg_color
+        )
         draw = ImageDraw.Draw(layout)
 
         # Try to load font
@@ -164,7 +189,9 @@ class ImageTextGrid:
 
             # Convert tensor to PIL and resize
             pil_img = self.tensor_to_pil(img_tensor)
-            pil_img = pil_img.resize((image_size, image_size), Image.LANCZOS)
+            pil_img = pil_img.resize(
+                (image_size, image_size), Image.LANCZOS
+            )
 
             # Paste image
             layout.paste(pil_img, (x, y))
@@ -172,7 +199,9 @@ class ImageTextGrid:
             # Draw caption if caption_height > 0
             if caption_height > 0 and caption:
                 # Wrap text to fit width
-                chars_per_line = max(1, (image_size - 10) // (font_size // 2 + 1))
+                chars_per_line = max(
+                    1, (image_size - 10) // (font_size // 2 + 1)
+                )
                 wrapped = textwrap.fill(caption, width=chars_per_line)
 
                 # Limit lines to fit caption height
