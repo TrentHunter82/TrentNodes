@@ -120,10 +120,13 @@ Specialized variant optimized for Wan video model requirements with automatic 4x
 **Wan Vace Keyframe Builder**
 Dynamic keyframe sequencing for Wan Vace video generation. Features interactive UI with drag-and-drop image inputs, frame-accurate positioning, automatic resizing, and synchronized mask generation. Supports up to 256 frames with customizable filler frames.
 
-### 📝 Trent/Text (1 node)
+### 📝 Trent/Text (2 nodes)
 
 **Auto Style Dataset**
 Generates 35 prompt strings for synthetic dataset creation. Reads prompts from an external config file and applies optional prepend/append text to each output. Perfect for batch generation of training data with consistent formatting.
+
+**String Cowboy**
+Lassos all strings in a list and brands them with prefix and/or suffix text. Three modes: prepend (add text before each string), append (add text after), or both (wrap each string). Perfect for batch-formatting prompts, file paths, or any string list that needs consistent decoration.
 
 ### 🧪 TrentNodes/Testing (1 node)
 
@@ -220,7 +223,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 
 ## Features
 
-✅ **42 professional nodes** for video, image, VLM, testing, and lip sync workflows  
+✅ **43 professional nodes** for video, image, VLM, testing, and lip sync workflows  
 ✅ **Organized categories** - all nodes under `Trent/` namespace  
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart  
 ✅ **Colorful startup banner** with load validation  
