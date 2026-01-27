@@ -4,6 +4,8 @@ A ComfyUI custom node for creating grid layouts of images
 with captions.
 """
 
+import math
+
 import torch
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -31,12 +33,12 @@ class ImageTextGrid:
             "required": {
                 "images": ("IMAGE",),
                 "images_per_row": ("INT", {
-                    "default": 3,
-                    "min": 1,
+                    "default": 0,
+                    "min": 0,
                     "max": 10,
                     "step": 1,
                     "tooltip": (
-                        "Number of images per row in the grid"
+                        "Images per row (0 = auto-fit)"
                     )
                 }),
                 "image_size": ("INT", {
@@ -45,7 +47,7 @@ class ImageTextGrid:
                     "max": 1024,
                     "step": 8,
                     "tooltip": (
-                        "Max width/height for each image cell"
+                        "Max dimension for each image cell"
                     )
                 }),
                 "caption_height": ("INT", {
@@ -110,13 +112,40 @@ class ImageTextGrid:
         np_img = (tensor.cpu().numpy() * 255).astype(np.uint8)
         return Image.fromarray(np_img, mode='RGB')
 
+    def _auto_columns(self, n: int) -> int:
+        """Pick optimal column count for n images."""
+        return math.ceil(math.sqrt(n))
+
+    def _compute_cell_size(
+        self, images: torch.Tensor, max_dim: int
+    ) -> Tuple[int, int]:
+        """Compute cell (w, h) from median aspect ratio."""
+        # images shape: (B, H, W, 3)
+        ratios = []
+        for i in range(images.shape[0]):
+            h, w = images[i].shape[0], images[i].shape[1]
+            ratios.append(w / h if h > 0 else 1.0)
+        ratios.sort()
+        mid = len(ratios) // 2
+        if len(ratios) % 2 == 0 and len(ratios) > 1:
+            median = (ratios[mid - 1] + ratios[mid]) / 2
+        else:
+            median = ratios[mid]
+        if median >= 1.0:
+            cell_w = max_dim
+            cell_h = max(1, int(max_dim / median))
+        else:
+            cell_h = max_dim
+            cell_w = max(1, int(max_dim * median))
+        return cell_w, cell_h
+
     def resize_keep_aspect(
-        self, pil_img: Image.Image, max_size: int
+        self, pil_img: Image.Image, cell_w: int, cell_h: int
     ) -> Image.Image:
-        """Resize image to fit within max_size box,
+        """Resize image to fit within cell_w x cell_h,
         preserving aspect ratio."""
         w, h = pil_img.size
-        scale = min(max_size / w, max_size / h)
+        scale = min(cell_w / w, cell_h / h)
         new_w = int(w * scale)
         new_h = int(h * scale)
         return pil_img.resize((new_w, new_h), Image.LANCZOS)
@@ -154,6 +183,18 @@ class ImageTextGrid:
             )
             return (placeholder,)
 
+        # Auto-grid or manual columns
+        cols = (
+            self._auto_columns(num_images)
+            if images_per_row == 0
+            else images_per_row
+        )
+
+        # Aspect-aware cell sizing
+        cell_w, cell_h = self._compute_cell_size(
+            images[:num_images], image_size
+        )
+
         # Get colors
         bg_color = self.BACKGROUND_COLORS.get(
             background_color, (255, 255, 255)
@@ -164,14 +205,10 @@ class ImageTextGrid:
         )
 
         # Calculate layout dimensions
-        num_rows = (
-            (num_images + images_per_row - 1) // images_per_row
-        )
-        total_width = (
-            images_per_row * (image_size + padding) + padding
-        )
+        num_rows = (num_images + cols - 1) // cols
+        total_width = cols * (cell_w + padding) + padding
         total_height = num_rows * (
-            image_size + caption_height + padding
+            cell_h + caption_height + padding
         ) + padding
 
         # Create layout canvas
@@ -209,24 +246,36 @@ class ImageTextGrid:
 
         # Place each image and caption
         for i in range(num_images):
-            row = i // images_per_row
-            col = i % images_per_row
+            row = i // cols
+            col = i % cols
 
-            x = padding + col * (image_size + padding)
+            # Center last row if it has fewer items
+            items_in_row = min(
+                cols, num_images - row * cols
+            )
+            row_offset = (
+                (cols - items_in_row)
+                * (cell_w + padding) // 2
+            )
+
+            x = (
+                padding + col * (cell_w + padding)
+                + row_offset
+            )
             y = padding + row * (
-                image_size + caption_height + padding
+                cell_h + caption_height + padding
             )
 
             # Convert tensor to PIL and resize preserving
             # aspect ratio
             pil_img = self.tensor_to_pil(images[i])
             pil_img = self.resize_keep_aspect(
-                pil_img, image_size
+                pil_img, cell_w, cell_h
             )
 
             # Center image within its cell
-            offset_x = (image_size - pil_img.width) // 2
-            offset_y = (image_size - pil_img.height) // 2
+            offset_x = (cell_w - pil_img.width) // 2
+            offset_y = (cell_h - pil_img.height) // 2
             layout.paste(pil_img, (x + offset_x, y + offset_y))
 
             # Draw caption if caption_height > 0
@@ -234,7 +283,7 @@ class ImageTextGrid:
             caption = str(caption) if caption else ""
             if caption_height > 0 and (caption or caption_prefix):
                 text_x = x + 5
-                text_y = y + image_size + 5
+                text_y = y + cell_h + 5
 
                 # Draw bold prefix first
                 if caption_prefix:
@@ -255,7 +304,7 @@ class ImageTextGrid:
                 if caption:
                     chars_per_line = max(
                         1,
-                        (image_size - 10)
+                        (cell_w - 10)
                         // (font_size // 2 + 1)
                     )
                     wrapped = textwrap.fill(
@@ -265,7 +314,7 @@ class ImageTextGrid:
                     lines = wrapped.split('\n')
                     remaining_h = (
                         caption_height
-                        - (text_y - (y + image_size)) - 5
+                        - (text_y - (y + cell_h)) - 5
                     )
                     max_lines = max(
                         1, remaining_h // (font_size + 2)
