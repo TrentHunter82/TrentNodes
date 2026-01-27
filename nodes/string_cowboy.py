@@ -34,6 +34,15 @@ class StringListCowboy:
                     "multiline": False,
                     "placeholder": "Text to add after each string"
                 }),
+                "limit": ("INT", {
+                    "default": 0,
+                    "min": 0,
+                    "max": 999,
+                    "step": 1,
+                    "tooltip": (
+                        "Max items to output (0 = no limit)"
+                    ),
+                }),
                 # First dynamic input - JS will add more as needed
                 "value_1": (any_typ,),
             },
@@ -50,7 +59,7 @@ class StringListCowboy:
         # Accept any dynamically added inputs
         return True
 
-    def wrangle(self, prefix="", suffix="", **kwargs):
+    def wrangle(self, prefix="", suffix="", limit=0, **kwargs):
         # Collect all connected value inputs in order
         value_items = []
         for key, val in kwargs.items():
@@ -76,6 +85,9 @@ class StringListCowboy:
         result = []
         for text in strings:
             result.append(f"{prefix}{text}{suffix}")
+
+        if limit > 0:
+            result = result[:limit]
 
         return (result,)
 
