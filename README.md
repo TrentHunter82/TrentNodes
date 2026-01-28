@@ -58,7 +58,7 @@ Removes duplicate or unwanted frames from animation sequences based on configura
 ### 🖼️ Trent/Image (6 nodes)
 
 **Image+Text Grid**
-Creates a grid layout of images with text captions below each. Dynamic inputs automatically expand as you connect more images - each image gets a paired caption text field. Configure grid layout with images per row, image size, caption height, font size, padding, and background color. Perfect for contact sheets, comparison grids, or captioned image galleries.
+Creates a grid layout of images with text captions below each. Features auto-grid layout (set images_per_row to 0) that picks optimal columns via ceil(sqrt(n)), aspect-aware cell sizing based on median batch aspect ratio, and automatic centering of the last row when it has fewer images. Configure grid layout with images per row, image size, caption height, font size, padding, and background color. Note: when receiving images from a list-based node (e.g. StringListCowboy), use an ImageListToImageBatch node upstream to collect all images into a single batch before the grid. Perfect for contact sheets, comparison grids, or captioned image galleries.
 
 **Align Stylized Frame**
 Aligns AI-stylized images back to their original subject position with pixel-perfect precision. Uses BiRefNet (BEN2) for high-quality subject segmentation, SD 1.5 inpainting for clean plate background generation, and area-based scaling with centroid positioning for accurate subject placement. Eliminates ghosting artifacts when compositing stylized subjects onto original backgrounds.
