@@ -134,6 +134,14 @@ Generates 35 prompt strings for synthetic dataset creation. Reads prompts from a
 **String List Cowboy**
 Lassos strings together into a list with optional prefix/suffix branding. Works like Impact Pack's MakeAnyList but specialized for strings - connect any inputs and they get collected into a string list. Each string gets the prefix prepended and suffix appended. Dynamic inputs expand as you connect more values.
 
+### 🔀 Trent/Flow (2 nodes)
+
+**This, That, or The Other**
+Parallel gating node with 3 independent input/output channels. Each input passes to its corresponding output ONLY if truthy (non-None, non-zero, non-empty). Falsy inputs block their downstream path via ExecutionBlocker. Uses lazy evaluation to avoid evaluating inputs until needed. Dynamic inputs expand as you connect (1-3 slots).
+
+**First Valid**
+Fallback chain node that outputs the FIRST truthy value. Checks inputs in priority order: first → second → third. Returns the first truthy value found, or blocks if all are falsy. Uses lazy evaluation to skip evaluating later inputs once a truthy value is found. Perfect for providing fallback values like default images, prompts, or parameters.
+
 ### 🧪 TrentNodes/Testing (1 node)
 
 **LoRA Test Prompt Generator**
@@ -229,7 +237,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 
 ## Features
 
-✅ **45 professional nodes** for video, image, VLM, testing, and lip sync workflows  
+✅ **47 professional nodes** for video, image, VLM, flow control, and lip sync workflows  
 ✅ **Organized categories** - all nodes under `Trent/` namespace  
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart  
 ✅ **Colorful startup banner** with load validation  

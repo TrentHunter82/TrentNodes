@@ -65,7 +65,7 @@ class ImageTextGrid:
                     "tooltip": "Font size for caption text"
                 }),
                 "padding": ("INT", {
-                    "default": 10,
+                    "default": 0,
                     "min": 0,
                     "max": 100,
                     "step": 2,
