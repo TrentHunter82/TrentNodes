@@ -14,6 +14,13 @@ from .utils.banner import (
 )
 from .utils.validation import run_self_test
 
+# Import server routes (registers API endpoints on import)
+try:
+    from . import server  # noqa: F401
+except ImportError:
+    # Server module requires ComfyUI context - will be loaded at runtime
+    pass
+
 # Node registries
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
