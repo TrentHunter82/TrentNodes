@@ -109,6 +109,19 @@ class AnimationDuplicateFrameProcessor:
                     "tooltip": "Automatically insert extra gray frames when "
                               "sequences are too short"
                 }),
+                "align_keyframes": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Align keyframes to multiples of alignment_multiple "
+                              "for better video generation quality"
+                }),
+                "alignment_multiple": ("INT", {
+                    "default": 4,
+                    "min": 1,
+                    "max": 16,
+                    "step": 1,
+                    "tooltip": "Keyframes will be aligned to multiples of this "
+                              "value (e.g., 4 means frames 0, 4, 8, 12...)"
+                }),
             },
             "optional": {
                 "debug_info": ("BOOLEAN", {
@@ -405,6 +418,131 @@ class AnimationDuplicateFrameProcessor:
 
         return padded_images, inserted_indices, adjusted_sequences
 
+    def align_keyframes_to_multiples(self, images, mask_tensor, preserved_frames,
+                                     inserted_indices, alignment_multiple,
+                                     gray_style, gray_intensity, debug_info):
+        """Align keyframes to multiples by inserting gray padding frames.
+
+        Follows the same pattern as insert_padding_frames() for consistency.
+        """
+        if alignment_multiple <= 1:
+            return images, mask_tensor, inserted_indices, preserved_frames
+
+        keyframe_positions = sorted(preserved_frames)
+        if not keyframe_positions:
+            return images, mask_tensor, inserted_indices, preserved_frames
+
+        if debug_info:
+            print(f"\n=== Keyframe Alignment Analysis ===")
+            print(f"Alignment multiple: {alignment_multiple}")
+            print(f"Original keyframe positions: {keyframe_positions}")
+
+        # Calculate how many frames to insert before each keyframe
+        insertion_map = {}
+        cumulative_offset = 0
+        aligned_positions = []
+
+        for orig_pos in keyframe_positions:
+            current_pos = orig_pos + cumulative_offset
+
+            # Calculate next aligned position >= current position
+            # Use integer math to avoid floating point issues
+            # For position 7 with multiple 4: (7 + 3) // 4 * 4 = 8
+            target_pos = (
+                (current_pos + alignment_multiple - 1) // alignment_multiple
+            ) * alignment_multiple
+
+            # Special case: if current_pos is already aligned, keep it there
+            if current_pos % alignment_multiple == 0:
+                target_pos = current_pos
+
+            # Handle collisions with previous keyframes
+            while target_pos in aligned_positions:
+                target_pos += alignment_multiple
+
+            frames_needed = target_pos - current_pos
+            if frames_needed > 0 and orig_pos > 0:
+                # Insert AFTER the frame before the keyframe
+                insert_after_idx = orig_pos - 1
+                if insert_after_idx not in insertion_map:
+                    insertion_map[insert_after_idx] = 0
+                insertion_map[insert_after_idx] += frames_needed
+                cumulative_offset += frames_needed
+
+                if debug_info:
+                    print(f"Keyframe at orig_pos={orig_pos}: "
+                          f"current_pos={current_pos}, target={target_pos}, "
+                          f"inserting {frames_needed} frames after idx "
+                          f"{insert_after_idx}")
+            elif debug_info:
+                print(f"Keyframe at orig_pos={orig_pos}: "
+                      f"current_pos={current_pos}, target={target_pos}, "
+                      f"no insertion needed")
+
+            aligned_positions.append(target_pos)
+
+        if not insertion_map:
+            if debug_info:
+                print("No alignment adjustments needed")
+            return images, mask_tensor, inserted_indices, keyframe_positions
+
+        # Build new frame list (same pattern as insert_padding_frames)
+        # NOTE: Alignment frames are NOT added to inserted_indices because
+        # they should NOT be removed - removing them would undo the alignment.
+        # Only the original min_gray_frames padding should be removable.
+        new_frames = []
+        new_mask = []
+        old_to_new = {}
+        new_idx = 0
+
+        for original_idx in range(images.shape[0]):
+            old_to_new[original_idx] = new_idx
+            new_frames.append(images[original_idx])
+            new_mask.append(mask_tensor[original_idx])
+            new_idx += 1
+
+            if original_idx in insertion_map:
+                frames_to_add = insertion_map[original_idx]
+                gray_frame = self.create_gray_frame(
+                    images[original_idx], gray_style, gray_intensity
+                )
+                gray_mask = torch.ones_like(mask_tensor[original_idx])
+
+                for _ in range(frames_to_add):
+                    new_frames.append(gray_frame)
+                    new_mask.append(gray_mask)
+                    # Don't add to removal list - alignment frames must stay
+                    new_idx += 1
+
+                    if debug_info:
+                        print(f"Inserted alignment frame at new index "
+                              f"{new_idx - 1} (permanent, not removable)")
+
+        # Update inserted_indices to reflect new positions after alignment
+        updated_inserted = [old_to_new[idx] for idx in inserted_indices
+                           if idx in old_to_new]
+
+        aligned_images = torch.stack(new_frames, dim=0)
+        aligned_mask = torch.stack(new_mask, dim=0)
+
+        # Calculate ACTUAL new positions of original keyframes using old_to_new
+        # This is more accurate than aligned_positions which is theoretical
+        actual_keyframe_positions = []
+        for orig_pos in keyframe_positions:
+            if orig_pos in old_to_new:
+                actual_keyframe_positions.append(old_to_new[orig_pos])
+
+        if debug_info:
+            print(f"Original batch size: {images.shape[0]}")
+            print(f"Aligned batch size: {aligned_images.shape[0]}")
+            print(f"Target aligned positions: {aligned_positions}")
+            print(f"Actual keyframe positions: {actual_keyframe_positions}")
+            print(f"old_to_new mapping for keyframes: "
+                  f"{[(k, old_to_new[k]) for k in keyframe_positions]}")
+
+        # Return ACTUAL positions, not theoretical targets
+        return aligned_images, aligned_mask, updated_inserted, actual_keyframe_positions
+
     def process_animation_timing(self, images, similarity_method,
                                  similarity_threshold, motion_tolerance,
                                  gray_style, gray_intensity, preserve_first,
@@ -412,6 +550,7 @@ class AnimationDuplicateFrameProcessor:
                                  preserve_global_last, skip_second,
                                  skip_second_to_last, min_sequence_length,
                                  min_gray_frames, insert_padding,
+                                 align_keyframes, alignment_multiple,
                                  debug_info=False):
         """Main processing function with enhanced duplicate detection."""
         if debug_info:
@@ -473,6 +612,30 @@ class AnimationDuplicateFrameProcessor:
                         preserved_frames.append(frame_idx)
 
         preserved_frames.sort()
+
+        # Keyframe alignment step - insert frames to align keyframes to multiples
+        if align_keyframes and alignment_multiple > 1:
+            (images, mask_tensor, inserted_indices, preserved_frames) = \
+                self.align_keyframes_to_multiples(
+                    images, mask_tensor, preserved_frames, inserted_indices,
+                    alignment_multiple, gray_style, gray_intensity, debug_info
+                )
+            # Update batch size and derived variables
+            batch_size = images.shape[0]
+            processed_images = images.clone()
+            inserted_set = set(inserted_indices)
+            # Extend last sequence to cover the new batch size
+            if sequences:
+                last_start, _ = sequences[-1]
+                sequences[-1] = (last_start, batch_size - last_start)
+            # Update global last index
+            global_last_idx = batch_size - 1
+
+            # Always report alignment info when alignment is enabled
+            report += f"\nKeyframe Alignment:\n"
+            report += f"Alignment multiple: {alignment_multiple}\n"
+            report += f"Aligned keyframe positions: {preserved_frames}\n"
+            report += f"New total frame count after alignment: {batch_size}\n"
 
         frames_to_skip = set()
         if skip_second and len(preserved_frames) >= 2:
@@ -568,6 +731,10 @@ class AnimationDuplicateFrameProcessor:
         if frames_to_skip:
             report += f"Frames skipped from preserved list: "
             report += f"{sorted(frames_to_skip)}\n"
+        report += f"Keyframe alignment enabled: {align_keyframes}\n"
+        if align_keyframes:
+            report += f"Alignment multiple: {alignment_multiple}\n"
+            report += f"Final keyframe positions: {sorted(preserved_frames)}\n"
 
         if inserted_indices:
             report += f"\nRemoval Information:\n"

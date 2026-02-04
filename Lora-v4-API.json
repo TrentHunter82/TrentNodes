@@ -1,0 +1,1159 @@
+{
+  "137": {
+    "inputs": {
+      "images": [
+        "539",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Zimage Output"
+    }
+  },
+  "146": {
+    "inputs": {
+      "a": "Queen Corgi",
+      "b": ", "
+    },
+    "class_type": "JWStringConcat",
+    "_meta": {
+      "title": "String Concatenate"
+    }
+  },
+  "150": {
+    "inputs": {
+      "value": " Walking down a rain-slicked Tokyo street at night, neon signs reflecting on wet pavement, wearing a dark jacket, candid street photography style"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Dataset Prompt 2"
+    }
+  },
+  "151": {
+    "inputs": {
+      "value": " A close-up portrait in soft golden hour light, shallow depth of field, looking slightly off-camera with a contemplative expression, film grain, 35mm photography"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Dataset Prompt 1"
+    }
+  },
+  "229": {
+    "inputs": {
+      "value": "Corporate headshot against a neutral gray backdrop, confident smile, studio lighting with subtle rim light, clean and polished"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Dataset Prompt 3"
+    }
+  },
+  "230": {
+    "inputs": {
+      "value": " Laughing candidly at an outdoor caf\u00e9 table, Mediterranean setting, white linen shirt, bright midday sun, genuine expression of joy"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Custom Prompt"
+    }
+  },
+  "231": {
+    "inputs": {
+      "value": " 1970s film photograph, slightly faded colors, standing against a vintage car, aviator sunglasses pushed up on head, nostalgic summer vibes"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Custom Prompt"
+    }
+  },
+  "232": {
+    "inputs": {
+      "value": " Running through a sun-dappled forest, motion blur on the edges, dappled light filtering through leaves, athletic wear, dynamic pose mid-stride"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Custom Prompt"
+    }
+  },
+  "233": {
+    "inputs": {
+      "value": " Sitting in a leather armchair reading a book by firelight, warm amber tones, a steaming cup of coffee nearby, relaxed evening atmosphere"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Custom Prompt"
+    }
+  },
+  "234": {
+    "inputs": {
+      "value": " Standing in a shaft of light in an otherwise dark warehouse, dust particles visible in the air, chiaroscuro lighting, moody and cinematic"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Custom Prompt"
+    }
+  },
+  "235": {
+    "inputs": {
+      "value": "Standing at the edge of a cliff overlooking a vast mountain range at dawn, wearing medieval traveling cloak, epic wide shot, Lord of the Rings atmosphere"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Custom Prompt"
+    }
+  },
+  "397": {
+    "inputs": {
+      "images": [
+        "538",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Wan Output"
+    }
+  },
+  "409": {
+    "inputs": {
+      "images": [
+        "444",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
+    }
+  },
+  "430": {
+    "inputs": {
+      "prefix": [
+        "146",
+        0
+      ],
+      "suffix": "",
+      "limit": [
+        "544",
+        0
+      ],
+      "value_1": [
+        "151",
+        0
+      ],
+      "value_2": [
+        "150",
+        0
+      ],
+      "value_3": [
+        "229",
+        0
+      ],
+      "value_4": [
+        "232",
+        0
+      ],
+      "value_5": [
+        "233",
+        0
+      ],
+      "value_6": [
+        "234",
+        0
+      ],
+      "value_7": [
+        "230",
+        0
+      ],
+      "value_8": [
+        "231",
+        0
+      ],
+      "value_9": [
+        "235",
+        0
+      ]
+    },
+    "class_type": "StringListCowboy",
+    "_meta": {
+      "title": "String List Cowboy"
+    }
+  },
+  "440": {
+    "inputs": {
+      "String": [
+        "430",
+        0
+      ]
+    },
+    "class_type": "String",
+    "_meta": {
+      "title": "Prompt"
+    }
+  },
+  "441": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "442": {
+    "inputs": {
+      "clip_name1": "clip_l.safetensors",
+      "clip_name2": "t5xxl_fp16.safetensors",
+      "type": "flux",
+      "device": "default"
+    },
+    "class_type": "DualCLIPLoader",
+    "_meta": {
+      "title": "DualCLIPLoader"
+    }
+  },
+  "443": {
+    "inputs": {
+      "conditioning": [
+        "446",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "ConditioningZeroOut"
+    }
+  },
+  "444": {
+    "inputs": {
+      "samples": [
+        "445",
+        0
+      ],
+      "vae": [
+        "441",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "445": {
+    "inputs": {
+      "seed": 729456293240606,
+      "steps": 20,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "448",
+        0
+      ],
+      "positive": [
+        "446",
+        0
+      ],
+      "negative": [
+        "443",
+        0
+      ],
+      "latent_image": [
+        "450",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "446": {
+    "inputs": {
+      "clip_l": [
+        "440",
+        0
+      ],
+      "t5xxl": [
+        "440",
+        0
+      ],
+      "guidance": 3.5,
+      "clip": [
+        "448",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncodeFlux",
+    "_meta": {
+      "title": "CLIPTextEncodeFlux"
+    }
+  },
+  "447": {
+    "inputs": {
+      "lora_name": "QueenCorgiFlux.safetensors",
+      "strength_model": 1,
+      "strength_clip": 1,
+      "model": [
+        "449",
+        0
+      ],
+      "clip": [
+        "442",
+        0
+      ]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "Load FLUx Lora"
+    }
+  },
+  "448": {
+    "inputs": {
+      "lora_name": "lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+      "strength_model": 1,
+      "strength_clip": 1,
+      "model": [
+        "447",
+        0
+      ],
+      "clip": [
+        "447",
+        1
+      ]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "449": {
+    "inputs": {
+      "unet_name": "FLUX1/flux1-dev.sft",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "450": {
+    "inputs": {
+      "width": [
+        "462",
+        0
+      ],
+      "height": [
+        "461",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {
+      "title": "EmptySD3LatentImage"
+    }
+  },
+  "461": {
+    "inputs": {
+      "value": 1024
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "462": {
+    "inputs": {
+      "value": 1024
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "463": {
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "464": {
+    "inputs": {
+      "text": "\u8272\u8c03\u8d28\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u7ed8\u4f53\uff0c\u7ed8\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u73b0\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u7ed8\u5236\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u7ed8\u5236\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7572\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6210\u7572\u5f62\u7684\u88ad\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70",
+      "clip": [
+        "463",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "465": {
+    "inputs": {
+      "text": [
+        "430",
+        0
+      ],
+      "clip": [
+        "463",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "466": {
+    "inputs": {
+      "samples": [
+        "472",
+        0
+      ],
+      "vae": [
+        "473",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "467": {
+    "inputs": {
+      "lora_name": "QueenCorgiWan.safetensors",
+      "strength_model": 1,
+      "model": [
+        "536",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "468": {
+    "inputs": {
+      "shift": 6,
+      "model": [
+        "467",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3"
+    }
+  },
+  "469": {
+    "inputs": {
+      "width": [
+        "462",
+        0
+      ],
+      "height": [
+        "461",
+        0
+      ],
+      "length": [
+        "544",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyHunyuanLatentVideo",
+    "_meta": {
+      "title": "Empty HunyuanVideo 1.0 Latent"
+    }
+  },
+  "470": {
+    "inputs": {
+      "unet_name": "Wan2_1-T2V-14B_fp8_e4m3fn_scaled_KJ.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "472": {
+    "inputs": {
+      "seed": 437180718470270,
+      "steps": 6,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "468",
+        0
+      ],
+      "positive": [
+        "465",
+        0
+      ],
+      "negative": [
+        "464",
+        0
+      ],
+      "latent_image": [
+        "469",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "473": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "474": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "475": {
+    "inputs": {
+      "samples": [
+        "476",
+        0
+      ],
+      "vae": [
+        "474",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "476": {
+    "inputs": {
+      "seed": 449896254264091,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "478",
+        0
+      ],
+      "positive": [
+        "477",
+        0
+      ],
+      "negative": [
+        "479",
+        0
+      ],
+      "latent_image": [
+        "483",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "477": {
+    "inputs": {
+      "text": [
+        "430",
+        0
+      ],
+      "clip": [
+        "480",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "478": {
+    "inputs": {
+      "shift": 3,
+      "model": [
+        "480",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "479": {
+    "inputs": {
+      "conditioning": [
+        "477",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "ConditioningZeroOut"
+    }
+  },
+  "480": {
+    "inputs": {
+      "lora_name": "QueenCorgiQwen.safetensors",
+      "strength_model": 1,
+      "strength_clip": 1,
+      "model": [
+        "482",
+        0
+      ],
+      "clip": [
+        "481",
+        0
+      ]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "481": {
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "lumina2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "482": {
+    "inputs": {
+      "unet_name": "z_image_turbo_bf16.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "483": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {
+      "title": "EmptySD3LatentImage"
+    }
+  },
+  "484": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "485": {
+    "inputs": {
+      "shift": 3.1000000000000005,
+      "model": [
+        "509",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "487": {
+    "inputs": {
+      "samples": [
+        "488",
+        0
+      ],
+      "vae": [
+        "484",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "488": {
+    "inputs": {
+      "seed": 546993141116841,
+      "steps": 8,
+      "cfg": 2.5,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "485",
+        0
+      ],
+      "positive": [
+        "491",
+        0
+      ],
+      "negative": [
+        "494",
+        0
+      ],
+      "latent_image": [
+        "498",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "491": {
+    "inputs": {
+      "text": [
+        "430",
+        0
+      ],
+      "clip": [
+        "495",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "493": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Lightning-8steps-V1.0.safetensors",
+      "strength_model": 1,
+      "model": [
+        "497",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "494": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "495",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "495": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "497": {
+    "inputs": {
+      "unet_name": "qwen_image_fp8_e4m3fn.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "498": {
+    "inputs": {
+      "width": [
+        "462",
+        0
+      ],
+      "height": [
+        "461",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {
+      "title": "EmptySD3LatentImage"
+    }
+  },
+  "509": {
+    "inputs": {
+      "lora_name": "QueenCorgiQwen.safetensors",
+      "strength_model": 1,
+      "model": [
+        "493",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "536": {
+    "inputs": {
+      "lora_name": "Wan21_CausVid_14B_T2V_lora_rank32_v2.safetensors",
+      "strength_model": 1,
+      "model": [
+        "470",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "537": {
+    "inputs": {
+      "images_per_row": 0,
+      "image_size": 512,
+      "caption_height": 64,
+      "font_size": 12,
+      "padding": 0,
+      "background_color": "white",
+      "caption_prefix": "-FLUX-",
+      "images": [
+        "545",
+        0
+      ],
+      "caption_1": [
+        "151",
+        0
+      ],
+      "caption_2": [
+        "150",
+        0
+      ],
+      "caption_3": [
+        "229",
+        0
+      ],
+      "caption_4": [
+        "232",
+        0
+      ],
+      "caption_5": [
+        "233",
+        0
+      ],
+      "caption_6": [
+        "234",
+        0
+      ],
+      "caption_7": [
+        "230",
+        0
+      ],
+      "caption_8": [
+        "231",
+        0
+      ],
+      "caption_9": [
+        "235",
+        0
+      ]
+    },
+    "class_type": "ImageTextGrid",
+    "_meta": {
+      "title": "Image+Text Grid"
+    }
+  },
+  "538": {
+    "inputs": {
+      "images_per_row": 0,
+      "image_size": 512,
+      "caption_height": 64,
+      "font_size": 12,
+      "padding": 0,
+      "background_color": "white",
+      "caption_prefix": "-WAN-",
+      "images": [
+        "546",
+        0
+      ],
+      "caption_1": [
+        "151",
+        0
+      ],
+      "caption_2": [
+        "150",
+        0
+      ],
+      "caption_3": [
+        "229",
+        0
+      ],
+      "caption_4": [
+        "232",
+        0
+      ],
+      "caption_5": [
+        "233",
+        0
+      ],
+      "caption_6": [
+        "234",
+        0
+      ],
+      "caption_7": [
+        "230",
+        0
+      ],
+      "caption_8": [
+        "231",
+        0
+      ],
+      "caption_9": [
+        "235",
+        0
+      ]
+    },
+    "class_type": "ImageTextGrid",
+    "_meta": {
+      "title": "Image+Text Grid"
+    }
+  },
+  "539": {
+    "inputs": {
+      "images_per_row": 0,
+      "image_size": 512,
+      "caption_height": 64,
+      "font_size": 12,
+      "padding": 0,
+      "background_color": "white",
+      "caption_prefix": "-Z IMAGE-",
+      "images": [
+        "547",
+        0
+      ],
+      "caption_1": [
+        "151",
+        0
+      ],
+      "caption_2": [
+        "150",
+        0
+      ],
+      "caption_3": [
+        "229",
+        0
+      ],
+      "caption_4": [
+        "232",
+        0
+      ],
+      "caption_5": [
+        "233",
+        0
+      ],
+      "caption_6": [
+        "234",
+        0
+      ],
+      "caption_7": [
+        "230",
+        0
+      ],
+      "caption_8": [
+        "231",
+        0
+      ],
+      "caption_9": [
+        "235",
+        0
+      ]
+    },
+    "class_type": "ImageTextGrid",
+    "_meta": {
+      "title": "Image+Text Grid"
+    }
+  },
+  "540": {
+    "inputs": {
+      "images": [
+        "537",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Flux Output"
+    }
+  },
+  "541": {
+    "inputs": {
+      "images_per_row": 0,
+      "image_size": 512,
+      "caption_height": 64,
+      "font_size": 12,
+      "padding": 0,
+      "background_color": "white",
+      "caption_prefix": "-QWEN-",
+      "images": [
+        "548",
+        0
+      ],
+      "caption_1": [
+        "151",
+        0
+      ],
+      "caption_2": [
+        "150",
+        0
+      ],
+      "caption_3": [
+        "229",
+        0
+      ],
+      "caption_4": [
+        "232",
+        0
+      ],
+      "caption_5": [
+        "233",
+        0
+      ],
+      "caption_6": [
+        "234",
+        0
+      ],
+      "caption_7": [
+        "230",
+        0
+      ],
+      "caption_8": [
+        "231",
+        0
+      ],
+      "caption_9": [
+        "235",
+        0
+      ]
+    },
+    "class_type": "ImageTextGrid",
+    "_meta": {
+      "title": "Image+Text Grid"
+    }
+  },
+  "542": {
+    "inputs": {
+      "images": [
+        "541",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Wan Output"
+    }
+  },
+  "544": {
+    "inputs": {
+      "Number": "2"
+    },
+    "class_type": "Int",
+    "_meta": {
+      "title": "Batch Size"
+    }
+  },
+  "545": {
+    "inputs": {
+      "images": [
+        "444",
+        0
+      ],
+      "batch_size": 4096
+    },
+    "class_type": "RebatchImages",
+    "_meta": {
+      "title": "Rebatch Images (FLUX)"
+    }
+  },
+  "546": {
+    "inputs": {
+      "images": [
+        "466",
+        0
+      ],
+      "batch_size": 4096
+    },
+    "class_type": "RebatchImages",
+    "_meta": {
+      "title": "Rebatch Images (WAN)"
+    }
+  },
+  "547": {
+    "inputs": {
+      "images": [
+        "475",
+        0
+      ],
+      "batch_size": 4096
+    },
+    "class_type": "RebatchImages",
+    "_meta": {
+      "title": "Rebatch Images (Z IMAGE)"
+    }
+  },
+  "548": {
+    "inputs": {
+      "images": [
+        "487",
+        0
+      ],
+      "batch_size": 4096
+    },
+    "class_type": "RebatchImages",
+    "_meta": {
+      "title": "Rebatch Images (QWEN)"
+    }
+  }
+}
