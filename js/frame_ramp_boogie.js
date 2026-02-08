@@ -279,8 +279,22 @@ app.registerExtension({
             "customCanvas",
             container
         );
-        previewWidget.computeSize = () => [220, canvasH + 4];
+        previewWidget.computeSize = () => [220, canvasH + 8];
         previewWidget.serializeValue = () => undefined;
+
+        // ── Hide all optional widgets immediately ────
+        // Prevents flash of bezier controls on node
+        // creation. updateVisibility will show the
+        // correct ones after a short delay.
+
+        const allOptional = [
+            "region_size", "bezier_preset",
+            "p1_x", "p1_y", "p2_x", "p2_y",
+        ];
+        for (const name of allOptional) {
+            const w = findWidget(name);
+            if (w) hideWidget(node, w);
+        }
 
         // ── Curve redraw function ─────────────────────
 
