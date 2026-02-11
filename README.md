@@ -5,6 +5,24 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-Custom%20Nodes-orange)](https://github.com/comfyanonymous/ComfyUI)
 
+---
+
+### NEW: Grid Paste -- Bulk Node Duplication
+
+> Select any nodes, groups, or subgraphs and instantly stamp out N copies
+> arranged in a clean, non-overlapping grid. Two modes:
+>
+> | Shortcut | Mode | What it does |
+> |---|---|---|
+> | **Ctrl+Shift+G** | Grid Paste | Independent copies with internal links preserved |
+> | **Ctrl+Shift+Alt+G** | Grid Paste Connected | Every copy's inputs wired back to the original upstream nodes (bulk Ctrl+Shift+V) |
+>
+> Also available from the **command palette**, **TrentNodes menu**, and the
+> **selection toolbox** when items are selected. Works with nodes, groups,
+> reroutes, and subgraphs. Fully undoable as a single Ctrl+Z.
+
+---
+
 ## Installation
 
 ### Via ComfyUI Manager (Recommended)
@@ -167,6 +185,18 @@ GPU-accelerated vision-language model for describing images and video frames usi
 **Unload MiniCPM**
 Manually unload MiniCPM model to immediately free VRAM. Connect any output to trigger. Useful when you need GPU memory for other operations without waiting for the 60-second auto-unload timeout.
 
+### Canvas Tools (Frontend Extensions)
+
+These are canvas-level tools that operate on the ComfyUI graph directly -- no Python backend nodes required. They register as commands with keybindings, menu entries, and selection toolbox buttons.
+
+**Grid Paste**
+Duplicate any selection of nodes, groups, reroutes, or subgraphs into an automatically-arranged grid. Select your nodes, hit **Ctrl+Shift+G**, type how many copies you want, and they appear in a clean grid at your cursor position. The grid auto-calculates a roughly-square layout (e.g. 9 copies = 3x3) with 50px padding, sizes each cell to the bounding box of your selection, and preserves all internal connections between copied nodes. Widget values, node colors, group rectangles -- everything comes along for the ride.
+
+**Grid Paste Connected**
+Same grid layout, but every copy's external inputs are wired back to the original source nodes -- the same behavior as Ctrl+Shift+V but applied in bulk. Hit **Ctrl+Shift+Alt+G** to use this mode. Perfect for scenarios like pasting 6 KSamplers that all need to connect to the same checkpoint loader, or duplicating a ControlNet processing chain where every copy should read from the same source image.
+
+Both modes wrap the entire operation in a single undo transaction, so one Ctrl+Z reverts everything. Maximum 100 copies per operation.
+
 ### 🎤 Trent/LipSync (11 nodes)
 
 Complete lip sync pipeline for non-human character animation. Converts audio to mouth shapes and composites them onto tracked positions in video frames.
@@ -237,11 +267,12 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 
 ## Features
 
-✅ **47 professional nodes** for video, image, VLM, flow control, and lip sync workflows  
-✅ **Organized categories** - all nodes under `Trent/` namespace  
-✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart  
-✅ **Colorful startup banner** with load validation  
-✅ **Comprehensive error checking** on initialization  
+✅ **47 professional nodes** for video, image, VLM, flow control, and lip sync workflows
+✅ **Canvas tools** - Grid Paste for bulk node duplication with auto-layout
+✅ **Organized categories** - all nodes under `Trent/` namespace
+✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart
+✅ **Colorful startup banner** with load validation
+✅ **Comprehensive error checking** on initialization
 ✅ **Registry published** - semantic versioning support  
 
 ## Development
