@@ -139,10 +139,13 @@ Streamlined mask creation with minimal inputs for quick latent-aligned masks in 
 **Latent Aligned Mask (Wan)**
 Specialized variant optimized for Wan video model requirements with automatic 4x+1 frame alignment.
 
-### 🎬 Trent/Keyframes (1 node)
+### 🎬 Trent/Keyframes (2 nodes)
 
 **Wan Vace Keyframe Builder**
 Dynamic keyframe sequencing for Wan Vace video generation. Features interactive UI with drag-and-drop image inputs, frame-accurate positioning, automatic resizing, and synchronized mask generation. Supports up to 256 frames with customizable filler frames.
+
+**Vace Mask AutoComping**
+Composites solid gray over masked areas of input images for Wan VACE inpainting workflows. Feed in an image batch and a mask batch (e.g. from SAM3), and it outputs the original video with gray overlaid on the masked regions plus a matching clean binary mask -- saving you from manually compositing the gray-over-original setup that VACE expects. Features adjustable mask expansion (hard edge, no feather) to grow the inpaint region, and a configurable gray level (default 0.5 matches VACE filler). Handles single-mask-to-batch broadcast, automatic spatial resizing, and GPU-accelerated dilation.
 
 ### 📝 Trent/Text (2 nodes)
 
@@ -267,7 +270,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 
 ## Features
 
-✅ **47 professional nodes** for video, image, VLM, flow control, and lip sync workflows
+✅ **48 professional nodes** for video, image, VLM, flow control, and lip sync workflows
 ✅ **Canvas tools** - Grid Paste for bulk node duplication with auto-layout
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart
