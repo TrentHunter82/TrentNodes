@@ -11,6 +11,7 @@ API endpoint: fal-ai/kling-video/o3/pro/video-to-video/reference
 import os
 import io
 import re
+import subprocess
 import tempfile
 
 import cv2
@@ -19,6 +20,11 @@ import numpy as np
 import requests
 import torch
 from PIL import Image
+
+from ..utils.audio_utils import (
+    extract_audio_from_dict,
+    save_audio_to_wav,
+)
 
 LOG = "[Kling V2V]"
 
@@ -128,6 +134,14 @@ class FalKlingV2V:
                         "Reference image for Element 2 "
                         "appearance. Required with "
                         "element_2_face."
+                    ),
+                }),
+                "audio": ("AUDIO", {
+                    "tooltip": (
+                        "Optional audio to embed in "
+                        "the uploaded video. Works "
+                        "with keep_audio to preserve "
+                        "it in the generated output."
                     ),
                 }),
                 "aspect_ratio": (cls.ASPECT_RATIOS, {
@@ -279,12 +293,16 @@ class FalKlingV2V:
         return url
 
     @staticmethod
-    def _upload_video(frames_tensor, fps):
+    def _upload_video(frames_tensor, fps, audio_dict=None):
         """Encode frames to mp4 and upload to FAL CDN.
+
+        If *audio_dict* is provided the audio is muxed into
+        the mp4 via ffmpeg before uploading.
 
         Args:
             frames_tensor: [B, H, W, C] float32 0-1
             fps: frame rate for the encoded video
+            audio_dict: optional ComfyUI AUDIO dict
 
         Returns:
             FAL CDN URL string
@@ -302,6 +320,9 @@ class FalKlingV2V:
         tmp_path = tmp.name
         tmp.close()
 
+        wav_path = None
+        muxed_path = None
+
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(
             tmp_path, fourcc, fps, (w, h)
@@ -316,14 +337,64 @@ class FalKlingV2V:
                 writer.write(bgr)
             writer.release()
 
+            upload_path = tmp_path
+
+            # --- mux audio if provided ---
+            if audio_dict is not None:
+                waveform, sr = extract_audio_from_dict(
+                    audio_dict
+                )
+                wav_path = save_audio_to_wav(
+                    waveform, sr
+                )
+                muxed = tempfile.NamedTemporaryFile(
+                    suffix=".mp4", delete=False
+                )
+                muxed_path = muxed.name
+                muxed.close()
+
+                print(
+                    f"{LOG} Muxing audio "
+                    f"({sr} Hz) into video..."
+                )
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-i", tmp_path,
+                    "-i", wav_path,
+                    "-c:v", "copy",
+                    "-c:a", "aac",
+                    "-shortest",
+                    muxed_path,
+                ]
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    print(
+                        f"{LOG} ffmpeg warning: "
+                        f"{result.stderr[:200]}"
+                    )
+                if os.path.exists(muxed_path) and \
+                        os.path.getsize(muxed_path) > 0:
+                    upload_path = muxed_path
+                    print(f"{LOG} Audio muxed OK")
+                else:
+                    print(
+                        f"{LOG} Audio mux failed, "
+                        f"uploading without audio"
+                    )
+
             print(f"{LOG} Uploading video to FAL CDN...")
-            url = fal_client.upload_file(tmp_path)
+            url = fal_client.upload_file(upload_path)
             print(f"{LOG} Uploaded: {url[:80]}...")
             return url
         finally:
             writer.release()
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+            for p in (tmp_path, wav_path, muxed_path):
+                if p and os.path.exists(p):
+                    os.unlink(p)
 
     @staticmethod
     def _download_frames(video_url, nth_frame=1):
@@ -416,6 +487,7 @@ class FalKlingV2V:
         element_1_ref=None,
         element_2_face=None,
         element_2_ref=None,
+        audio=None,
         aspect_ratio="auto",
         duration="5",
         keep_audio=True,
@@ -439,7 +511,9 @@ class FalKlingV2V:
             print(f"{LOG} API key: {preview}")
 
             # --- upload video ---
-            video_url = self._upload_video(video, fps)
+            video_url = self._upload_video(
+                video, fps, audio
+            )
 
             # --- upload reference images ---
             image_urls = []
