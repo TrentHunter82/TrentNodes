@@ -111,16 +111,22 @@ def birefnet_segment(
     image: torch.Tensor,
     device: torch.device,
     resolution: int = 512,
-    model_variant: str = "lite"
+    model_variant: str = "lite",
+    max_batch: int = 4
 ) -> Optional[torch.Tensor]:
     """
     Segment foreground using BiRefNet with GPU-accelerated batch processing.
+
+    Processes frames in sub-batches to cap peak VRAM usage. Each
+    sub-batch runs through the model independently, then results
+    are concatenated. This prevents OOM on large video batches.
 
     Args:
         image: (B, H, W, C) tensor in [0, 1] range
         device: torch device
         resolution: Processing resolution (512=fast, 768=balanced, 1024=quality)
         model_variant: "lite" (faster) or "standard" (better quality)
+        max_batch: Max frames per forward pass (caps peak VRAM)
 
     Returns:
         mask: (B, H, W) tensor, 1 = foreground, 0 = background
@@ -159,9 +165,24 @@ def birefnet_segment(
     # Ensure float32 for model
     batch_tensor = batch_tensor.float()
 
-    # Run batch inference
-    with torch.no_grad(), torch.amp.autocast(device.type, enabled=False):
-        preds = model(batch_tensor)[-1].sigmoid()
+    # Sub-batch inference to cap peak VRAM
+    if B <= max_batch:
+        # Small batch: single forward pass (fastest)
+        with torch.no_grad(), torch.amp.autocast(
+            device.type, enabled=False
+        ):
+            preds = model(batch_tensor)[-1].sigmoid()
+    else:
+        # Large batch: chunk to avoid OOM
+        pred_chunks = []
+        for start in range(0, B, max_batch):
+            chunk = batch_tensor[start:start + max_batch]
+            with torch.no_grad(), torch.amp.autocast(
+                device.type, enabled=False
+            ):
+                pred = model(chunk)[-1].sigmoid()
+            pred_chunks.append(pred)
+        preds = torch.cat(pred_chunks, dim=0)
 
     # Resize all masks back to original size at once
     masks = F.interpolate(
