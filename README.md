@@ -7,13 +7,11 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
-### NEW: FAL Kling V2V (O3 Pro) -- Video-to-Video with AI
+### NEW: Audio Length in Seconds
 
-> Generate new video from a reference video + text prompt using FAL AI's
-> Kling O3 Pro endpoint. Supports style reference images, character/element
-> injection with face+ref pairs, and auto-appending @tags. Built-in @
-> autocomplete in the prompt widget shows available tags as you type.
-> Find it under **Trent/API** in the node menu.
+> Simple utility that measures audio duration and returns the length
+> rounded up to the nearest whole second (plus the exact float).
+> Find it under **Trent/Audio** in the node menu.
 
 ---
 
@@ -199,6 +197,11 @@ Both modes wrap the entire operation in a single undo transaction, so one Ctrl+Z
 **FAL Kling V2V (O3 Pro)**
 Calls the FAL AI Kling O3 Pro video-to-video reference API to generate new video from a reference video and text prompt. Encodes input IMAGE batch frames to mp4, uploads to FAL CDN, and returns the generated video as frames. Supports optional style reference images (@Image1, @Image2) and character/element injection (@Element1, @Element2) with frontal face + reference image pairs. Features auto-appending of @tags for connected inputs so you can write natural prompts, plus a built-in @ autocomplete dropdown in the prompt widget that shows available tags based on which inputs are connected. Images are auto-compressed to JPEG and downscaled if needed to stay within FAL's 10 MB upload limit. Costs $0.336 per second of generated video.
 
+### 🔊 Trent/Audio (1 node)
+
+**Audio Length in Seconds**
+Calculates the duration of an audio input. Returns both the rounded-up integer (always ceiling to the nearest second) and the exact float duration. Handles all ComfyUI audio formats including VideoHelperSuite LazyAudioMap.
+
 ### 🎤 Trent/LipSync (11 nodes)
 
 Complete lip sync pipeline for non-human character animation. Converts audio to mouth shapes and composites them onto tracked positions in video frames.
@@ -271,7 +274,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 
 ## Features
 
-✅ **49 professional nodes** for video, image, API, VLM, flow control, and lip sync workflows
+✅ **50 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
 ✅ **Canvas tools** - Grid Paste for bulk node duplication with auto-layout
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart
