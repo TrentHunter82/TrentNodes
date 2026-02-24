@@ -5,6 +5,7 @@ Provides GPU-accelerated mask operations used across multiple nodes:
 - Dilation (max pooling)
 - Erosion (inverted max pooling)
 - Gaussian blur/feathering
+- Temporal smoothing (cross-frame consistency)
 - Mask dimension handling
 """
 
@@ -289,6 +290,63 @@ def get_mask_area(mask: torch.Tensor) -> float:
         mask = mask[0]
 
     return (mask > 0.5).float().sum().item()
+
+
+def temporal_smooth(
+    masks: torch.Tensor,
+    kernel_size: int = 5,
+    sigma: float = 1.0,
+) -> torch.Tensor:
+    """
+    Smooth masks across the time/batch dimension with a 1D Gaussian.
+
+    Reduces per-frame flickering from independent segmentation by
+    blending each frame's mask with its temporal neighbors. Uses a
+    single F.conv1d call on the reshaped tensor -- fully GPU, no
+    Python loops.
+
+    Args:
+        masks: (B, H, W) mask batch where B is the time axis
+        kernel_size: Temporal window size (must be odd, >=3)
+        sigma: Gaussian sigma controlling blend strength
+
+    Returns:
+        Temporally smoothed (B, H, W) mask tensor
+    """
+    if masks.dim() != 3 or masks.shape[0] < 3:
+        return masks
+
+    # Force odd kernel size
+    if kernel_size < 3:
+        kernel_size = 3
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+
+    B, H, W = masks.shape
+    device = masks.device
+
+    # Build 1D Gaussian kernel on device
+    half = kernel_size // 2
+    x = torch.arange(
+        kernel_size, device=device, dtype=torch.float32
+    ) - half
+    kernel = torch.exp(-0.5 * (x / sigma) ** 2)
+    kernel = kernel / kernel.sum()
+    kernel = kernel.view(1, 1, kernel_size)  # (1, 1, K)
+
+    # Reshape (B, H, W) -> (H*W, 1, B) for conv1d along time
+    flat = masks.permute(1, 2, 0).reshape(H * W, 1, B)
+
+    # Reflect-pad the time axis to avoid edge artifacts
+    flat = F.pad(flat, (half, half), mode='reflect')
+
+    # Single conv1d: Gaussian blend along time dimension
+    smoothed = F.conv1d(flat, kernel)
+
+    # Reshape back to (B, H, W)
+    smoothed = smoothed.reshape(H, W, B).permute(2, 0, 1)
+
+    return smoothed.clamp_(0.0, 1.0)
 
 
 def batch_get_centroids(masks: torch.Tensor) -> torch.Tensor:

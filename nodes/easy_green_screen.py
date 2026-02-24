@@ -12,12 +12,18 @@ processing.
 """
 
 import torch
-from typing import Any, Dict, Tuple
+import torch.nn.functional as F
+from typing import Any, Dict, Optional, Tuple
 
 import comfy.model_management as mm
 
 from ..utils.birefnet_wrapper import birefnet_segment
-from ..utils.mask_ops import dilate_mask, erode_mask, feather_mask
+from ..utils.mask_ops import (
+    dilate_mask,
+    erode_mask,
+    feather_mask,
+    temporal_smooth as temporal_smooth_fn,
+)
 
 
 # Chroma key color RGB values (float32, 0-1 range)
@@ -115,6 +121,30 @@ class EasiestGreenScreen:
                         " edge fringe)"
                     ),
                 }),
+                "temporal_smooth": ("INT", {
+                    "default": 0,
+                    "min": 0,
+                    "max": 15,
+                    "step": 1,
+                    "tooltip": (
+                        "Temporal smoothing window for"
+                        " video batches; reduces mask"
+                        " flickering between frames."
+                        " 0 = off, 3-7 = subtle,"
+                        " 9-15 = heavy. Has no effect"
+                        " on single images"
+                    ),
+                }),
+                "background_images": ("IMAGE", {
+                    "tooltip": (
+                        "Optional custom background image"
+                        " or batch; overrides bg_color"
+                        " when connected. Auto-resized"
+                        " to match input dimensions. A"
+                        " single image is broadcast to"
+                        " all frames"
+                    ),
+                }),
             },
         }
 
@@ -144,6 +174,8 @@ class EasiestGreenScreen:
         resolution: str = "balanced (768)",
         edge_refine: int = 2,
         mask_expand: int = 0,
+        temporal_smooth: int = 0,
+        background_images: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Remove background and composite over chroma key.
@@ -159,6 +191,9 @@ class EasiestGreenScreen:
             resolution: Processing resolution string
             edge_refine: Feather radius in pixels
             mask_expand: Mask boundary adjustment
+            temporal_smooth: Temporal blur window (0=off)
+            background_images: Optional (B, H, W, C) or
+                (1, H, W, C) custom background
 
         Returns:
             Tuple of (composited image, foreground mask)
@@ -208,6 +243,18 @@ class EasiestGreenScreen:
         elif mask_expand < 0:
             mask = erode_mask(mask, abs(mask_expand))
 
+        # Temporal smoothing: 1D Gaussian blur along time
+        # axis to reduce per-frame mask flickering in video
+        if temporal_smooth >= 3 and b >= 3:
+            kernel_size = temporal_smooth
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            mask = temporal_smooth_fn(
+                mask,
+                kernel_size=kernel_size,
+                sigma=kernel_size / 3.0,
+            )
+
         # Feather edges for smooth compositing
         # GPU-accelerated via separable F.conv2d
         if edge_refine > 0:
@@ -216,14 +263,42 @@ class EasiestGreenScreen:
         # Clamp after morphological ops
         mask = mask.clamp_(0.0, 1.0)
 
-        # Build solid color background (B, H, W, 3)
-        # expand() is a zero-copy view, no allocation
-        color_rgb = CHROMA_COLORS.get(
-            bg_color, (0.0, 1.0, 0.0)
-        )
-        bg = torch.tensor(
-            color_rgb, device=device, dtype=dtype
-        ).view(1, 1, 1, 3).expand(b, h, w, -1)
+        # Build background tensor (B, H, W, 3)
+        if background_images is not None:
+            # Custom background: move to GPU, resize to match
+            bg = background_images.to(device=device, dtype=dtype)
+            bg = bg[..., :3]
+            bg_b, bg_h, bg_w, _ = bg.shape
+
+            # Resize if spatial dims don't match
+            if bg_h != h or bg_w != w:
+                bg = F.interpolate(
+                    bg.permute(0, 3, 1, 2),
+                    size=(h, w),
+                    mode='bilinear',
+                    align_corners=False,
+                ).permute(0, 2, 3, 1)
+
+            # Broadcast single bg image to all frames
+            if bg_b == 1 and b > 1:
+                bg = bg.expand(b, -1, -1, -1)
+            elif bg_b < b:
+                # Repeat last frame for remaining
+                pad = bg[-1:].expand(b - bg_b, -1, -1, -1)
+                bg = torch.cat([bg, pad], dim=0)
+            elif bg_b > b:
+                bg = bg[:b]
+
+            bg_label = "custom"
+        else:
+            # Solid color: expand() is a zero-copy view
+            color_rgb = CHROMA_COLORS.get(
+                bg_color, (0.0, 1.0, 0.0)
+            )
+            bg = torch.tensor(
+                color_rgb, device=device, dtype=dtype
+            ).view(1, 1, 1, 3).expand(b, h, w, -1)
+            bg_label = bg_color
 
         # Composite using torch.lerp: single fused CUDA
         # kernel instead of separate mul/add ops
@@ -233,11 +308,12 @@ class EasiestGreenScreen:
 
         print(
             f"[EasiestGreenScreen] {b} frame(s),"
-            f" {h}x{w}, bg={bg_color},"
+            f" {h}x{w}, bg={bg_label},"
             f" model={model_variant},"
             f" res={res_int},"
             f" expand={mask_expand}px,"
-            f" feather={edge_refine}px"
+            f" feather={edge_refine}px,"
+            f" temporal={temporal_smooth}"
         )
 
         return (result, mask)
