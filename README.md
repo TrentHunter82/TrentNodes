@@ -7,19 +7,13 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
-### NEW: Grid Paste -- Bulk Node Duplication
+### NEW: FAL Kling V2V (O3 Pro) -- Video-to-Video with AI
 
-> Select any nodes, groups, or subgraphs and instantly stamp out N copies
-> arranged in a clean, non-overlapping grid. Two modes:
->
-> | Shortcut | Mode | What it does |
-> |---|---|---|
-> | **Ctrl+Shift+G** | Grid Paste | Independent copies with internal links preserved |
-> | **Ctrl+Shift+Alt+G** | Grid Paste Connected | Every copy's inputs wired back to the original upstream nodes (bulk Ctrl+Shift+V) |
->
-> Also available from the **command palette**, **TrentNodes menu**, and the
-> **selection toolbox** when items are selected. Works with nodes, groups,
-> reroutes, and subgraphs. Fully undoable as a single Ctrl+Z.
+> Generate new video from a reference video + text prompt using FAL AI's
+> Kling O3 Pro endpoint. Supports style reference images, character/element
+> injection with face+ref pairs, and auto-appending @tags. Built-in @
+> autocomplete in the prompt widget shows available tags as you type.
+> Find it under **Trent/API** in the node menu.
 
 ---
 
@@ -200,6 +194,11 @@ Same grid layout, but every copy's external inputs are wired back to the origina
 
 Both modes wrap the entire operation in a single undo transaction, so one Ctrl+Z reverts everything. Maximum 100 copies per operation.
 
+### 🌐 Trent/API (1 node)
+
+**FAL Kling V2V (O3 Pro)**
+Calls the FAL AI Kling O3 Pro video-to-video reference API to generate new video from a reference video and text prompt. Encodes input IMAGE batch frames to mp4, uploads to FAL CDN, and returns the generated video as frames. Supports optional style reference images (@Image1, @Image2) and character/element injection (@Element1, @Element2) with frontal face + reference image pairs. Features auto-appending of @tags for connected inputs so you can write natural prompts, plus a built-in @ autocomplete dropdown in the prompt widget that shows available tags based on which inputs are connected. Images are auto-compressed to JPEG and downscaled if needed to stay within FAL's 10 MB upload limit. Costs $0.336 per second of generated video.
+
 ### 🎤 Trent/LipSync (11 nodes)
 
 Complete lip sync pipeline for non-human character animation. Converts audio to mouth shapes and composites them onto tracked positions in video frames.
@@ -267,10 +266,12 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 - vosk >= 0.3.45 (for lip sync speech recognition)
 - transformers >= 4.40.0 (for BiRefNet and MiniCPM-V)
 - accelerate (for MiniCPM-V model loading)
+- fal-client >= 0.4.0 (for FAL AI API nodes)
+- requests >= 2.28.0 (for FAL video download)
 
 ## Features
 
-✅ **48 professional nodes** for video, image, VLM, flow control, and lip sync workflows
+✅ **49 professional nodes** for video, image, API, VLM, flow control, and lip sync workflows
 ✅ **Canvas tools** - Grid Paste for bulk node duplication with auto-layout
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart

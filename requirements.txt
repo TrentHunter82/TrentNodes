@@ -18,3 +18,7 @@ vosk>=0.3.45
 
 # For BiRefNet background removal (Hugging Face transformers)
 transformers>=4.36.0
+
+# For FAL AI API nodes
+fal-client>=0.4.0
+requests>=2.28.0
