@@ -7,11 +7,15 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
-### NEW: Audio Length in Seconds
+### NEW: Grab First Frame + Just Pad or Crop It
 
-> Simple utility that measures audio duration and returns the length
-> rounded up to the nearest whole second (plus the exact float).
-> Find it under **Trent/Audio** in the node menu.
+> **Grab First Frame** -- Returns the first frame from an image batch.
+> One input, one output, zero settings. Find it under **Trent/Image**.
+>
+> **Just Pad or Crop It** -- Match any image to a reference size by
+> padding (gray fill) or center-cropping each axis independently.
+> Outputs a binary mask for the padded regions. Find it under
+> **Trent/Image**.
 
 ---
 
@@ -37,7 +41,7 @@ pip install -r requirements.txt
 
 All nodes are organized under the `Trent/` category for easy navigation.
 
-### 📹 Trent/Video (6 nodes)
+### 📹 Trent/Video (8 nodes)
 
 **Chop Cuts**
 Accurate scene detection and video splitting. Automatically detects cuts, fades, and transitions using multi-metric analysis, then exports each scene as a separate MP4 file with a detailed report of cut locations and timestamps.
@@ -57,6 +61,12 @@ Creates smooth frame transitions with configurable overlap duration. Blends adja
 **Batch Slowdown**
 GPU-accelerated frame duplication to slow down image, mask, or latent batches. Supports multiple input modes: direct multiplier (2x, 3x, 1.5x), target frame count, or FPS conversion (24fps to 60fps). Features smart decimal distribution for non-integer slowdowns and optional speedup mode for sampling every Nth frame.
 
+**Frame Ramp Boogie**
+GPU-accelerated frame interpolation that inserts blended intermediate frames between consecutive frame pairs. Features configurable easing curves (linear, ease in/out, cubic bezier with presets) and region targeting (full batch, start, middle, end). Creates smooth slow-motion with actual frame blending instead of simple duplication.
+
+**MatAnyone Video Matte**
+Temporally-consistent video matting using MatAnyone (CVPR 2025). Given a single initial mask (or auto-generated via BiRefNet), propagates it across all video frames with memory-based temporal consistency. Produces flicker-free alpha mattes for compositing over chroma key or custom backgrounds. All compositing is GPU-accelerated via torch.lerp.
+
 ### 🎞️ Animation/Timing (2 nodes)
 
 **Enhanced Animation Timing Processor**
@@ -65,7 +75,7 @@ Analyzes animation sequences to detect duplicate frames and replaces them with g
 **Animation Frame Remover**
 Removes padding frames inserted by the Enhanced Animation Timing Processor. Connect the `removal_indices` output from the processor to automatically strip the temporary padding frames after video generation, returning to the original frame count while preserving the generated content.
 
-### 🖼️ Trent/Image (6 nodes)
+### 🖼️ Trent/Image (11 nodes)
 
 **Image+Text Grid**
 Creates a grid layout of images with text captions below each. Features auto-grid layout (set images_per_row to 0) that picks optimal columns via ceil(sqrt(n)), aspect-aware cell sizing based on median batch aspect ratio, and automatic centering of the last row when it has fewer images. Configure grid layout with images per row, image size, caption height, font size, padding, and background color. Note: when receiving images from a list-based node (e.g. StringListCowboy), use an ImageListToImageBatch node upstream to collect all images into a single batch before the grid. Perfect for contact sheets, comparison grids, or captioned image galleries.
@@ -84,6 +94,21 @@ Comprehensive statistical analysis of image batches. Generates histograms, color
 
 **Multi-Batch Combine**
 Concatenates multiple image batches into a single output batch. Accepts up to 8 optional inputs - unconnected inputs are simply skipped. Handles dimension mismatches automatically with configurable resize modes: largest (resize all to max dimensions), first (match first batch), or custom (specify target width/height). GPU-accelerated resizing via bilinear, nearest, bicubic, or area interpolation.
+
+**Black Bar Cinema Scope**
+Adds cinematic black bars (letterbox/pillarbox) to images for widescreen aspect ratios. Supports standard presets (16:9, 2.35:1 Cinemascope, 2.39:1 Anamorphic, 2.76:1 Ultra Panavision, etc.) plus custom ratio override. GPU-accelerated.
+
+**Image Folder Cowboy**
+Directory iterator that loads images with proper natural sorting (img1 < img2 < img10). Fixes common issues with filename ordering by splitting text and numeric chunks. Features configurable index overflow handling (wrap, clamp, error) and sorted subdirectory processing.
+
+**Easiest Green Screen**
+One-click background removal and chroma key replacement using BiRefNet AI segmentation. Composites foreground over a solid color background (green, blue, aqua, white). Features edge refinement with dilate/erode/feather controls, temporal smoothing for flicker-free video batches, optional custom background images, and resolution presets (512/768/1024). All operations GPU-accelerated.
+
+**Grab First Frame**
+Returns the first frame from a batch of images. One input, one output, zero settings.
+
+**Just Pad or Crop It**
+Pad or crop an image to match a reference image's dimensions. Each axis is handled independently: axes smaller than the target are padded with configurable gray fill, axes larger are center-cropped. Outputs a binary mask (1.0 = real pixel, 0.0 = padded region). Supports center or top-left alignment.
 
 ### 🔧 Trent/Utilities (10 nodes)
 
@@ -166,7 +191,7 @@ Generates 10 test prompts specifically designed to validate different types of L
 
 Outputs 10 individual prompt strings plus a combined `all_prompts` output for easy batch processing. Includes optional quality suffix to append tags like "8k, detailed" to all prompts.
 
-### 👁️ Trent/VLM (2 nodes)
+### 👁️ Trent/VLM (6 nodes)
 
 **VidScribe MiniCPM Beta**
 GPU-accelerated vision-language model for describing images and video frames using MiniCPM-V 4.5. Features:
@@ -179,6 +204,18 @@ GPU-accelerated vision-language model for describing images and video frames usi
 
 **Unload MiniCPM**
 Manually unload MiniCPM model to immediately free VRAM. Connect any output to trigger. Useful when you need GPU memory for other operations without waiting for the 60-second auto-unload timeout.
+
+**VRAM Gated Checkpoint Loader**
+Loads a checkpoint only after receiving a VRAM-cleared signal from VidScribe MiniCPM. Ensures the large VLM model is fully unloaded before loading diffusion models.
+
+**VRAM Gated VAE Loader**
+Loads a VAE only after receiving a VRAM-cleared signal. Same sequencing pattern as the gated checkpoint loader.
+
+**VRAM Gated UNET Loader**
+Loads a UNET model only after receiving a VRAM-cleared signal. Use with FLUX or other UNET-based architectures.
+
+**VRAM Gated LoRA Loader (Model Only)**
+Loads a LoRA (model-only) after receiving a VRAM-cleared signal. Applies LoRA weights to a model with configurable strength.
 
 ### Canvas Tools (Frontend Extensions)
 
@@ -274,7 +311,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 
 ## Features
 
-✅ **50 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
+✅ **61 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
 ✅ **Canvas tools** - Grid Paste for bulk node duplication with auto-layout
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart
