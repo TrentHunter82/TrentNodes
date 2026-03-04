@@ -7,12 +7,20 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
-### NEW: Save Transparent Video
+### NEW: Video Layer Ho Down
 
-> Export image batches as video with alpha channel transparency.
-> Three formats: **Animated WebP** (web-ready), **ProRes 4444 MOV**
-> (professional compositing), and **PNG sequence** (lossless).
-> Alpha from MASK input, RGBA 4th channel, or fully opaque fallback.
+> Multi-layer compositing node with interactive drag-to-position canvas.
+> Place up to **5 transparent layers** onto a background with per-layer
+> **scale, opacity, and blend mode**. Dynamic layer inputs -- connect one,
+> the next appears. Supports **RGBA transparency**, batch processing, and
+> GPU-accelerated blending. Find it under **Trent/Compositing**.
+
+### NEW: Video Folder Cowboy
+
+> Directory iterator for video files with natural sorting (vid1 < vid2 < vid10).
+> Browse folders with a built-in **file browser dialog**, load frames via OpenCV
+> with configurable **frame skipping**, **max frame limits**, and **start frame**.
+> Returns frames as IMAGE batch plus filename, path, frame count, and FPS.
 > Find it under **Trent/Video**.
 
 ---
@@ -39,7 +47,7 @@ pip install -r requirements.txt
 
 All nodes are organized under the `Trent/` category for easy navigation.
 
-### Trent/Video (9 nodes)
+### Trent/Video (10 nodes)
 
 **Chop Cuts**
 Accurate scene detection and video splitting. Automatically detects cuts, fades, and transitions using multi-metric analysis, then exports each scene as a separate MP4 file with a detailed report of cut locations and timestamps.
@@ -65,8 +73,16 @@ GPU-accelerated frame interpolation that inserts blended intermediate frames bet
 **Save Transparent Video**
 Export image batches as video with alpha channel transparency. Three output formats: Animated WebP (good compression, browser-ready), ProRes 4444 MOV (lossless for DaVinci Resolve / After Effects), and PNG image sequence (universal lossless fallback). Alpha is sourced from an optional MASK input, the 4th channel of RGBA images, or defaults to fully opaque. Supports mask auto-resize, single-mask-to-batch broadcast, and configurable quality/FPS. All alpha compositing is GPU-accelerated.
 
+**Video Folder Cowboy**
+Directory iterator for video files with natural sorting (vid1 < vid2 < vid10). Browse folders with a built-in file browser dialog, load frames via OpenCV with configurable frame skipping, max frame limits, and start frame offset. Supports glob patterns, sorted subdirectory processing, and configurable index overflow handling (wrap, clamp, error). Returns frames as IMAGE batch plus filename, total video count, file path, frame count, and FPS.
+
 **MatAnyone Video Matte**
 Temporally-consistent video matting using MatAnyone (CVPR 2025). Given a single initial mask (or auto-generated via BiRefNet), propagates it across all video frames with memory-based temporal consistency. Produces flicker-free alpha mattes for compositing over chroma key or custom backgrounds. All compositing is GPU-accelerated via torch.lerp.
+
+### 🎬 Trent/Compositing (1 node)
+
+**Video Layer Ho Down**
+Multi-layer compositing node with interactive drag-to-position canvas preview. Place up to 5 transparent foreground layers onto a background image or video batch. Dynamic layer inputs -- connect one and the next appears automatically (up to 5). Each layer has independent scale, opacity, and blend mode (normal, multiply, screen, overlay, add). Supports RGBA 4-channel images for transparency, automatic batch size alignment (single frame layers repeat across entire video), and partial off-screen placement. All compositing is GPU-accelerated via PyTorch. Features a live canvas with checkerboard transparency indicator, click-to-select layers, drag-to-position, crosshair alignment guides, coordinate display, and a center-reset button.
 
 ### 🎞️ Animation/Timing (2 nodes)
 
@@ -312,7 +328,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 
 ## Features
 
-✅ **62 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
+✅ **64 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
 ✅ **Canvas tools** - Grid Paste for bulk node duplication with auto-layout
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart
