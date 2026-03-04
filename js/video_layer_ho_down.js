@@ -4,6 +4,7 @@
  * Multi-layer compositing with drag-to-position canvas.
  * Dynamic layer inputs (connect one, next appears).
  * Per-layer widgets shown only when connected.
+ * All widgets stay visible and serialize normally.
  */
 
 import { app } from "/scripts/app.js";
@@ -13,9 +14,6 @@ const BLEND_MODES = [
     "normal", "multiply", "screen", "overlay", "add",
 ];
 
-/**
- * Draw checkerboard pattern (transparency indicator)
- */
 function drawCheckerboard(ctx, x, y, w, h, cell) {
     ctx.save();
     ctx.beginPath();
@@ -48,26 +46,22 @@ app.registerExtension({
         }
 
         // =============================================
-        // 1. LAYER STATE
+        // 1. STATE
         // =============================================
 
-        const layerState = {
-            // Canvas
+        const state = {
             canvas: null,
             ctx: null,
             container: null,
-            widgetHeight: 300,
-            // Display transform
+            widgetHeight: 250,
             displayScale: 1.0,
             displayOffsetX: 0,
             displayOffsetY: 0,
-            // Background
             bgImage: null,
             bgW: 0,
             bgH: 0,
-            // Layers (indexed 1-5)
+            // Per-layer preview data: { idx: {image, w, h} }
             layers: {},
-            // Selection / drag
             selectedLayer: null,
             dragging: false,
             dragStartX: 0,
@@ -75,11 +69,7 @@ app.registerExtension({
             dragOffsetStartX: 0,
             dragOffsetStartY: 0,
         };
-        node.layerState = layerState;
-
-        // Hidden widget refs (DA3 pattern)
-        // Stores { 1: {x: widget, y: widget}, ... }
-        const hiddenRefs = {};
+        node._layerState = state;
 
         // =============================================
         // 2. WIDGET HELPERS
@@ -89,67 +79,70 @@ app.registerExtension({
             node.widgets?.find((w) => w.name === name);
 
         /**
-         * Hide layer_1_x and layer_1_y (DA3 pattern)
+         * Get layer x value from its widget
          */
-        const hideInitialXY = () => {
-            const xw = findWidget("layer_1_x");
-            const yw = findWidget("layer_1_y");
-            if (xw || yw) {
-                hiddenRefs[1] = {
-                    x: xw || null,
-                    y: yw || null,
-                };
-                const hideSet = new Set(
-                    [xw, yw].filter(Boolean)
-                );
-                node.widgets = node.widgets.filter(
-                    (w) => !hideSet.has(w)
-                );
+        const getLayerX = (idx) => {
+            const w = findWidget(`layer_${idx}_x`);
+            return w ? w.value : 0;
+        };
+
+        const getLayerY = (idx) => {
+            const w = findWidget(`layer_${idx}_y`);
+            return w ? w.value : 0;
+        };
+
+        /**
+         * Set layer x/y widget values
+         */
+        const setLayerXY = (idx, x, y) => {
+            const xw = findWidget(`layer_${idx}_x`);
+            const yw = findWidget(`layer_${idx}_y`);
+            if (xw) {
+                xw.value = x;
+                if (xw.callback) xw.callback(x);
+            }
+            if (yw) {
+                yw.value = y;
+                if (yw.callback) yw.callback(y);
             }
         };
 
         /**
-         * Ensure per-layer visible widgets exist
+         * Create per-layer widgets for a given index.
+         * Widgets stay visible and serialize normally.
          */
         const ensureLayerWidgets = (idx) => {
-            const scaleName = `layer_${idx}_scale`;
-            const opacityName = `layer_${idx}_opacity`;
-            const blendName = `layer_${idx}_blend`;
-            const xName = `layer_${idx}_x`;
-            const yName = `layer_${idx}_y`;
+            const names = {
+                x: `layer_${idx}_x`,
+                y: `layer_${idx}_y`,
+                scale: `layer_${idx}_scale`,
+                opacity: `layer_${idx}_opacity`,
+                blend: `layer_${idx}_blend`,
+            };
 
-            // Create x/y hidden widgets if needed
-            if (!hiddenRefs[idx]) {
-                hiddenRefs[idx] = { x: null, y: null };
-            }
-            if (!hiddenRefs[idx].x) {
-                const xw = node.addWidget(
-                    "number", xName, 0,
-                    () => {},
-                    { min: -8192, max: 8192, step: 1 }
-                );
-                hiddenRefs[idx].x = xw;
-                // Immediately hide
-                node.widgets = node.widgets.filter(
-                    (w) => w !== xw
-                );
-            }
-            if (!hiddenRefs[idx].y) {
-                const yw = node.addWidget(
-                    "number", yName, 0,
-                    () => {},
-                    { min: -8192, max: 8192, step: 1 }
-                );
-                hiddenRefs[idx].y = yw;
-                node.widgets = node.widgets.filter(
-                    (w) => w !== yw
-                );
-            }
-
-            // Create visible widgets if missing
-            if (!findWidget(scaleName)) {
+            if (!findWidget(names.x)) {
                 node.addWidget(
-                    "slider", scaleName, 1.0,
+                    "number", names.x, 0,
+                    () => { redrawCanvas(); },
+                    {
+                        min: -8192, max: 8192,
+                        step: 1, precision: 0,
+                    }
+                );
+            }
+            if (!findWidget(names.y)) {
+                node.addWidget(
+                    "number", names.y, 0,
+                    () => { redrawCanvas(); },
+                    {
+                        min: -8192, max: 8192,
+                        step: 1, precision: 0,
+                    }
+                );
+            }
+            if (!findWidget(names.scale)) {
+                node.addWidget(
+                    "slider", names.scale, 1.0,
                     () => {},
                     {
                         min: 0.01, max: 10.0,
@@ -157,9 +150,9 @@ app.registerExtension({
                     }
                 );
             }
-            if (!findWidget(opacityName)) {
+            if (!findWidget(names.opacity)) {
                 node.addWidget(
-                    "slider", opacityName, 1.0,
+                    "slider", names.opacity, 1.0,
                     () => {},
                     {
                         min: 0.0, max: 1.0,
@@ -167,9 +160,9 @@ app.registerExtension({
                     }
                 );
             }
-            if (!findWidget(blendName)) {
+            if (!findWidget(names.blend)) {
                 node.addWidget(
-                    "combo", blendName, "normal",
+                    "combo", names.blend, "normal",
                     () => {},
                     { values: BLEND_MODES }
                 );
@@ -180,71 +173,54 @@ app.registerExtension({
          * Remove per-layer widgets
          */
         const removeLayerWidgets = (idx) => {
-            const names = [
+            const prefixes = [
+                `layer_${idx}_x`,
+                `layer_${idx}_y`,
                 `layer_${idx}_scale`,
                 `layer_${idx}_opacity`,
                 `layer_${idx}_blend`,
             ];
             node.widgets = node.widgets.filter(
-                (w) => !names.includes(w.name)
+                (w) => !prefixes.includes(w.name)
             );
-            // Clear hidden refs
-            if (hiddenRefs[idx]) {
-                // Remove hidden x/y widgets too
-                const xw = hiddenRefs[idx].x;
-                const yw = hiddenRefs[idx].y;
-                if (xw) {
-                    node.widgets = node.widgets.filter(
-                        (w) => w !== xw
-                    );
-                }
-                if (yw) {
-                    node.widgets = node.widgets.filter(
-                        (w) => w !== yw
-                    );
-                }
-                delete hiddenRefs[idx];
-            }
+            // Clear preview data
+            delete state.layers[idx];
         };
 
         /**
-         * Sort layer widgets in order
+         * Sort layer widgets: group by layer number,
+         * order: x, y, scale, opacity, blend
          */
         const sortLayerWidgets = () => {
             if (!node.widgets) return;
-            const layerWidgets = [];
-            const otherWidgets = [];
+            const layerW = [];
+            const otherW = [];
             for (const w of node.widgets) {
                 if (w.name.match(/^layer_\d+_/)) {
-                    layerWidgets.push(w);
+                    layerW.push(w);
                 } else {
-                    otherWidgets.push(w);
+                    otherW.push(w);
                 }
             }
-            layerWidgets.sort((a, b) => {
-                const aNum = parseInt(
+            const order = {
+                x: 0, y: 1, scale: 2,
+                opacity: 3, blend: 4,
+            };
+            layerW.sort((a, b) => {
+                const aIdx = parseInt(
                     a.name.match(/^layer_(\d+)_/)[1]
                 );
-                const bNum = parseInt(
+                const bIdx = parseInt(
                     b.name.match(/^layer_(\d+)_/)[1]
                 );
-                if (aNum !== bNum) return aNum - bNum;
-                // Within same layer: scale, opacity,
-                // blend
-                const order = {
-                    scale: 0, opacity: 1, blend: 2,
-                };
-                const aType = a.name.split("_").pop();
-                const bType = b.name.split("_").pop();
-                return (
-                    (order[aType] ?? 99) -
-                    (order[bType] ?? 99)
-                );
+                if (aIdx !== bIdx) return aIdx - bIdx;
+                const aKey = a.name.split("_").pop();
+                const bKey = b.name.split("_").pop();
+                return (order[aKey] ?? 9) -
+                    (order[bKey] ?? 9);
             });
             node.widgets.length = 0;
-            node.widgets.push(
-                ...otherWidgets, ...layerWidgets
-            );
+            node.widgets.push(...otherW, ...layerW);
         };
 
         // =============================================
@@ -253,8 +229,8 @@ app.registerExtension({
 
         const getLayerIndices = () => {
             const indices = [];
-            for (const input of node.inputs || []) {
-                const m = input.name.match(
+            for (const inp of node.inputs || []) {
+                const m = inp.name.match(
                     /^layer_(\d+)$/
                 );
                 if (m) indices.push(parseInt(m[1]));
@@ -263,10 +239,10 @@ app.registerExtension({
         };
 
         const isLayerConnected = (idx) => {
-            const input = node.inputs?.find(
+            const inp = node.inputs?.find(
                 (i) => i.name === `layer_${idx}`
             );
-            return input && input.link !== null;
+            return inp && inp.link !== null;
         };
 
         const addLayerInput = (idx) => {
@@ -282,15 +258,15 @@ app.registerExtension({
 
         const removeLayerInput = (idx) => {
             const name = `layer_${idx}`;
-            const inputIdx = node.inputs?.findIndex(
-                (i) => i.name === name
+            const i = node.inputs?.findIndex(
+                (inp) => inp.name === name
             );
-            if (inputIdx >= 0) {
-                const input = node.inputs[inputIdx];
-                if (input.link !== null) {
-                    app.graph.removeLink(input.link);
+            if (i >= 0) {
+                const inp = node.inputs[i];
+                if (inp.link !== null) {
+                    app.graph.removeLink(inp.link);
                 }
-                node.removeInput(inputIdx);
+                node.removeInput(i);
                 return true;
             }
             return false;
@@ -305,14 +281,12 @@ app.registerExtension({
 
             let maxIdx = Math.max(...indices);
 
-            // If bottom-most is connected, add next
             if (
                 isLayerConnected(maxIdx) &&
                 maxIdx < MAX_LAYERS
             ) {
                 addLayerInput(maxIdx + 1);
             } else {
-                // Remove excess empty from bottom
                 while (maxIdx > 1) {
                     const prev = maxIdx - 1;
                     if (
@@ -329,8 +303,8 @@ app.registerExtension({
             }
 
             // Show/hide per-layer widgets
-            const updatedIndices = getLayerIndices();
-            for (const idx of updatedIndices) {
+            const updated = getLayerIndices();
+            for (const idx of updated) {
                 if (isLayerConnected(idx)) {
                     ensureLayerWidgets(idx);
                 } else {
@@ -355,13 +329,13 @@ app.registerExtension({
             overflow: hidden;
             box-sizing: border-box;
         `;
-        layerState.container = container;
+        state.container = container;
 
         // Info bar
         const infoBar = document.createElement("div");
         infoBar.style.cssText = `
             position: absolute;
-            top: 5px; left: 5px; right: 5px;
+            top: 4px; left: 4px; right: 4px;
             z-index: 10;
             display: flex;
             justify-content: space-between;
@@ -373,11 +347,11 @@ app.registerExtension({
         const coordsDisplay =
             document.createElement("div");
         coordsDisplay.style.cssText = `
-            padding: 4px 8px;
+            padding: 3px 7px;
             background: rgba(0,0,0,0.7);
             color: #0f0;
             border-radius: 3px;
-            font-size: 11px;
+            font-size: 10px;
             font-family: monospace;
             pointer-events: none;
         `;
@@ -388,21 +362,20 @@ app.registerExtension({
             document.createElement("button");
         resetBtn.textContent = "Center";
         resetBtn.style.cssText = `
-            padding: 3px 8px;
+            padding: 2px 7px;
             background: rgba(255,255,255,0.15);
             color: #ccc;
             border: 1px solid #444;
             border-radius: 3px;
             cursor: pointer;
-            font-size: 10px;
+            font-size: 9px;
             pointer-events: auto;
         `;
         infoBar.appendChild(resetBtn);
 
-        // Canvas
         const canvas = document.createElement("canvas");
         canvas.width = 400;
-        canvas.height = 300;
+        canvas.height = 250;
         canvas.style.cssText = `
             display: block;
             max-width: 100%;
@@ -411,17 +384,14 @@ app.registerExtension({
         `;
         container.appendChild(canvas);
         const ctx = canvas.getContext("2d");
-        layerState.canvas = canvas;
-        layerState.ctx = ctx;
+        state.canvas = canvas;
+        state.ctx = ctx;
 
-        // DOM widget
         const canvasWidget = node.addDOMWidget(
             "layer_canvas", "customCanvas", container
         );
         canvasWidget.computeSize = (width) => {
-            return [
-                width, layerState.widgetHeight,
-            ];
+            return [width, state.widgetHeight];
         };
         canvasWidget.serializeValue = () => undefined;
 
@@ -430,16 +400,18 @@ app.registerExtension({
         // =============================================
 
         const redrawCanvas = () => {
-            const s = layerState;
+            const s = state;
             const { canvas: c, ctx: cx } = s;
 
             cx.clearRect(0, 0, c.width, c.height);
 
             if (!s.bgImage) {
                 cx.fillStyle = "#1a1a1a";
-                cx.fillRect(0, 0, c.width, c.height);
+                cx.fillRect(
+                    0, 0, c.width, c.height
+                );
                 cx.fillStyle = "#555";
-                cx.font = "13px sans-serif";
+                cx.font = "12px sans-serif";
                 cx.textAlign = "center";
                 cx.fillText(
                     "Run to load preview",
@@ -457,19 +429,17 @@ app.registerExtension({
             s.displayOffsetX = (c.width - dw) / 2;
             s.displayOffsetY = (c.height - dh) / 2;
 
-            // Checkerboard
             drawCheckerboard(
                 cx, s.displayOffsetX,
                 s.displayOffsetY, dw, dh, 8
             );
 
-            // Background
             cx.drawImage(
                 s.bgImage, s.displayOffsetX,
                 s.displayOffsetY, dw, dh
             );
 
-            // Draw each layer
+            // Draw layers
             const layerIndices = Object.keys(
                 s.layers
             ).map(Number).sort((a, b) => a - b);
@@ -478,24 +448,28 @@ app.registerExtension({
                 const lyr = s.layers[idx];
                 if (!lyr || !lyr.image) continue;
 
+                // Read position from widgets
+                const lx_img = getLayerX(idx);
+                const ly_img = getLayerY(idx);
+
                 const lw = lyr.w * s.displayScale;
                 const lh = lyr.h * s.displayScale;
                 const lx =
                     s.displayOffsetX +
-                    lyr.x * s.displayScale;
+                    lx_img * s.displayScale;
                 const ly =
                     s.displayOffsetY +
-                    lyr.y * s.displayScale;
+                    ly_img * s.displayScale;
 
                 cx.drawImage(
                     lyr.image, lx, ly, lw, lh
                 );
 
-                // Border
                 const selected =
                     s.selectedLayer === idx;
                 cx.strokeStyle = selected
-                    ? "#ff0" : "rgba(255,255,255,0.4)";
+                    ? "#ff0"
+                    : "rgba(255,255,255,0.4)";
                 cx.lineWidth = selected ? 2 : 1;
                 cx.setLineDash(
                     selected ? [] : [4, 4]
@@ -507,14 +481,13 @@ app.registerExtension({
                 cx.fillStyle = selected
                     ? "#ff0"
                     : "rgba(255,255,255,0.6)";
-                cx.font = "bold 11px monospace";
+                cx.font = "bold 10px monospace";
                 cx.textAlign = "left";
                 cx.fillText(
-                    `L${idx}`,
-                    lx + 4, ly + 13
+                    `L${idx}`, lx + 3, ly + 12
                 );
 
-                // Crosshair guides when dragging
+                // Crosshair during drag
                 if (selected && s.dragging) {
                     const cxr = lx + lw / 2;
                     const cyr = ly + lh / 2;
@@ -542,46 +515,43 @@ app.registerExtension({
                 }
             }
 
-            // Update coords display
+            // Coords display
             if (s.selectedLayer !== null) {
-                const sl = s.layers[s.selectedLayer];
-                if (sl) {
-                    coordsDisplay.textContent =
-                        `L${s.selectedLayer}:` +
-                        ` x=${sl.x}, y=${sl.y}`;
-                }
+                const sx = getLayerX(s.selectedLayer);
+                const sy = getLayerY(s.selectedLayer);
+                coordsDisplay.textContent =
+                    `L${s.selectedLayer}:` +
+                    ` (${sx}, ${sy})`;
             } else {
                 coordsDisplay.textContent =
                     "No layer selected";
             }
         };
-        node.redrawLayerCanvas = redrawCanvas;
 
         // =============================================
         // 6. MOUSE INTERACTION
         // =============================================
 
-        /**
-         * Hit-test layers top-down
-         */
         const hitTestLayer = (mx, my) => {
-            const s = layerState;
+            const s = state;
             const indices = Object.keys(
                 s.layers
             ).map(Number).sort(
                 (a, b) => b - a
-            ); // top layer first
+            );
             for (const idx of indices) {
                 const lyr = s.layers[idx];
                 if (!lyr || !lyr.image) continue;
+                const lx_img = getLayerX(idx);
+                const ly_img = getLayerY(idx);
                 const lw = lyr.w * s.displayScale;
                 const lh = lyr.h * s.displayScale;
                 const lx =
                     s.displayOffsetX +
-                    lyr.x * s.displayScale;
+                    lx_img * s.displayScale;
                 const ly =
                     s.displayOffsetY +
-                    lyr.y * s.displayScale;
+                    ly_img * s.displayScale;
                 if (
                     mx >= lx && mx <= lx + lw &&
                     my >= ly && my <= ly + lh
@@ -593,30 +563,27 @@ app.registerExtension({
         };
 
         canvas.addEventListener("mousedown", (e) => {
-            const s = layerState;
+            const s = state;
             if (!s.bgImage) return;
 
             const rect =
                 canvas.getBoundingClientRect();
             const mx =
                 ((e.clientX - rect.left) /
-                    rect.width) *
-                canvas.width;
+                    rect.width) * canvas.width;
             const my =
                 ((e.clientY - rect.top) /
-                    rect.height) *
-                canvas.height;
+                    rect.height) * canvas.height;
 
             const hit = hitTestLayer(mx, my);
             s.selectedLayer = hit;
 
             if (hit !== null) {
-                const lyr = s.layers[hit];
                 s.dragging = true;
                 s.dragStartX = mx;
                 s.dragStartY = my;
-                s.dragOffsetStartX = lyr.x;
-                s.dragOffsetStartY = lyr.y;
+                s.dragOffsetStartX = getLayerX(hit);
+                s.dragOffsetStartY = getLayerY(hit);
                 canvas.style.cursor = "grabbing";
             }
 
@@ -624,18 +591,15 @@ app.registerExtension({
         });
 
         canvas.addEventListener("mousemove", (e) => {
-            const s = layerState;
-
+            const s = state;
             const rect =
                 canvas.getBoundingClientRect();
             const mx =
                 ((e.clientX - rect.left) /
-                    rect.width) *
-                canvas.width;
+                    rect.width) * canvas.width;
             const my =
                 ((e.clientY - rect.top) /
-                    rect.height) *
-                canvas.height;
+                    rect.height) * canvas.height;
 
             if (s.dragging && s.selectedLayer !== null) {
                 const dx =
@@ -644,52 +608,35 @@ app.registerExtension({
                 const dy =
                     (my - s.dragStartY) /
                     s.displayScale;
-                const lyr = s.layers[s.selectedLayer];
-                lyr.x = Math.round(
+                const newX = Math.round(
                     s.dragOffsetStartX + dx
                 );
-                lyr.y = Math.round(
+                const newY = Math.round(
                     s.dragOffsetStartY + dy
+                );
+                setLayerXY(
+                    s.selectedLayer, newX, newY
                 );
                 redrawCanvas();
             } else {
-                // Hover cursor
                 const hit = hitTestLayer(mx, my);
                 canvas.style.cursor =
-                    hit !== null ? "grab" : "default";
+                    hit !== null ? "move" : "default";
             }
         });
 
         const finalizeDrag = () => {
-            const s = layerState;
+            const s = state;
             if (!s.dragging) return;
             s.dragging = false;
-            canvas.style.cursor = "grab";
-
-            if (s.selectedLayer !== null) {
-                const lyr =
-                    s.layers[s.selectedLayer];
-                const idx = s.selectedLayer;
-                const xRef = hiddenRefs[idx]?.x;
-                const yRef = hiddenRefs[idx]?.y;
-                if (xRef) {
-                    xRef.value = lyr.x;
-                    if (xRef.callback) {
-                        xRef.callback(lyr.x);
-                    }
-                }
-                if (yRef) {
-                    yRef.value = lyr.y;
-                    if (yRef.callback) {
-                        yRef.callback(lyr.y);
-                    }
-                }
-            }
+            canvas.style.cursor = "move";
             redrawCanvas();
             app.graph.setDirtyCanvas(true, true);
         };
 
-        canvas.addEventListener("mouseup", finalizeDrag);
+        canvas.addEventListener(
+            "mouseup", finalizeDrag
+        );
         canvas.addEventListener(
             "mouseleave", finalizeDrag
         );
@@ -698,7 +645,7 @@ app.registerExtension({
         resetBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            const s = layerState;
+            const s = state;
             if (
                 s.selectedLayer === null ||
                 !s.bgImage
@@ -707,19 +654,13 @@ app.registerExtension({
             }
             const lyr = s.layers[s.selectedLayer];
             if (!lyr) return;
-            lyr.x = Math.round(
+            const cx = Math.round(
                 (s.bgW - lyr.w) / 2
             );
-            lyr.y = Math.round(
+            const cy = Math.round(
                 (s.bgH - lyr.h) / 2
             );
-            const idx = s.selectedLayer;
-            if (hiddenRefs[idx]?.x) {
-                hiddenRefs[idx].x.value = lyr.x;
-            }
-            if (hiddenRefs[idx]?.y) {
-                hiddenRefs[idx].y.value = lyr.y;
-            }
+            setLayerXY(s.selectedLayer, cx, cy);
             redrawCanvas();
             app.graph.setDirtyCanvas(true, true);
         });
@@ -729,128 +670,104 @@ app.registerExtension({
         // =============================================
 
         node.onExecuted = (message) => {
-            const s = layerState;
+            const s = state;
 
-            if (message.bg_preview?.[0]) {
-                const bgImg = new Image();
-                bgImg.onload = () => {
-                    s.bgImage = bgImg;
-                    s.bgW = message.bg_size[0];
-                    s.bgH = message.bg_size[1];
+            if (!message.bg_preview?.[0]) return;
 
-                    const nodeW =
-                        node.size[0] || 400;
-                    const availW = nodeW - 20;
-                    const aspect = s.bgH / s.bgW;
-                    const newH = Math.min(
-                        400,
-                        Math.round(availW * aspect)
+            const bgImg = new Image();
+            bgImg.onload = () => {
+                s.bgImage = bgImg;
+                s.bgW = message.bg_size[0];
+                s.bgH = message.bg_size[1];
+
+                const nodeW = node.size[0] || 450;
+                const availW = nodeW - 20;
+                const aspect = s.bgH / s.bgW;
+                const newH = Math.min(
+                    350,
+                    Math.round(availW * aspect)
+                );
+
+                canvas.width = Math.round(availW);
+                canvas.height = newH;
+                s.widgetHeight = newH;
+                container.style.height =
+                    newH + "px";
+
+                // Load layer previews
+                const previews =
+                    message.layer_previews || [];
+                const sizes =
+                    message.layer_sizes || [];
+
+                // Map to connected layer indices
+                const connectedIndices =
+                    getLayerIndices().filter(
+                        (i) => isLayerConnected(i)
                     );
 
-                    canvas.width =
-                        Math.round(availW);
-                    canvas.height = newH;
-                    s.widgetHeight = newH;
-                    container.style.height =
-                        newH + "px";
+                // Clear old layer preview data
+                s.layers = {};
 
-                    // Load layers
-                    const previews =
-                        message.layer_previews || [];
-                    const sizes =
-                        message.layer_sizes || [];
-                    const positions =
-                        message.layer_positions || [];
+                let loaded = 0;
+                const total = previews.length;
 
-                    let loaded = 0;
-                    const total = previews.length;
+                if (total === 0) {
+                    node._isResizing = true;
+                    node.setSize(
+                        node.computeSize()
+                    );
+                    setTimeout(() => {
+                        node._isResizing = false;
+                    }, 50);
+                    redrawCanvas();
+                    return;
+                }
 
-                    if (total === 0) {
-                        s.layers = {};
-                        node._isResizing = true;
-                        node.setSize(
-                            node.computeSize()
-                        );
-                        setTimeout(() => {
-                            node._isResizing = false;
-                        }, 50);
-                        redrawCanvas();
-                        return;
-                    }
-
-                    // Map connected layer indices
-                    const connectedIndices =
-                        getLayerIndices().filter(
-                            (i) => isLayerConnected(i)
-                        );
-
-                    for (
-                        let i = 0;
-                        i < total;
-                        i++
-                    ) {
-                        const idx =
-                            connectedIndices[i] || (i + 1);
-                        const lyrImg = new Image();
-                        const lyrIdx = idx;
-                        lyrImg.onload = () => {
-                            if (!s.layers[lyrIdx]) {
-                                s.layers[lyrIdx] = {};
-                            }
-                            const sl = s.layers[lyrIdx];
-                            sl.image = lyrImg;
-                            sl.w = sizes[i]?.[0] ||
-                                lyrImg.width;
-                            sl.h = sizes[i]?.[1] ||
-                                lyrImg.height;
-                            // Use position from
-                            // backend or keep
-                            // existing
-                            if (sl.x === undefined) {
-                                sl.x =
-                                    positions[i]?.[0] ||
-                                    0;
-                            }
-                            if (sl.y === undefined) {
-                                sl.y =
-                                    positions[i]?.[1] ||
-                                    0;
-                            }
-                            loaded++;
-                            if (loaded >= total) {
-                                node._isResizing = true;
-                                node.setSize(
-                                    node.computeSize()
-                                );
-                                setTimeout(() => {
-                                    node._isResizing =
-                                        false;
-                                }, 50);
-                                redrawCanvas();
-                            }
+                for (let i = 0; i < total; i++) {
+                    const idx =
+                        connectedIndices[i] || (i + 1);
+                    const lyrImg = new Image();
+                    const capturedIdx = idx;
+                    lyrImg.onload = () => {
+                        s.layers[capturedIdx] = {
+                            image: lyrImg,
+                            w: sizes[i]?.[0] ||
+                                lyrImg.width,
+                            h: sizes[i]?.[1] ||
+                                lyrImg.height,
                         };
-                        lyrImg.src =
-                            "data:image/png;base64," +
-                            previews[i];
-                    }
-                };
-                bgImg.src =
-                    "data:image/jpeg;base64," +
-                    message.bg_preview[0];
-            }
+                        loaded++;
+                        if (loaded >= total) {
+                            node._isResizing = true;
+                            node.setSize(
+                                node.computeSize()
+                            );
+                            setTimeout(() => {
+                                node._isResizing =
+                                    false;
+                            }, 50);
+                            redrawCanvas();
+                        }
+                    };
+                    lyrImg.src =
+                        "data:image/png;base64," +
+                        previews[i];
+                }
+            };
+            bgImg.src =
+                "data:image/jpeg;base64," +
+                message.bg_preview[0];
         };
 
         // Connection changes
-        const origOnConnectionsChange =
-            node.onConnectionsChange;
+        const origOnCC = node.onConnectionsChange;
         node.onConnectionsChange = function (
             type, slotIndex, isConnected,
             link, ioSlot
         ) {
-            if (origOnConnectionsChange) {
-                origOnConnectionsChange.apply(
-                    this, arguments
-                );
+            if (origOnCC) {
+                origOnCC.apply(this, arguments);
             }
             if (type === 1) {
                 setTimeout(updateDynamicInputs, 50);
@@ -858,12 +775,10 @@ app.registerExtension({
         };
 
         // Workflow load
-        const origOnConfigure = node.onConfigure;
+        const origOnCfg = node.onConfigure;
         node.onConfigure = function (config) {
-            if (origOnConfigure) {
-                origOnConfigure.apply(
-                    this, arguments
-                );
+            if (origOnCfg) {
+                origOnCfg.apply(this, arguments);
             }
             if (config.inputs) {
                 for (const inp of config.inputs) {
@@ -877,44 +792,27 @@ app.registerExtension({
             }
             setTimeout(() => {
                 updateDynamicInputs();
-                // Restore layer positions from
-                // hidden widgets
-                const s = layerState;
-                for (const [k, refs] of
-                    Object.entries(hiddenRefs)
-                ) {
-                    const idx = parseInt(k);
-                    if (!s.layers[idx]) {
-                        s.layers[idx] = {};
-                    }
-                    if (refs.x) {
-                        s.layers[idx].x = refs.x.value;
-                    }
-                    if (refs.y) {
-                        s.layers[idx].y = refs.y.value;
-                    }
-                }
                 redrawCanvas();
             }, 100);
         };
 
         // Resize
-        const origOnResize = node.onResize;
+        const origResize = node.onResize;
         node.onResize = function (size) {
-            if (origOnResize) {
-                origOnResize.apply(this, arguments);
+            if (origResize) {
+                origResize.apply(this, arguments);
             }
             if (node._isResizing) return;
             node._isResizing = true;
             const newH = Math.max(
-                150, size[1] - 200
+                120, size[1] - 200
             );
             if (
                 Math.abs(
-                    newH - layerState.widgetHeight
+                    newH - state.widgetHeight
                 ) > 5
             ) {
-                layerState.widgetHeight = newH;
+                state.widgetHeight = newH;
                 container.style.height =
                     newH + "px";
                 redrawCanvas();
@@ -924,7 +822,6 @@ app.registerExtension({
             }, 50);
         };
 
-        // ResizeObserver
         const observer = new ResizeObserver(() => {
             redrawCanvas();
         });
@@ -935,12 +832,18 @@ app.registerExtension({
         // =============================================
 
         setTimeout(() => {
-            // Hide layer_1 x/y widgets
-            hideInitialXY();
+            // Remove statically-defined layer_1
+            // widgets since they get re-added
+            // dynamically when layer_1 is connected
+            const staticNames = [
+                "layer_1_x", "layer_1_y",
+                "layer_1_scale", "layer_1_opacity",
+                "layer_1_blend",
+            ];
+            node.widgets = node.widgets.filter(
+                (w) => !staticNames.includes(w.name)
+            );
 
-            // Also hide the static layer_1
-            // visible widgets if layer_1 not
-            // connected
             const indices = getLayerIndices();
             if (indices.length === 0) {
                 addLayerInput(1);
@@ -948,11 +851,11 @@ app.registerExtension({
 
             updateDynamicInputs();
 
-            const nodeW = Math.max(
-                400, node.size[0] || 400
-            );
-            container.style.height = "300px";
-            node.setSize([nodeW, 550]);
+            container.style.height = "250px";
+            node.setSize([
+                Math.max(450, node.size[0] || 450),
+                node.computeSize()[1],
+            ]);
             redrawCanvas();
         }, 100);
     },

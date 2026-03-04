@@ -324,6 +324,24 @@ class VideoLayerHoDown:
                 "blend": blend,
             })
 
+        # Encode bg preview (always needed for canvas)
+        bg_preview = self._encode_preview_jpeg(
+            background[0]
+        )
+
+        # No layers connected - return bg unchanged
+        if not layers:
+            return {
+                "ui": {
+                    "bg_preview": [bg_preview],
+                    "layer_previews": [],
+                    "bg_size": [bg_w, bg_h],
+                    "layer_sizes": [],
+                    "layer_positions": [],
+                },
+                "result": (background,),
+            }
+
         # Determine max batch size
         max_b = bg_b
         for lyr in layers:
@@ -335,10 +353,6 @@ class VideoLayerHoDown:
             result = result.contiguous()
         result = result.clone()
 
-        # Encode previews
-        bg_preview = self._encode_preview_jpeg(
-            background[0]
-        )
         layer_previews = []
         layer_sizes = []
         layer_positions = []
@@ -423,13 +437,6 @@ class VideoLayerHoDown:
             layer_positions.append(
                 [lyr["x"], lyr["y"]]
             )
-
-        layer_count = len(layers)
-        print(
-            f"[VideoLayerHoDown] {layer_count}"
-            f" layer(s), {max_b} frame(s),"
-            f" bg={bg_h}x{bg_w}"
-        )
 
         return {
             "ui": {
