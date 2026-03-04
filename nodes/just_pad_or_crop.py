@@ -1,10 +1,28 @@
 """
-Just Pad or Crop It
-Resize an image to match a reference by padding with gray or cropping.
+Just Pad or Crop It  /  Just Mask Those Pads
+Resize an image to match a reference by padding with gray or cropping,
+and generate an inpainting mask for the padded regions.
 """
 
 import torch
 from typing import Dict, Any, Tuple
+
+
+def _compute_offsets(
+    h_src: int, w_src: int,
+    h_target: int, w_target: int,
+    center: bool,
+) -> Tuple[int, int, int, int, int, int]:
+    """Return (copy_h, copy_w, src_y, src_x, dst_y, dst_x)."""
+    copy_h = min(h_src, h_target)
+    copy_w = min(w_src, w_target)
+
+    src_y = (h_src - copy_h) // 2 if center else 0
+    src_x = (w_src - copy_w) // 2 if center else 0
+    dst_y = (h_target - copy_h) // 2 if center else 0
+    dst_x = (w_target - copy_w) // 2 if center else 0
+
+    return copy_h, copy_w, src_y, src_x, dst_y, dst_x
 
 
 class JustPadOrCropIt:
@@ -85,17 +103,8 @@ class JustPadOrCropIt:
         dtype = image.dtype
         center = alignment == "center"
 
-        # -- Compute source region to copy (crop if oversized) --
-        copy_h = min(h_src, h_target)
-        copy_w = min(w_src, w_target)
-
-        # Offsets into the source tensor (crop origin)
-        src_y = (h_src - copy_h) // 2 if center else 0
-        src_x = (w_src - copy_w) // 2 if center else 0
-
-        # Offsets into the output tensor (pad origin)
-        dst_y = (h_target - copy_h) // 2 if center else 0
-        dst_x = (w_target - copy_w) // 2 if center else 0
+        copy_h, copy_w, src_y, src_x, dst_y, dst_x = \
+            _compute_offsets(h_src, w_src, h_target, w_target, center)
 
         # -- Fast path: dimensions already match --
         if h_src == h_target and w_src == w_target:
@@ -138,12 +147,105 @@ class JustPadOrCropIt:
         return (output, mask)
 
 
+class JustMaskThosePads:
+    """
+    Generate an inpainting mask for the padded regions only.
+
+    Takes the same reference + image inputs as Just Pad or Crop It
+    and outputs a mask where 1.0 = padded area, 0.0 = real pixel.
+    Useful for feeding directly into an inpainting sampler.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls) -> Dict[str, Any]:
+        return {
+            "required": {
+                "reference": ("IMAGE", {
+                    "tooltip": (
+                        "Reference image whose height and width "
+                        "define the target size"
+                    ),
+                }),
+                "image": ("IMAGE", {
+                    "tooltip": (
+                        "Original image before padding/cropping "
+                        "(used only for its dimensions)"
+                    ),
+                }),
+            },
+            "optional": {
+                "alignment": (["center", "top-left"], {
+                    "default": "center",
+                    "tooltip": (
+                        "Must match the alignment used in "
+                        "Just Pad or Crop It"
+                    ),
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("MASK",)
+    RETURN_NAMES = ("pad_mask",)
+    OUTPUT_TOOLTIPS = (
+        "Binary mask: 1.0 = padded region, 0.0 = real pixel",
+    )
+
+    FUNCTION = "execute"
+    CATEGORY = "Trent/Image"
+    DESCRIPTION = (
+        "Generate a mask highlighting only the padded regions "
+        "from a pad-or-crop operation. 1.0 where pads are, "
+        "0.0 where real pixels are. Feed into inpainting."
+    )
+
+    def execute(
+        self,
+        reference: torch.Tensor,
+        image: torch.Tensor,
+        alignment: str = "center",
+    ) -> Tuple[torch.Tensor]:
+        """Build a mask where padded areas are 1.0."""
+        _, h_target, w_target, _ = reference.shape
+        batch, h_src, w_src, _ = image.shape
+        device = image.device
+        dtype = image.dtype
+        center = alignment == "center"
+
+        # No padding happened
+        if h_src >= h_target and w_src >= w_target:
+            mask = torch.zeros(
+                (batch, h_target, w_target),
+                dtype=dtype, device=device,
+            )
+            return (mask,)
+
+        copy_h, copy_w, _, _, dst_y, dst_x = \
+            _compute_offsets(
+                h_src, w_src, h_target, w_target, center,
+            )
+
+        # Start with all-pads, carve out the real region
+        mask = torch.ones(
+            (batch, h_target, w_target),
+            dtype=dtype, device=device,
+        )
+        mask[
+            :,
+            dst_y:dst_y + copy_h,
+            dst_x:dst_x + copy_w,
+        ] = 0.0
+
+        return (mask,)
+
+
 NODE_CLASS_MAPPINGS = {
     "JustPadOrCropIt": JustPadOrCropIt,
+    "JustMaskThosePads": JustMaskThosePads,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "JustPadOrCropIt": "Just Pad or Crop It",
+    "JustMaskThosePads": "Just Mask Those Pads",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
