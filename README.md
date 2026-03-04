@@ -7,15 +7,13 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
-### NEW: Grab First Frame + Just Pad or Crop It
+### NEW: Save Transparent Video
 
-> **Grab First Frame** -- Returns the first frame from an image batch.
-> One input, one output, zero settings. Find it under **Trent/Image**.
->
-> **Just Pad or Crop It** -- Match any image to a reference size by
-> padding (gray fill) or center-cropping each axis independently.
-> Outputs a binary mask for the padded regions. Find it under
-> **Trent/Image**.
+> Export image batches as video with alpha channel transparency.
+> Three formats: **Animated WebP** (web-ready), **ProRes 4444 MOV**
+> (professional compositing), and **PNG sequence** (lossless).
+> Alpha from MASK input, RGBA 4th channel, or fully opaque fallback.
+> Find it under **Trent/Video**.
 
 ---
 
@@ -41,7 +39,7 @@ pip install -r requirements.txt
 
 All nodes are organized under the `Trent/` category for easy navigation.
 
-### 📹 Trent/Video (8 nodes)
+### Trent/Video (9 nodes)
 
 **Chop Cuts**
 Accurate scene detection and video splitting. Automatically detects cuts, fades, and transitions using multi-metric analysis, then exports each scene as a separate MP4 file with a detailed report of cut locations and timestamps.
@@ -63,6 +61,9 @@ GPU-accelerated frame duplication to slow down image, mask, or latent batches. S
 
 **Frame Ramp Boogie**
 GPU-accelerated frame interpolation that inserts blended intermediate frames between consecutive frame pairs. Features configurable easing curves (linear, ease in/out, cubic bezier with presets) and region targeting (full batch, start, middle, end). Creates smooth slow-motion with actual frame blending instead of simple duplication.
+
+**Save Transparent Video**
+Export image batches as video with alpha channel transparency. Three output formats: Animated WebP (good compression, browser-ready), ProRes 4444 MOV (lossless for DaVinci Resolve / After Effects), and PNG image sequence (universal lossless fallback). Alpha is sourced from an optional MASK input, the 4th channel of RGBA images, or defaults to fully opaque. Supports mask auto-resize, single-mask-to-batch broadcast, and configurable quality/FPS. All alpha compositing is GPU-accelerated.
 
 **MatAnyone Video Matte**
 Temporally-consistent video matting using MatAnyone (CVPR 2025). Given a single initial mask (or auto-generated via BiRefNet), propagates it across all video frames with memory-based temporal consistency. Produces flicker-free alpha mattes for compositing over chroma key or custom backgrounds. All compositing is GPU-accelerated via torch.lerp.
@@ -311,7 +312,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 
 ## Features
 
-✅ **61 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
+✅ **62 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
 ✅ **Canvas tools** - Grid Paste for bulk node duplication with auto-layout
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart
