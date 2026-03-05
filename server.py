@@ -203,14 +203,24 @@ async def validate_path(request):
 
     if os.path.isdir(path):
         result["type"] = "dir"
-        # Count image files
-        image_exts = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.tiff'}
+        # Choose extension set based on media type
+        media_type = query.get("media", "image")
+        if media_type == "video":
+            valid_exts = {
+                '.mp4', '.avi', '.mov', '.mkv', '.webm',
+                '.flv', '.wmv', '.m4v', '.mpg', '.mpeg',
+            }
+        else:
+            valid_exts = {
+                '.png', '.jpg', '.jpeg', '.bmp',
+                '.gif', '.webp', '.tiff',
+            }
         try:
             count = 0
             for entry in os.scandir(path):
                 if entry.is_file():
                     ext = os.path.splitext(entry.name)[1].lower()
-                    if ext in image_exts:
+                    if ext in valid_exts:
                         count += 1
             result["count"] = count
         except OSError:
