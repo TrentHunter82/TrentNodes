@@ -437,6 +437,74 @@ class AlignStylizedFrame:
             'styl_shoulders': styl_shoulders
         }
 
+    def _extract_and_scale_subject(
+        self, image, mask, bbox,
+        scale_ratio, H, W, pad=20
+    ):
+        """
+        Extract subject crop from bbox and scale it.
+
+        Args:
+            image: (B, H, W, C) source image
+            mask: (B, H, W) subject mask
+            bbox: (y_min, y_max, x_min, x_max)
+            scale_ratio: Scale factor (1.0 = no change)
+            H: Image height for clamping
+            W: Image width for clamping
+            pad: Padding around bbox in pixels
+
+        Returns:
+            Tuple of (subject, mask, new_h, new_w,
+                      y_min, x_min, crop_h, crop_w,
+                      was_scaled)
+        """
+        y_min = max(0, bbox[0] - pad)
+        y_max = min(H, bbox[1] + pad)
+        x_min = max(0, bbox[2] - pad)
+        x_max = min(W, bbox[3] + pad)
+
+        subject = image[
+            :, y_min:y_max, x_min:x_max, :
+        ]
+        mask_crop = mask[
+            :, y_min:y_max, x_min:x_max
+        ]
+
+        crop_h = y_max - y_min
+        crop_w = x_max - x_min
+
+        if abs(scale_ratio - 1.0) > 0.01:
+            new_h = max(1, int(crop_h * scale_ratio))
+            new_w = max(1, int(crop_w * scale_ratio))
+
+            subject = F.interpolate(
+                subject.permute(0, 3, 1, 2),
+                size=(new_h, new_w),
+                mode='bilinear',
+                align_corners=False
+            ).permute(0, 2, 3, 1)
+
+            mask_crop = F.interpolate(
+                mask_crop.unsqueeze(1),
+                size=(new_h, new_w),
+                mode='bilinear',
+                align_corners=False
+            ).squeeze(1)
+
+            return (
+                subject, mask_crop,
+                new_h, new_w,
+                y_min, x_min,
+                crop_h, crop_w, True
+            )
+
+        return (
+            subject, mask_crop,
+            crop_h, crop_w,
+            y_min, x_min,
+            crop_h, crop_w, False
+        )
+
     def preserve_subject_inpaint_background(self, stylized_before_transform, aligned_bg,
                                              original_image, orig_mask, styl_mask,
                                              aligned_styl_mask,
@@ -467,8 +535,11 @@ class AlignStylizedFrame:
             device: torch device
 
         Returns:
-            result: Final composited image
-            info: String describing what was done
+            Tuple of (result, info, inpaint_mask):
+            - result: Final composited image
+            - info: String describing what was done
+            - inpaint_mask: Mask of inpainted region,
+              or None if detection failed
         """
         B, H, W, C = aligned_bg.shape
 
@@ -483,7 +554,11 @@ class AlignStylizedFrame:
         styl_w = styl_bbox[3] - styl_bbox[2]
 
         if styl_h <= 0 or styl_w <= 0 or orig_h <= 0 or orig_w <= 0:
-            return aligned_bg, "Subject detection failed"
+            return (
+                aligned_bg,
+                "Subject detection failed",
+                None
+            )
 
         # Use CENTROID for positioning (center of mass) - needed as fallback
         orig_cy, orig_cx = get_mask_centroid(orig_mask)
@@ -571,46 +646,27 @@ class AlignStylizedFrame:
             orig_shoulder_center_y = (orig_shoulders[0][1] + orig_shoulders[1][1]) / 2
             orig_shoulder_center_x = (orig_shoulders[0][0] + orig_shoulders[1][0]) / 2
 
-            # 1. Extract subject from ORIGINAL stylized
-            pad = 30
-            extract_y_min = max(0, styl_bbox[0] - pad)
-            extract_y_max = min(H, styl_bbox[1] + pad)
-            extract_x_min = max(0, styl_bbox[2] - pad)
-            extract_x_max = min(W, styl_bbox[3] + pad)
+            # 1. Extract and scale subject
+            (
+                subject_scaled, mask_scaled,
+                new_h, new_w,
+                extract_y_min, extract_x_min,
+                crop_h, crop_w, _
+            ) = self._extract_and_scale_subject(
+                stylized_before_transform,
+                styl_mask, styl_bbox,
+                scale_ratio, H, W, pad=30
+            )
 
-            subject_crop = stylized_before_transform[
-                :, extract_y_min:extract_y_max, extract_x_min:extract_x_max, :
-            ]
-            mask_crop = styl_mask[
-                :, extract_y_min:extract_y_max, extract_x_min:extract_x_max
-            ]
+            # 2. Shoulder position within crop
+            shoulder_in_crop_y = (
+                styl_shoulder_center_y - extract_y_min
+            )
+            shoulder_in_crop_x = (
+                styl_shoulder_center_x - extract_x_min
+            )
 
-            crop_h = extract_y_max - extract_y_min
-            crop_w = extract_x_max - extract_x_min
-
-            # 2. Calculate shoulder position WITHIN the crop (before scaling)
-            shoulder_in_crop_y = styl_shoulder_center_y - extract_y_min
-            shoulder_in_crop_x = styl_shoulder_center_x - extract_x_min
-
-            # 3. Scale the crop
-            new_h = max(1, int(crop_h * scale_ratio))
-            new_w = max(1, int(crop_w * scale_ratio))
-
-            subject_scaled = F.interpolate(
-                subject_crop.permute(0, 3, 1, 2),
-                size=(new_h, new_w),
-                mode='bilinear',
-                align_corners=False
-            ).permute(0, 2, 3, 1)
-
-            mask_scaled = F.interpolate(
-                mask_crop.unsqueeze(1),
-                size=(new_h, new_w),
-                mode='bilinear',
-                align_corners=False
-            ).squeeze(1)
-
-            # 4. Shoulder position in scaled crop
+            # 3. Shoulder position in scaled crop
             scaled_shoulder_in_crop_y = shoulder_in_crop_y * scale_ratio
             scaled_shoulder_in_crop_x = shoulder_in_crop_x * scale_ratio
 
@@ -668,48 +724,22 @@ class AlignStylizedFrame:
             )
 
         else:
-            # CENTROID-BASED: Use crop-scale-paste approach
-            # Extract subject from ORIGINAL stylized (before any transforms!)
-            pad = 20
-            extract_y_min = max(0, styl_bbox[0] - pad)
-            extract_y_max = min(H, styl_bbox[1] + pad)
-            extract_x_min = max(0, styl_bbox[2] - pad)
-            extract_x_max = min(W, styl_bbox[3] + pad)
+            # CENTROID-BASED: Extract and scale subject
+            (
+                subject_scaled, mask_scaled,
+                new_h, new_w,
+                extract_y_min, extract_x_min,
+                crop_h, crop_w, was_scaled
+            ) = self._extract_and_scale_subject(
+                stylized_before_transform,
+                styl_mask, styl_bbox,
+                scale_ratio, H, W, pad=20
+            )
 
-            subject_crop = stylized_before_transform[
-                :, extract_y_min:extract_y_max, extract_x_min:extract_x_max, :
-            ]
-            mask_crop = styl_mask[
-                :, extract_y_min:extract_y_max, extract_x_min:extract_x_max
-            ]
-
-            crop_h = extract_y_max - extract_y_min
-            crop_w = extract_x_max - extract_x_min
-
-            # Scale subject if needed
-            if abs(scale_ratio - 1.0) > 0.01:
-                new_h = max(1, int(crop_h * scale_ratio))
-                new_w = max(1, int(crop_w * scale_ratio))
-
-                subject_scaled = F.interpolate(
-                    subject_crop.permute(0, 3, 1, 2),
-                    size=(new_h, new_w),
-                    mode='bilinear',
-                    align_corners=False
-                ).permute(0, 2, 3, 1)
-
-                mask_scaled = F.interpolate(
-                    mask_crop.unsqueeze(1),
-                    size=(new_h, new_w),
-                    mode='bilinear',
-                    align_corners=False
-                ).squeeze(1)
-
-                info_parts.append(f"Scale: {scale_ratio:.3f}")
-            else:
-                subject_scaled = subject_crop
-                mask_scaled = mask_crop
-                new_h, new_w = crop_h, crop_w
+            if was_scaled:
+                info_parts.append(
+                    f"Scale: {scale_ratio:.3f}"
+                )
 
             # Track centroid position within the crop
             centroid_in_crop_y = styl_cy - extract_y_min
@@ -844,6 +874,14 @@ class AlignStylizedFrame:
         mode="heatmap", subject_mask=None
     ):
         """Create a before/after difference visualization."""
+        # Ensure all images are 3-channel RGB
+        if original.shape[-1] > 3:
+            original = original[..., :3]
+        if aligned.shape[-1] > 3:
+            aligned = aligned[..., :3]
+        if before_stylized.shape[-1] > 3:
+            before_stylized = before_stylized[..., :3]
+
         B, H, W, C = original.shape
         label_height = max(20, H // 30)
 
@@ -916,6 +954,7 @@ class AlignStylizedFrame:
 
         return visualization
 
+    @torch.no_grad()
     def align_frames(self, original_image, stylized_image, scale_range=0.05,
                      translation_range=32, search_precision="balanced",
                      visualization_mode="overlay", subject_mode="disabled",
@@ -938,6 +977,12 @@ class AlignStylizedFrame:
         device = mm.get_torch_device()
         original_image = original_image.to(device)
         stylized_image = stylized_image.to(device)
+
+        # Strip alpha channel - ensure 3ch RGB
+        if original_image.shape[-1] > 3:
+            original_image = original_image[..., :3]
+        if stylized_image.shape[-1] > 3:
+            stylized_image = stylized_image[..., :3]
 
         B, H_orig, W_orig, C = original_image.shape
         B_styl, H_styl, W_styl, C_styl = stylized_image.shape
@@ -970,6 +1015,9 @@ class AlignStylizedFrame:
             subject_info = "Subject: auto-detected\n"
         elif subject_mode == "mask" and subject_mask is not None:
             orig_mask = subject_mask.to(device)
+            # Handle IMAGE connected to MASK input (B,H,W,C)
+            if orig_mask.dim() == 4:
+                orig_mask = orig_mask[..., 0]
             if orig_mask.dim() == 2:
                 orig_mask = orig_mask.unsqueeze(0)
             # Resize mask if needed
@@ -1013,7 +1061,7 @@ class AlignStylizedFrame:
 
         # Inpaint mask output (regions needing inpainting)
         output_inpaint_mask = torch.zeros(
-            B, H_orig, W_orig
+            B, H_orig, W_orig, device=device
         )
 
         # PHASE 1.5: Fill transform edges if enabled
@@ -1030,10 +1078,10 @@ class AlignStylizedFrame:
                 # Add edge mask to output for external use
                 if edge_pixel_count > 10:
                     output_inpaint_mask = torch.clamp(
-                        output_inpaint_mask.to(device)
+                        output_inpaint_mask
                         + edge_mask,
                         0, 1
-                    ).cpu()
+                    )
                     edge_info = (
                         "Edge fill: none (mask output)\n"
                     )
@@ -1094,10 +1142,10 @@ class AlignStylizedFrame:
             subject_info += correction_info + "\n"
             if correction_mask is not None:
                 output_inpaint_mask = torch.clamp(
-                    output_inpaint_mask.to(device)
+                    output_inpaint_mask
                     + correction_mask,
                     0, 1
-                ).cpu()
+                )
 
         # Create visualization
         difference_map = (
@@ -1132,7 +1180,7 @@ class AlignStylizedFrame:
             difference_map.cpu(),
             alignment_info,
             output_mask,
-            output_inpaint_mask
+            output_inpaint_mask.cpu()
         )
 
 
