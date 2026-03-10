@@ -203,8 +203,8 @@ class WanVaceKeyframeBuilder:
                 if img.shape[0] > 1:
                     img = img[0:1]
                 
-                # Ensure float32
-                img = img.to(dtype=torch.float32)
+                # Ensure float32 and correct device
+                img = img.to(dtype=torch.float32, device=device)
                 
                 # Resize if dimensions don't match
                 if img.shape[1] != h or img.shape[2] != w:
@@ -223,7 +223,7 @@ class WanVaceKeyframeBuilder:
                 if bg_count > 0:
                     bg_idx = frame_idx % bg_count
                     bg = background_images[bg_idx:bg_idx + 1].to(
-                        dtype=torch.float32
+                        dtype=torch.float32, device=device
                     )
                     if bg.shape[1] != h or bg.shape[2] != w:
                         bg = bg.permute(0, 3, 1, 2)
