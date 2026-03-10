@@ -16,6 +16,21 @@ app.registerExtension({
             return;
         }
         
+        // Cache for frame widget values - survives widget removal/recreation
+        const frameValueCache = {};
+
+        /**
+         * Save all current frame widget values to cache
+         */
+        const cacheAllFrameValues = () => {
+            for (const widget of node.widgets || []) {
+                const match = widget.name.match(/^image_(\d+)_frame$/);
+                if (match) {
+                    frameValueCache[parseInt(match[1])] = widget.value;
+                }
+            }
+        };
+
         /**
          * Get all image input indices currently on the node
          */
@@ -174,14 +189,18 @@ app.registerExtension({
         const ensureFrameWidget = (index) => {
             const frameName = `image_${index}_frame`;
             let widget = node.widgets?.find(w => w.name === frameName);
-            
+
             if (!widget) {
                 const maxFrame = getFrameCount();
+                // Restore cached value if available, otherwise default
+                const defaultValue = frameValueCache[index] ?? index;
                 widget = node.addWidget(
                     "slider",
                     frameName,
-                    index,  // default value = index
-                    (value) => {},
+                    defaultValue,
+                    (value) => {
+                        frameValueCache[index] = value;
+                    },
                     {
                         min: 1,
                         max: maxFrame,
@@ -190,7 +209,7 @@ app.registerExtension({
                     }
                 );
             }
-            
+
             return widget;
         };
         
@@ -216,7 +235,13 @@ app.registerExtension({
         const removeImageInput = (index) => {
             const inputName = `image_${index}`;
             const frameName = `image_${index}_frame`;
-            
+
+            // Cache value before removing widget
+            const widget = node.widgets?.find(w => w.name === frameName);
+            if (widget) {
+                frameValueCache[index] = widget.value;
+            }
+
             // Find and remove the input
             const inputIdx = node.inputs?.findIndex(i => i.name === inputName);
             if (inputIdx >= 0) {
@@ -226,7 +251,7 @@ app.registerExtension({
                 }
                 node.removeInput(inputIdx);
             }
-            
+
             // Find and remove the widget
             const widgetIdx = node.widgets?.findIndex(w => w.name === frameName);
             if (widgetIdx >= 0) {
@@ -268,6 +293,9 @@ app.registerExtension({
          * Update widget visibility - show only for connected inputs
          */
         const updateWidgetVisibility = () => {
+            // Cache all current values before any removal
+            cacheAllFrameValues();
+
             const indices = getImageInputIndices();
 
             for (const idx of indices) {
@@ -382,7 +410,11 @@ app.registerExtension({
             if (originalOnConfigure) {
                 originalOnConfigure.apply(this, arguments);
             }
-            
+
+            // Cache all existing frame widget values before anything
+            // can remove them (values were restored by LiteGraph)
+            cacheAllFrameValues();
+
             // Rebuild dynamic inputs from saved config
             if (config.inputs) {
                 for (const input of config.inputs) {
@@ -393,7 +425,7 @@ app.registerExtension({
                     }
                 }
             }
-            
+
             setTimeout(() => {
                 updateDynamicInputs();
                 updateFrameSliderMax();
@@ -451,6 +483,9 @@ app.registerExtension({
 
         // Initial setup - remove the default image_1_frame widget (we'll add it dynamically when connected)
         setTimeout(() => {
+            // Cache any existing values first (important for workflow load)
+            cacheAllFrameValues();
+
             // Remove the statically-defined image_1_frame widget
             const staticWidget = node.widgets?.find(w => w.name === "image_1_frame");
             if (staticWidget) {
