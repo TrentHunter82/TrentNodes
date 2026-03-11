@@ -1,14 +1,15 @@
 """
 MatAnyone Video Matte node.
 
-Temporally-consistent video matting using MatAnyone (CVPR 2025).
-Given a single initial mask, propagates it across all video
-frames with memory-based temporal consistency. Produces
-flicker-free alpha mattes for green screen compositing.
+Temporally-consistent video matting using MatAnyone 2
+(CVPR 2026) or MatAnyone (CVPR 2025). Given a single
+initial mask, propagates it across all video frames with
+memory-based temporal consistency. Produces flicker-free
+alpha mattes for green screen compositing.
 
-Uses BiRefNet for automatic initial mask generation when no
-mask is provided. All compositing is GPU-accelerated via
-torch.lerp.
+Uses BiRefNet for automatic initial mask generation when
+no mask is provided. All compositing is GPU-accelerated
+via torch.lerp.
 """
 
 import torch
@@ -24,6 +25,10 @@ from ..utils.birefnet_wrapper import (
 from ..utils.matanyone_wrapper import (
     run_matanyone,
     clear_matanyone_cache,
+)
+from ..utils.matanyone2_wrapper import (
+    run_matanyone2,
+    clear_matanyone2_cache,
 )
 from ..utils.mask_ops import (
     dilate_mask,
@@ -63,6 +68,19 @@ class MatAnyoneMatte:
                         " consistency"
                     ),
                 }),
+                "model_version": (
+                    ["v2 (CVPR 2026)", "v1 (CVPR 2025)"],
+                    {
+                        "default": "v2 (CVPR 2026)",
+                        "tooltip": (
+                            "MatAnyone 2 (CVPR 2026) adds"
+                            " a learned quality evaluator"
+                            " for better fine detail and"
+                            " robustness; v1 is the"
+                            " original stable model"
+                        ),
+                    },
+                ),
             },
             "optional": {
                 "mask": ("MASK", {
@@ -153,14 +171,16 @@ class MatAnyoneMatte:
     CATEGORY = "Trent/Video"
     DESCRIPTION = (
         "Temporally-consistent video matting using"
-        " MatAnyone (CVPR 2025). Propagates a single"
-        " mask across all frames with memory-based"
-        " temporal consistency for flicker-free results."
+        " MatAnyone 2 (CVPR 2026) or MatAnyone"
+        " (CVPR 2025). Propagates a single mask across"
+        " all frames with memory-based temporal"
+        " consistency for flicker-free results."
     )
 
     def matte(
         self,
         images: torch.Tensor,
+        model_version: str = "v2 (CVPR 2026)",
         mask: Optional[torch.Tensor] = None,
         mask_frame_index: int = 0,
         n_warmup: int = 10,
@@ -174,8 +194,11 @@ class MatAnyoneMatte:
 
         Args:
             images: (B, H, W, C) video frames in [0, 1]
-            mask: Optional (B, H, W) or (H, W) initial mask
-            mask_frame_index: Reference frame for the mask
+            model_version: "v2 (CVPR 2026)" or
+                "v1 (CVPR 2025)"
+            mask: Optional (B, H, W) or (H, W) initial
+                mask
+            mask_frame_index: Reference frame for mask
             n_warmup: Warmup iterations
             bg_color: Chroma key color or 'none'
             background_images: Optional custom background
@@ -239,16 +262,29 @@ class MatAnyoneMatte:
         mm.unload_all_models()
         mm.soft_empty_cache()
 
-        # Phase 3: Run MatAnyone inference
-        alpha = run_matanyone(
-            images, init_mask, device,
-            n_warmup=n_warmup,
-            mask_frame_index=mask_frame_index,
-        )
+        # Phase 3: Run inference (v2 or v1)
+        use_v2 = "v2" in model_version
+        if use_v2:
+            alpha = run_matanyone2(
+                images, init_mask, device,
+                n_warmup=n_warmup,
+                mask_frame_index=mask_frame_index,
+            )
+            clear_fn = clear_matanyone2_cache
+            model_label = "MatAnyone2"
+        else:
+            alpha = run_matanyone(
+                images, init_mask, device,
+                n_warmup=n_warmup,
+                mask_frame_index=mask_frame_index,
+            )
+            clear_fn = clear_matanyone_cache
+            model_label = "MatAnyone"
 
         if alpha is None:
             print(
-                "[MatAnyoneMatte] MatAnyone not available."
+                f"[MatAnyoneMatte] {model_label} not"
+                " available."
                 " Install: pip install omegaconf"
             )
             empty = torch.zeros(
@@ -257,7 +293,7 @@ class MatAnyoneMatte:
             return (images, empty)
 
         # Free MatAnyone VRAM
-        clear_matanyone_cache()
+        clear_fn()
 
         # Phase 4: Post-process matte
         if mask_expand > 0:
@@ -318,8 +354,9 @@ class MatAnyoneMatte:
             )
 
         print(
-            f"[MatAnyoneMatte] {b} frame(s),"
-            f" {h}x{w}, bg={bg_label},"
+            f"[MatAnyoneMatte] {model_label},"
+            f" {b} frame(s), {h}x{w},"
+            f" bg={bg_label},"
             f" warmup={n_warmup},"
             f" mask_frame={mask_frame_index},"
             f" expand={mask_expand}px,"
