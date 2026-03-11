@@ -115,11 +115,15 @@ class MatAnyoneMatte:
                     ),
                 }),
                 "bg_color": (
-                    list(CHROMA_COLORS.keys()) + ["none"],
+                    list(CHROMA_COLORS.keys()) + [
+                        "transparent", "none"
+                    ],
                     {
                         "default": "green",
                         "tooltip": (
                             "Background color for composite;"
+                            " 'transparent' outputs RGBA with"
+                            " alpha channel embedded;"
                             " 'none' skips compositing and"
                             " returns original images"
                         ),
@@ -162,7 +166,8 @@ class MatAnyoneMatte:
     RETURN_NAMES = ("composite", "alpha_matte")
     OUTPUT_TOOLTIPS = (
         "Foreground composited over the selected"
-        " background color or custom background",
+        " background color or custom background;"
+        " RGBA (4-channel) when bg_color=transparent",
         "Temporally-consistent alpha matte from"
         " MatAnyone (white = foreground)",
     )
@@ -310,6 +315,12 @@ class MatAnyoneMatte:
         bg_label = bg_color
         if bg_color == "none":
             result = images[..., :3]
+        elif bg_color == "transparent":
+            # RGBA output: RGB foreground + alpha channel
+            result = torch.cat(
+                [images[..., :3], alpha.unsqueeze(-1)],
+                dim=-1,
+            )
         else:
             alpha_4d = alpha.unsqueeze(-1)  # (B, H, W, 1)
 
