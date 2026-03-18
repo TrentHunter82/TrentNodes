@@ -349,6 +349,133 @@ def temporal_smooth(
     return smoothed.clamp_(0.0, 1.0)
 
 
+def guided_filter(
+    guide: torch.Tensor,
+    src: torch.Tensor,
+    radius: int = 4,
+    eps: float = 0.01,
+) -> torch.Tensor:
+    """
+    Edge-aware alpha refinement using the RGB image as guide.
+
+    Preserves fine detail (hair, fur, fabric edges) that blind
+    Gaussian blur destroys. Uses the fast O(1) box-filter
+    formulation of the guided filter.
+
+    Args:
+        guide: (B, H, W, C) RGB image in [0, 1] used as
+            edge guide
+        src: (B, H, W) input alpha matte to refine
+        radius: Filter window radius (larger = smoother
+            in flat regions, edges still preserved)
+        eps: Regularization; smaller values preserve more
+            edges, larger values smooth more
+
+    Returns:
+        (B, H, W) refined alpha matte
+    """
+    if radius <= 0:
+        return src
+
+    device = src.device
+
+    # Convert guide to grayscale: (B, H, W)
+    if guide.dim() == 4:
+        g = guide[..., :3].mean(dim=-1).to(
+            device=device, dtype=torch.float32
+        )
+    else:
+        g = guide.to(device=device, dtype=torch.float32)
+
+    p = src.to(dtype=torch.float32)
+
+    # Box filter via avg_pool2d with reflect padding
+    def _box(x, r):
+        x4 = x.unsqueeze(1)  # (B, 1, H, W)
+        k = 2 * r + 1
+        return F.avg_pool2d(
+            F.pad(x4, (r, r, r, r), mode='reflect'),
+            kernel_size=k, stride=1,
+        ).squeeze(1)
+
+    mean_g = _box(g, radius)
+    mean_p = _box(p, radius)
+    mean_gp = _box(g * p, radius)
+    cov_gp = mean_gp - mean_g * mean_p
+
+    mean_gg = _box(g * g, radius)
+    var_g = mean_gg - mean_g * mean_g
+
+    a = cov_gp / (var_g + eps)
+    b = mean_p - a * mean_g
+
+    mean_a = _box(a, radius)
+    mean_b = _box(b, radius)
+
+    return (mean_a * g + mean_b).clamp_(0.0, 1.0)
+
+
+def largest_connected_component(
+    mask: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Keep only the largest connected component in a mask.
+
+    Useful for filtering BiRefNet output to isolate the
+    primary foreground subject (usually the main person)
+    and discard small spurious regions.
+
+    Args:
+        mask: (H, W) or (B, H, W) binary-ish mask in
+            [0, 1]. Values > 0.5 are treated as foreground.
+
+    Returns:
+        Filtered mask with same shape, only the largest
+        connected component retained.
+    """
+    import cv2
+    import numpy as np
+
+    is_batched = mask.dim() == 3
+    device = mask.device
+    dtype = mask.dtype
+
+    if not is_batched:
+        mask = mask.unsqueeze(0)
+
+    results = []
+    for i in range(mask.shape[0]):
+        m = (mask[i] > 0.5).cpu().numpy().astype(
+            np.uint8
+        )
+        n_labels, labels, stats, _ = (
+            cv2.connectedComponentsWithStats(
+                m, connectivity=8
+            )
+        )
+        if n_labels <= 2:
+            # 0 or 1 foreground component, keep as-is
+            results.append(m.astype(np.float32))
+            continue
+
+        # Skip background (label 0), find largest fg
+        areas = stats[1:, cv2.CC_STAT_AREA]
+        largest = areas.argmax() + 1
+        results.append(
+            (labels == largest).astype(np.float32)
+        )
+
+    result = torch.tensor(
+        np.stack(results),
+        device=device, dtype=dtype,
+    )
+
+    if not is_batched:
+        result = result.squeeze(0)
+
+    return result
+
+
 def batch_get_centroids(masks: torch.Tensor) -> torch.Tensor:
     """
     GPU-accelerated batch centroid calculation for multiple masks.

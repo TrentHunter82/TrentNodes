@@ -166,18 +166,90 @@ def clear_matanyone2_cache() -> None:
     print("[TrentNodes] MatAnyone 2 cache cleared.")
 
 
+def _warmup_and_propagate(
+    processor: InferenceCore,
+    vframes: torch.Tensor,
+    mask_ma: torch.Tensor,
+    mask_frame_index: int,
+    frame_indices: List[int],
+    n_warmup: int,
+    pbar,
+) -> List[Optional[torch.Tensor]]:
+    """
+    Warmup on reference frame, then propagate through
+    the given frame indices sequentially.
+
+    Args:
+        processor: Fresh InferenceCore instance
+        vframes: (B, C, H, W) video frames
+        mask_ma: (H, W) mask in [0, 255]
+        mask_frame_index: Reference frame index
+        frame_indices: Ordered list of frame indices
+            to propagate through (excluding ref frame)
+        n_warmup: Warmup iterations
+        pbar: ComfyUI progress bar
+
+    Returns:
+        List of alpha tensors indexed by frame number,
+        None for frames not in this pass
+    """
+    b = vframes.shape[0]
+    alphas: List[Optional[torch.Tensor]] = [None] * b
+
+    ref_frame = vframes[mask_frame_index]
+
+    # Warmup phase on reference frame
+    for ti in range(n_warmup):
+        if ti == 0:
+            output_prob = processor.step(
+                ref_frame, mask_ma, objects=[1]
+            )
+            output_prob = processor.step(
+                ref_frame, first_frame_pred=True
+            )
+        else:
+            output_prob = processor.step(
+                ref_frame, first_frame_pred=True
+            )
+        pbar.update(1)
+
+    # Store reference frame result
+    alphas[mask_frame_index] = (
+        processor.output_prob_to_mask(output_prob)
+        .unsqueeze(0)
+    )
+    pbar.update(1)
+
+    # Propagate through ordered frame indices
+    for ti in frame_indices:
+        image = vframes[ti]
+        output_prob = processor.step(image)
+        alphas[ti] = (
+            processor.output_prob_to_mask(output_prob)
+            .unsqueeze(0)
+        )
+        pbar.update(1)
+
+    return alphas
+
+
 def run_matanyone2(
     images: torch.Tensor,
     mask: torch.Tensor,
     device: torch.device,
     n_warmup: int = 10,
     mask_frame_index: int = 0,
+    bidirectional: bool = True,
 ) -> Optional[torch.Tensor]:
     """
     Run MatAnyone 2 video matting inference.
 
-    Processes video frames sequentially with temporal
-    memory propagation for flicker-free alpha mattes.
+    Processes video frames with temporal memory
+    propagation. When bidirectional=True and the
+    reference frame is not frame 0, runs a separate
+    backward pass for frames before the reference
+    to maintain temporal consistency in both
+    directions.
 
     Args:
         images: (B, H, W, C) image batch in [0, 1]
@@ -185,6 +257,8 @@ def run_matanyone2(
         device: torch device
         n_warmup: Warmup iterations on reference frame
         mask_frame_index: Which frame the mask applies to
+        bidirectional: If True, propagate both forward
+            and backward from the reference frame
 
     Returns:
         (B, H, W) alpha matte tensor in [0, 1],
@@ -212,65 +286,65 @@ def run_matanyone2(
     if mask_ma.dim() == 3:
         mask_ma = mask_ma[0]
 
-    # Fresh processor for each run (resets memory state)
-    processor = InferenceCore(model, cfg=model.cfg)
-
     mask_frame_index = min(mask_frame_index, b - 1)
 
-    repeated = (
-        vframes[mask_frame_index]
-        .unsqueeze(0)
-        .repeat(n_warmup, 1, 1, 1)
+    need_backward = (
+        bidirectional and mask_frame_index > 0
     )
 
-    total_steps = n_warmup + b
-    pbar = ProgressBar(total_steps)
+    # Calculate total steps for progress bar
+    fwd_frames = b - mask_frame_index - 1
+    fwd_steps = n_warmup + 1 + fwd_frames
+    if need_backward:
+        bwd_frames = mask_frame_index
+        bwd_steps = n_warmup + 1 + bwd_frames
+    else:
+        bwd_steps = 0
+    pbar = ProgressBar(fwd_steps + bwd_steps)
 
-    # Warmup phase
-    for ti in range(n_warmup):
-        image = repeated[ti]
-        if ti == 0:
-            output_prob = processor.step(
-                image, mask_ma, objects=[1]
-            )
-            output_prob = processor.step(
-                image, first_frame_pred=True
-            )
-        else:
-            output_prob = processor.step(
-                image, first_frame_pred=True
-            )
-        pbar.update(1)
-
-    # Allocate output
-    alphas: List[torch.Tensor] = [None] * b
-
-    # Store warmup frame result
-    alphas[mask_frame_index] = (
-        processor.output_prob_to_mask(output_prob)
-        .unsqueeze(0)
+    # Forward pass: ref frame -> end
+    fwd_processor = InferenceCore(
+        model, cfg=model.cfg
     )
-    pbar.update(1)
+    fwd_indices = list(
+        range(mask_frame_index + 1, b)
+    )
+    fwd_alphas = _warmup_and_propagate(
+        fwd_processor, vframes, mask_ma,
+        mask_frame_index, fwd_indices,
+        n_warmup, pbar,
+    )
+    del fwd_processor
 
-    # Forward propagation
-    for ti in range(mask_frame_index + 1, b):
-        image = vframes[ti]
-        output_prob = processor.step(image)
-        alphas[ti] = (
-            processor.output_prob_to_mask(output_prob)
-            .unsqueeze(0)
+    if need_backward:
+        # Backward pass: ref frame -> start
+        # Feed frames in reverse order so temporal
+        # memory propagates backward naturally
+        bwd_processor = InferenceCore(
+            model, cfg=model.cfg
         )
-        pbar.update(1)
+        bwd_indices = list(
+            range(mask_frame_index - 1, -1, -1)
+        )
+        bwd_alphas = _warmup_and_propagate(
+            bwd_processor, vframes, mask_ma,
+            mask_frame_index, bwd_indices,
+            n_warmup, pbar,
+        )
+        del bwd_processor
 
-    # Fill frames before mask_frame_index
-    if mask_frame_index > 0:
-        fill = alphas[mask_frame_index]
+        # Merge: backward fills pre-ref frames
         for ti in range(mask_frame_index):
-            if alphas[ti] is None:
-                alphas[ti] = fill
-            pbar.update(1)
+            fwd_alphas[ti] = bwd_alphas[ti]
+    else:
+        # No backward: fill pre-ref with ref result
+        if mask_frame_index > 0:
+            fill = fwd_alphas[mask_frame_index]
+            for ti in range(mask_frame_index):
+                if fwd_alphas[ti] is None:
+                    fwd_alphas[ti] = fill
 
-    result = torch.cat(alphas, dim=0)
+    result = torch.cat(fwd_alphas, dim=0)
 
     if result.shape[1] != h or result.shape[2] != w:
         import torch.nn.functional as F
