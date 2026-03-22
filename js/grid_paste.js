@@ -6,8 +6,8 @@ import { app } from "../../scripts/app.js";
  * Paste multiple copies of selected nodes arranged in a grid.
  *
  * Two modes:
- *   Ctrl+Shift+G       - Grid Paste (independent copies)
- *   Ctrl+Shift+Alt+G   - Grid Paste Connected (each copy's
+ *   Ctrl+Shift+;       - Grid Paste (independent copies)
+ *   Ctrl+Shift+Alt+;   - Grid Paste Connected (each copy's
  *                         inputs wired to the original sources,
  *                         same as Ctrl+Shift+V but in bulk)
  *
@@ -171,12 +171,12 @@ app.registerExtension({
     keybindings: [
         {
             commandId: "TrentNodes.GridPaste",
-            combo: { key: "g", ctrl: true, shift: true }
+            combo: { key: ";", ctrl: true, shift: true }
         },
         {
             commandId: "TrentNodes.GridPasteConnected",
             combo: {
-                key: "g", ctrl: true, shift: true, alt: true
+                key: ";", ctrl: true, shift: true, alt: true
             }
         }
     ],

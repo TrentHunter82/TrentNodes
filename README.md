@@ -239,10 +239,10 @@ Loads a LoRA (model-only) after receiving a VRAM-cleared signal. Applies LoRA we
 These are canvas-level tools that operate on the ComfyUI graph directly -- no Python backend nodes required. They register as commands with keybindings, menu entries, and selection toolbox buttons.
 
 **Grid Paste**
-Duplicate any selection of nodes, groups, reroutes, or subgraphs into an automatically-arranged grid. Select your nodes, hit **Ctrl+Shift+G**, type how many copies you want, and they appear in a clean grid at your cursor position. The grid auto-calculates a roughly-square layout (e.g. 9 copies = 3x3) with 50px padding, sizes each cell to the bounding box of your selection, and preserves all internal connections between copied nodes. Widget values, node colors, group rectangles -- everything comes along for the ride.
+Duplicate any selection of nodes, groups, reroutes, or subgraphs into an automatically-arranged grid. Select your nodes, hit **Ctrl+Shift+;**, type how many copies you want, and they appear in a clean grid at your cursor position. The grid auto-calculates a roughly-square layout (e.g. 9 copies = 3x3) with 50px padding, sizes each cell to the bounding box of your selection, and preserves all internal connections between copied nodes. Widget values, node colors, group rectangles -- everything comes along for the ride.
 
 **Grid Paste Connected**
-Same grid layout, but every copy's external inputs are wired back to the original source nodes -- the same behavior as Ctrl+Shift+V but applied in bulk. Hit **Ctrl+Shift+Alt+G** to use this mode. Perfect for scenarios like pasting 6 KSamplers that all need to connect to the same checkpoint loader, or duplicating a ControlNet processing chain where every copy should read from the same source image.
+Same grid layout, but every copy's external inputs are wired back to the original source nodes -- the same behavior as Ctrl+Shift+V but applied in bulk. Hit **Ctrl+Shift+Alt+;** to use this mode. Perfect for scenarios like pasting 6 KSamplers that all need to connect to the same checkpoint loader, or duplicating a ControlNet processing chain where every copy should read from the same source image.
 
 Both modes wrap the entire operation in a single undo transaction, so one Ctrl+Z reverts everything. Maximum 100 copies per operation.
 
