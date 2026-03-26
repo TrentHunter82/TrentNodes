@@ -98,6 +98,15 @@ def clear_model_cache():
     except ImportError:
         pass  # MiniCPM wrapper not available
 
+    # Also clear CorridorKey cache
+    try:
+        from .corridorkey_wrapper import (
+            clear_corridorkey_cache,
+        )
+        clear_corridorkey_cache()
+    except ImportError:
+        pass  # CorridorKey wrapper not available
+
     # Force garbage collection
     import gc
     gc.collect()

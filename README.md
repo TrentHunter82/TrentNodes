@@ -7,21 +7,32 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
-### NEW: Video Layer Ho Down
+### NEW: CorridorKey Green Screen Keyer
 
-> Multi-layer compositing node with interactive drag-to-position canvas.
-> Place up to **5 transparent layers** onto a background with per-layer
-> **scale, opacity, and blend mode**. Dynamic layer inputs -- connect one,
-> the next appears. Supports **RGBA transparency**, batch processing, and
-> GPU-accelerated blending. Find it under **Trent/Compositing**.
-
-### NEW: Video Folder Cowboy
-
-> Directory iterator for video files with natural sorting (vid1 < vid2 < vid10).
-> Browse folders with a built-in **file browser dialog**, load frames via OpenCV
-> with configurable **frame skipping**, **max frame limits**, and **start frame**.
-> Returns frames as IMAGE batch plus filename, path, frame count, and FPS.
+> Neural green screen keying using **CorridorKey** (Corridor Digital).
+> Instead of producing binary masks, it **unmixes true foreground color**
+> from the green background, preserving semi-transparent details like
+> hair, motion blur, and out-of-focus edges. Outputs clean foreground,
+> alpha matte, and composite preview. Uses **BiRefNet** for automatic
+> alpha hint generation when no mask is provided.
 > Find it under **Trent/Video**.
+
+### NEW: Video Degradation
+
+> Apply configurable, **temporally coherent degradation** to video frames
+> for generating synthetic training pairs. 15 built-in presets (VHS,
+> dashcam, security cam, old film, underwater, and more) plus full custom
+> control over motion blur, defocus, noise, compression artifacts,
+> chromatic aberration, interlacing, rolling shutter, and lens distortion.
+> Find it under **Trent/Video**.
+
+### NEW: VHS Swap (Canvas Tool)
+
+> One-hotkey swap of native ComfyUI video nodes to **VHS equivalents**.
+> Replaces LoadVideo with VHS_LoadVideo and SaveVideo with VHS_VideoCombine,
+> automatically collapsing intermediate GetVideoComponents and CreateVideo
+> nodes. Works on selected nodes or the entire graph. **Ctrl+Shift+=**
+> Find it under **TrentNodes** menu.
 
 ---
 
@@ -47,7 +58,7 @@ pip install -r requirements.txt
 
 All nodes are organized under the `Trent/` category for easy navigation.
 
-### Trent/Video (10 nodes)
+### Trent/Video (12 nodes)
 
 **Chop Cuts**
 Accurate scene detection and video splitting. Automatically detects cuts, fades, and transitions using multi-metric analysis, then exports each scene as a separate MP4 file with a detailed report of cut locations and timestamps.
@@ -78,6 +89,12 @@ Directory iterator for video files with natural sorting (vid1 < vid2 < vid10). B
 
 **MatAnyone Video Matte**
 Temporally-consistent video matting using MatAnyone (CVPR 2025). Given a single initial mask (or auto-generated via BiRefNet), propagates it across all video frames with memory-based temporal consistency. Produces flicker-free alpha mattes for compositing over chroma key or custom backgrounds. All compositing is GPU-accelerated via torch.lerp.
+
+**CorridorKey Green Screen Keyer**
+Neural green screen keying using CorridorKey (Corridor Digital). Instead of producing binary masks, it unmixes true foreground color from the green background, preserving semi-transparent details like hair, motion blur, and out-of-focus edges. Outputs clean straight foreground color, a linear alpha matte, and a composited preview. Uses BiRefNet for automatic alpha hint generation when no mask is provided. Features CNN refiner control, green spill removal, auto-despeckle for tracking markers, edge feathering, and mask expansion. Supports custom background images, transparent RGBA output, and multiple chroma key colors (green, blue, aqua, white, black).
+
+**Video Degradation**
+Apply configurable, temporally coherent degradation to video frame batches for generating synthetic training pairs. 15 built-in presets (mild, moderate, severe, phone_indoor, social_media_reupload, zoom_call, dashcam, night_handheld, old_youtube, old_vhs, shaky_handheld, security_cam, livestream, old_film, underwater) or full custom control. Supports motion blur (directional with angle modes), defocus blur (uniform, breathing, rack focus, edge softness), noise (gaussian, poisson, film grain, sensor, mixed), compression artifacts (JPEG, H.264, blockiness), chromatic aberration, temporal flicker, resolution degradation, color degradation, interlacing, rolling shutter, vignette, and lens distortion. Outputs degraded frames plus a JSON degradation map. All operations GPU-accelerated.
 
 ### 🎬 Trent/Compositing (1 node)
 
@@ -246,6 +263,9 @@ Same grid layout, but every copy's external inputs are wired back to the origina
 
 Both modes wrap the entire operation in a single undo transaction, so one Ctrl+Z reverts everything. Maximum 100 copies per operation.
 
+**VHS Swap**
+One-hotkey swap of native ComfyUI video nodes to VHS (Video Helper Suite) equivalents. Replaces LoadVideo with VHS_LoadVideo and SaveVideo with VHS_VideoCombine, automatically collapsing intermediate GetVideoComponents and CreateVideo nodes and rewiring all connections. Works on selected nodes or the entire graph. Transfers widget values (filename, fps) and reconnects IMAGE/AUDIO outputs. Requires VHS to be installed. Hotkey: **Ctrl+Shift+=**, also available in the TrentNodes menu.
+
 ### 🌐 Trent/API (1 node)
 
 **FAL Kling V2V (O3 Pro)**
@@ -325,10 +345,12 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 - accelerate (for MiniCPM-V model loading)
 - fal-client >= 0.4.0 (for FAL AI API nodes)
 - requests >= 2.28.0 (for FAL video download)
+- timm >= 1.0.0 (for CorridorKey Hiera backbone)
+- einops >= 0.8.0 (for CorridorKey tensor operations)
 
 ## Features
 
-✅ **64 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
+✅ **69 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
 ✅ **Canvas tools** - Grid Paste for bulk node duplication with auto-layout
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart

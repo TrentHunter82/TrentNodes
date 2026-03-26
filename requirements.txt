@@ -25,3 +25,7 @@ requests>=2.28.0
 
 # For MatAnyone video matting (YAML config loading)
 omegaconf>=2.3.0
+
+# For CorridorKey neural green screen keying (Hiera backbone)
+timm>=1.0.0
+einops>=0.8.0
