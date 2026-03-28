@@ -226,6 +226,14 @@ def load_minicpm_model(
 
             model = model.eval()
 
+            # Compat shim: older MiniCPM remote code defines
+            # _tied_weights_keys but transformers 4.51+ may
+            # access all_tied_weights_keys
+            if not hasattr(model, 'all_tied_weights_keys'):
+                model.all_tied_weights_keys = getattr(
+                    model, '_tied_weights_keys', []
+                )
+
             _minicpm_model = model
             _minicpm_tokenizer = tokenizer
             _touch_model()
