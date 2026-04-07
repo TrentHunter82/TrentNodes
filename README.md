@@ -31,7 +31,7 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 > One-hotkey swap of native ComfyUI video nodes to **VHS equivalents**.
 > Replaces LoadVideo with VHS_LoadVideo and SaveVideo with VHS_VideoCombine,
 > automatically collapsing intermediate GetVideoComponents and CreateVideo
-> nodes. Works on selected nodes or the entire graph. **Ctrl+Shift+=**
+> nodes. Works on selected nodes or the entire graph. **Shift+V**
 > Find it under **TrentNodes** menu.
 
 ---
@@ -264,7 +264,7 @@ Same grid layout, but every copy's external inputs are wired back to the origina
 Both modes wrap the entire operation in a single undo transaction, so one Ctrl+Z reverts everything. Maximum 100 copies per operation.
 
 **VHS Swap**
-One-hotkey swap of native ComfyUI video nodes to VHS (Video Helper Suite) equivalents. Replaces LoadVideo with VHS_LoadVideo and SaveVideo with VHS_VideoCombine, automatically collapsing intermediate GetVideoComponents and CreateVideo nodes and rewiring all connections. Works on selected nodes or the entire graph. Transfers widget values (filename, fps) and reconnects IMAGE/AUDIO outputs. Requires VHS to be installed. Hotkey: **Ctrl+Shift+=**, also available in the TrentNodes menu.
+One-hotkey swap of native ComfyUI video nodes to VHS (Video Helper Suite) equivalents. Replaces LoadVideo with VHS_LoadVideo and SaveVideo with VHS_VideoCombine, automatically collapsing intermediate GetVideoComponents and CreateVideo nodes and rewiring all connections. Works on selected nodes or the entire graph. Transfers widget values (filename, fps) and reconnects IMAGE/AUDIO outputs. Requires VHS to be installed. Hotkey: **Shift+V**, also available in the TrentNodes menu.
 
 ### 🌐 Trent/API (1 node)
 

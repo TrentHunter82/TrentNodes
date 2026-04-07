@@ -15,7 +15,7 @@ import { app } from "../../scripts/app.js";
  * Scope: if nodes are selected, only those are replaced.
  * Otherwise all matching nodes in the graph are replaced.
  *
- * Hotkey: Ctrl+Shift+=
+ * Hotkey: Shift+V
  */
 
 const NATIVE_LOAD = "LoadVideo";
@@ -595,7 +595,7 @@ app.registerExtension({
     keybindings: [
         {
             commandId: "TrentNodes.VHSSwap",
-            combo: { key: "=", ctrl: true, shift: true },
+            combo: { key: "v", shift: true },
         },
     ],
 
