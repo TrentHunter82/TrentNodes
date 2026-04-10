@@ -1,0 +1,101 @@
+{
+  "last_node_id": 2,
+  "last_link_id": 1,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "PSDLayerSplitter",
+      "pos": [100, 200],
+      "size": [420, 330],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": [1],
+          "slot_index": 0
+        },
+        {
+          "name": "masks",
+          "type": "MASK",
+          "links": [],
+          "slot_index": 1
+        },
+        {
+          "name": "layer_names",
+          "type": "STRING",
+          "links": [],
+          "slot_index": 2
+        },
+        {
+          "name": "layer_count",
+          "type": "INT",
+          "links": [],
+          "slot_index": 3
+        },
+        {
+          "name": "output_folder",
+          "type": "STRING",
+          "links": [],
+          "slot_index": 4
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PSDLayerSplitter"
+      },
+      "widgets_values": [
+        "/path/to/your/file.psd",
+        "/path/to/output/layers",
+        "cropped",
+        "pixel,type,shape,smartobject,group,fill",
+        false,
+        true,
+        true
+      ],
+      "color": "#8B5A2B",
+      "bgcolor": "#3D2817"
+    },
+    {
+      "id": 2,
+      "type": "PreviewImage",
+      "pos": [620, 200],
+      "size": [315, 270],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 1
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "color": "#DAA520",
+      "bgcolor": "#4D3D14"
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "IMAGE"]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "PSD Layer Extraction - Set psd_path and output_dir, then queue",
+      "bounding": [60, 100, 930, 440],
+      "color": "#D4A853",
+      "font_size": 24,
+      "locked": false
+    }
+  ],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

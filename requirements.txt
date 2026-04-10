@@ -29,3 +29,6 @@ omegaconf>=2.3.0
 # For CorridorKey neural green screen keying (Hiera backbone)
 timm>=1.0.0
 einops>=0.8.0
+
+# For PSD layer decomposition (PSD Layer Splitter node)
+psd-tools>=1.9.0
