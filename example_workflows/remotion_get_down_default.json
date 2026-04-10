@@ -1,0 +1,382 @@
+{
+  "last_node_id": 8,
+  "last_link_id": 9,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "RemotionProjectConfig",
+      "pos": [60, 280],
+      "size": [380, 150],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "project",
+          "type": "REMOTION_PROJECT",
+          "links": [1, 2, 3],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RemotionProjectConfig"
+      },
+      "widgets_values": [
+        "",
+        "node",
+        "npx",
+        true
+      ],
+      "color": "#8B5A2B",
+      "bgcolor": "#3D2817"
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [60, 500],
+      "size": [315, 314],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [4],
+          "slot_index": 0
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": [],
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ],
+      "color": "#8B5A2B",
+      "bgcolor": "#3D2817"
+    },
+    {
+      "id": 3,
+      "type": "RemotionExportFrames",
+      "pos": [530, 280],
+      "size": [350, 230],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "project",
+          "type": "REMOTION_PROJECT",
+          "link": 1
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "frame_dir",
+          "type": "STRING",
+          "links": [8],
+          "slot_index": 0
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": [9],
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RemotionExportFrames"
+      },
+      "widgets_values": [
+        "comfyui_frames",
+        "png",
+        95,
+        "frame_",
+        4,
+        true
+      ],
+      "color": "#CD853F",
+      "bgcolor": "#4D3319"
+    },
+    {
+      "id": 4,
+      "type": "RemotionBuildProps",
+      "pos": [960, 280],
+      "size": [400, 560],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "project",
+          "type": "REMOTION_PROJECT",
+          "link": 2
+        },
+        {
+          "name": "frame_dir",
+          "type": "STRING",
+          "link": 8
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "props_path",
+          "type": "STRING",
+          "links": [5],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RemotionBuildProps"
+      },
+      "widgets_values": [
+        "{\"title\": \"My Video\", \"subtitle\": \"Created with ComfyUI + Remotion\"}",
+        "title",
+        "My Video Title",
+        "subtitle",
+        "Created with ComfyUI + Remotion",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "color": "#B8860B",
+      "bgcolor": "#4A3810"
+    },
+    {
+      "id": 5,
+      "type": "RemotionRender",
+      "pos": [1440, 280],
+      "size": [380, 540],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "project",
+          "type": "REMOTION_PROJECT",
+          "link": 3
+        },
+        {
+          "name": "props_path",
+          "type": "STRING",
+          "link": 5,
+          "widget": {
+            "name": "props_path"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output_path",
+          "type": "STRING",
+          "links": [6],
+          "slot_index": 0
+        },
+        {
+          "name": "render_log",
+          "type": "STRING",
+          "links": [],
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RemotionRender"
+      },
+      "widgets_values": [
+        "AIFrameOverlay",
+        "",
+        "render_output",
+        "h264",
+        "hq",
+        0,
+        0,
+        0,
+        0,
+        18,
+        "yuv420p",
+        0,
+        600,
+        "",
+        false
+      ],
+      "color": "#CD853F",
+      "bgcolor": "#4D3319"
+    },
+    {
+      "id": 6,
+      "type": "RemotionLoadVideo",
+      "pos": [1900, 280],
+      "size": [350, 230],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video_path",
+          "type": "STRING",
+          "link": 6,
+          "widget": {
+            "name": "video_path"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": [7],
+          "slot_index": 0
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": [],
+          "slot_index": 1
+        },
+        {
+          "name": "fps",
+          "type": "FLOAT",
+          "links": [],
+          "slot_index": 2
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RemotionLoadVideo"
+      },
+      "widgets_values": [
+        "",
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "color": "#D2691E",
+      "bgcolor": "#4A2A12"
+    },
+    {
+      "id": 7,
+      "type": "PreviewImage",
+      "pos": [2330, 280],
+      "size": [315, 270],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 7
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "color": "#DAA520",
+      "bgcolor": "#4D3D14"
+    },
+    {
+      "id": 8,
+      "type": "Note",
+      "pos": [60, 50],
+      "size": [1200, 170],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "REMOTION GET DOWN - Default Pipeline\n\nThis workflow bridges ComfyUI with Remotion for programmatic video compositing.\nA starter Remotion project is bundled at TrentNodes/remotion_project/ -- no setup needed.\n\n1. PROJECT CONFIG: Defaults to the bundled project. Just leave project_path as-is.\n2. LOAD SOURCE: Load an image or connect a video batch from upstream AI generation (Wan, LTX, etc.)\n3. EXPORT FRAMES: Writes frames as PNGs into public/. frame_dir and frame_count auto-wire to Build Props.\n4. BUILD PROPS: frame_dir and frame_count come from the wire. Add title/subtitle via key-value pairs.\n5. RENDER: Calls npx remotion render -- composition_id must match one in Root.tsx (AIFrameOverlay, TitleCard)\n6. LOAD RESULT: Imports the rendered video back into ComfyUI as an IMAGE tensor batch\n\nPrereqs: Node.js 16+ (nvm install 20), ffmpeg on PATH. First run will auto npm-install deps."
+      ],
+      "color": "#8B6B4C",
+      "bgcolor": "#3D2817"
+    }
+  ],
+  "links": [
+    [1, 1, 0, 3, 0, "REMOTION_PROJECT"],
+    [2, 1, 0, 4, 0, "REMOTION_PROJECT"],
+    [3, 1, 0, 5, 0, "REMOTION_PROJECT"],
+    [4, 2, 0, 3, 1, "IMAGE"],
+    [5, 4, 0, 5, 1, "STRING"],
+    [6, 5, 0, 6, 0, "STRING"],
+    [7, 6, 0, 7, 0, "IMAGE"],
+    [8, 3, 0, 4, 1, "STRING"],
+    [9, 3, 1, 4, 2, "INT"]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "1. Setup - Project & Source",
+      "bounding": [30, 230, 440, 620],
+      "color": "#D4A853",
+      "font_size": 24,
+      "locked": false
+    },
+    {
+      "id": 2,
+      "title": "2. Export Frames to Remotion",
+      "bounding": [500, 230, 410, 310],
+      "color": "#8B6B4C",
+      "font_size": 24,
+      "locked": false
+    },
+    {
+      "id": 3,
+      "title": "3. Build Composition Props",
+      "bounding": [930, 230, 500, 630],
+      "color": "#C75D3A",
+      "font_size": 24,
+      "locked": false
+    },
+    {
+      "id": 4,
+      "title": "4. Remotion Render",
+      "bounding": [1410, 230, 420, 620],
+      "color": "#8B6B4C",
+      "font_size": 24,
+      "locked": false
+    },
+    {
+      "id": 5,
+      "title": "5. Import & Preview",
+      "bounding": [1870, 230, 810, 360],
+      "color": "#5C7B8B",
+      "font_size": 24,
+      "locked": false
+    }
+  ],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

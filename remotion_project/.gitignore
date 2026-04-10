@@ -1,0 +1,6 @@
+node_modules/
+.comfyui_props.json
+.remotion/
+out/*.mp4
+out/*.mov
+out/*.webm

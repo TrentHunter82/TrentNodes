@@ -1,0 +1,21 @@
+{
+  "name": "remotion-get-down",
+  "version": "1.0.0",
+  "description": "Bundled Remotion project for TrentNodes Remotion Get Down",
+  "scripts": {
+    "start": "npx remotion studio",
+    "build": "npx remotion render",
+    "upgrade": "npx remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.242",
+    "@remotion/bundler": "4.0.242",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "4.0.242"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config": "4.0.242",
+    "typescript": "^5.5.4"
+  }
+}
