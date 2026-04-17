@@ -205,13 +205,18 @@ class PSDLayerSplitter:
                 "layer_types": ("STRING", {
                     "default": (
                         "pixel,type,shape,"
-                        "smartobject,group,fill"
+                        "smartobject,fill"
                     ),
                     "tooltip": (
                         "Comma-separated layer kinds to "
                         "extract: pixel, type, shape, "
-                        "smartobject, group, fill, "
-                        "adjustment"
+                        "smartobject, fill, adjustment. "
+                        "Note: 'group' is handled by "
+                        "extract_groups (off by default) "
+                        "because exporting both a group "
+                        "and its children produces "
+                        "duplicate layers and shifts "
+                        "indices."
                     ),
                 }),
             },
@@ -221,6 +226,19 @@ class PSDLayerSplitter:
                     "tooltip": (
                         "Include layers marked as hidden "
                         "in the PSD"
+                    ),
+                }),
+                "extract_groups": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "If True, also rasterize Group "
+                        "nodes as their own layer. Off "
+                        "by default because the group's "
+                        "children are already exported "
+                        "individually, so including the "
+                        "group produces a duplicate that "
+                        "covers the children when "
+                        "recomposited."
                     ),
                 }),
                 "save_manifest": ("BOOLEAN", {
@@ -244,15 +262,25 @@ class PSDLayerSplitter:
     def IS_CHANGED(cls, **kwargs):
         return float("NaN")
 
+    @classmethod
+    def VALIDATE_INPUTS(cls, layer_sizing=None, **kwargs):
+        # Bypass strict COMBO validation. We coerce the
+        # value inside split_psd() to handle ComfyUI's
+        # widget-to-input conversion quirks that can shift
+        # widgets_values entries.
+        return True
+
     def split_psd(
         self,
-        psd_path: str,
-        output_dir: str,
-        layer_sizing: str,
-        layer_types: str,
-        include_hidden: bool = False,
-        save_manifest: bool = True,
-        overwrite: bool = True,
+        psd_path,
+        output_dir,
+        layer_sizing,
+        layer_types,
+        include_hidden=False,
+        extract_groups=False,
+        save_manifest=True,
+        overwrite=True,
+        **kwargs,
     ) -> Tuple[
         List[torch.Tensor],
         List[torch.Tensor],
@@ -260,8 +288,25 @@ class PSDLayerSplitter:
         int,
         str,
     ]:
-        psd_path = psd_path.strip()
-        output_dir = output_dir.strip()
+        # Coerce inputs - ComfyUI's widget-to-input
+        # conversion can pass unexpected types when
+        # widgets_values get shifted during serialization.
+        psd_path = str(psd_path or "").strip()
+        output_dir = str(output_dir or "").strip()
+        layer_types = str(layer_types or "")
+
+        # layer_sizing must be a valid choice
+        if layer_sizing not in ("cropped", "canvas"):
+            print(
+                f"[PSDLayerSplitter] Invalid layer_sizing "
+                f"'{layer_sizing}', defaulting to 'cropped'"
+            )
+            layer_sizing = "cropped"
+
+        include_hidden = bool(include_hidden)
+        extract_groups = bool(extract_groups)
+        save_manifest = bool(save_manifest)
+        overwrite = bool(overwrite)
 
         if not psd_path:
             raise ValueError("psd_path is required")
@@ -273,6 +318,15 @@ class PSDLayerSplitter:
             raise ValueError("output_dir is required")
 
         os.makedirs(output_dir, exist_ok=True)
+
+        # Clean old layer files so previous PSDs don't
+        # contaminate the loader when auto-queuing.
+        _layer_pat = re.compile(
+            r'^\d+_of_\d+__\w+__.+\.png$'
+        )
+        for old_file in os.listdir(output_dir):
+            if _layer_pat.match(old_file) or old_file == "_manifest.json":
+                os.remove(os.path.join(output_dir, old_file))
 
         wanted_kinds = {
             k.strip().lower()
@@ -287,7 +341,15 @@ class PSDLayerSplitter:
         candidates = []
         for layer in psd.descendants():
             kind = layer_kind_string(layer)
-            if kind not in wanted_kinds:
+            # Groups are gated by extract_groups (see
+            # widget tooltip): exporting a group AND its
+            # children produces duplicate renders, since
+            # the children are already extracted.
+            if kind == "group" and not extract_groups:
+                continue
+            if kind not in wanted_kinds and not (
+                kind == "group" and extract_groups
+            ):
                 continue
             if not include_hidden and not layer.visible:
                 continue
@@ -418,6 +480,7 @@ class PSDLayerSplitter:
                 "extraction_settings": {
                     "layer_sizing": layer_sizing,
                     "include_hidden": include_hidden,
+                    "extract_groups": extract_groups,
                     "layer_types": sorted(wanted_kinds),
                 },
                 "layers": manifest_layers,
