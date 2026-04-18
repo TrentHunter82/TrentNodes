@@ -97,13 +97,13 @@ class PSDLayerLoader:
                     "tooltip": "First layer index to load",
                 }),
                 "end_index": ("INT", {
-                    "default": 0,
-                    "min": 0,
+                    "default": -1,
+                    "min": -1,
                     "max": 9999,
                     "step": 1,
                     "tooltip": (
                         "Last layer index to load "
-                        "(0 = load all)"
+                        "(-1 = load all from start_index)"
                     ),
                 }),
                 "load_alpha": ("BOOLEAN", {
@@ -120,13 +120,21 @@ class PSDLayerLoader:
     def IS_CHANGED(cls, **kwargs):
         return float("NaN")
 
+    @classmethod
+    def VALIDATE_INPUTS(cls, **kwargs):
+        # Bypass strict validation - we coerce inputs in
+        # the function body to handle ComfyUI widget-input
+        # conversion shifting widgets_values entries.
+        return True
+
     def load_layers(
         self,
-        folder_path: str,
-        filter_kind: str = "",
-        start_index: int = 0,
-        end_index: int = 0,
-        load_alpha: bool = True,
+        folder_path,
+        filter_kind="",
+        start_index=0,
+        end_index=-1,
+        load_alpha=True,
+        **kwargs,
     ) -> Tuple[
         List[torch.Tensor],
         List[torch.Tensor],
@@ -134,7 +142,21 @@ class PSDLayerLoader:
         int,
         str,
     ]:
-        folder_path = folder_path.strip()
+        # Coerce inputs (ComfyUI may pass unexpected types
+        # when widgets_values get shifted by widget-input
+        # conversion)
+        folder_path = str(folder_path or "").strip()
+        filter_kind = str(filter_kind or "")
+        try:
+            start_index = max(0, int(start_index))
+        except (TypeError, ValueError):
+            start_index = 0
+        try:
+            end_index = int(end_index)
+        except (TypeError, ValueError):
+            end_index = -1
+        load_alpha = bool(load_alpha)
+
         if not folder_path:
             raise ValueError("folder_path is required")
         if not os.path.isdir(folder_path):
@@ -185,16 +207,17 @@ class PSDLayerLoader:
                 if e["kind"] in kind_filter
             ]
 
-        # Apply index range (end_index 0 = load all)
-        if end_index > 0:
+        # Apply index range (end_index -1 = load all
+        # from start_index to the end)
+        if end_index < 0:
             entries = [
                 e for e in entries
-                if start_index <= e["index"] <= end_index
+                if e["index"] >= start_index
             ]
         else:
             entries = [
                 e for e in entries
-                if e["index"] >= start_index
+                if start_index <= e["index"] <= end_index
             ]
 
         if not entries:

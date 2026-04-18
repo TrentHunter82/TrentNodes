@@ -1,0 +1,223 @@
+{
+  "last_node_id": 5,
+  "last_link_id": 4,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "PSDLayerSplitter",
+      "pos": [80, 200],
+      "size": [420, 330],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": [],
+          "slot_index": 0
+        },
+        {
+          "name": "masks",
+          "type": "MASK",
+          "links": [],
+          "slot_index": 1
+        },
+        {
+          "name": "layer_names",
+          "type": "STRING",
+          "links": [],
+          "slot_index": 2
+        },
+        {
+          "name": "layer_count",
+          "type": "INT",
+          "links": [],
+          "slot_index": 3
+        },
+        {
+          "name": "output_folder",
+          "type": "STRING",
+          "links": [1],
+          "slot_index": 4
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PSDLayerSplitter"
+      },
+      "widgets_values": [
+        "/mnt/c/Users/flipp/Downloads/00027fc4468205dfb453c0d5e5f252eb.psd",
+        "/tmp/psd_layers",
+        "cropped",
+        "pixel,type,shape,smartobject,group,fill",
+        false,
+        true,
+        true
+      ],
+      "color": "#8B5A2B",
+      "bgcolor": "#3D2817"
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [80, 580],
+      "size": [380, 320],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [2],
+          "slot_index": 0
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": [],
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ],
+      "color": "#8B5A2B",
+      "bgcolor": "#3D2817"
+    },
+    {
+      "id": 3,
+      "type": "PSDLayerCompositor",
+      "pos": [580, 200],
+      "size": [420, 280],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "folder_path",
+          "type": "STRING",
+          "link": 1,
+          "widget": {
+            "name": "folder_path"
+          }
+        },
+        {
+          "name": "replacement_image",
+          "type": "IMAGE",
+          "link": 2,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [3, 4],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PSDLayerCompositor"
+      },
+      "widgets_values": [
+        "",
+        0,
+        "stretch",
+        "transparent",
+        true
+      ],
+      "color": "#A0522D",
+      "bgcolor": "#3A2010"
+    },
+    {
+      "id": 4,
+      "type": "PreviewImage",
+      "pos": [1080, 200],
+      "size": [380, 320],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 3
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "color": "#DAA520",
+      "bgcolor": "#4D3D14"
+    },
+    {
+      "id": 5,
+      "type": "SaveImage",
+      "pos": [1080, 560],
+      "size": [380, 270],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 4
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "psd_recomposite"
+      ],
+      "color": "#DAA520",
+      "bgcolor": "#4D3D14"
+    }
+  ],
+  "links": [
+    [1, 1, 4, 3, 0, "STRING"],
+    [2, 2, 0, 3, 1, "IMAGE"],
+    [3, 3, 0, 4, 0, "IMAGE"],
+    [4, 3, 0, 5, 0, "IMAGE"]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Step 1 - Split PSD into layers",
+      "bounding": [40, 100, 500, 460],
+      "color": "#D4A853",
+      "font_size": 24,
+      "locked": false
+    },
+    {
+      "id": 2,
+      "title": "Step 2 - Load new background",
+      "bounding": [40, 540, 500, 380],
+      "color": "#8B6B4C",
+      "font_size": 24,
+      "locked": false
+    },
+    {
+      "id": 3,
+      "title": "Step 3 - Composite with background swapped (replacement_index=0)",
+      "bounding": [540, 100, 980, 820],
+      "color": "#5C7B8B",
+      "font_size": 24,
+      "locked": false
+    }
+  ],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}
