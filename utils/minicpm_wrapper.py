@@ -35,6 +35,39 @@ _unload_lock = threading.Lock()
 # Model configuration
 MODEL_ID = "openbmb/MiniCPM-V-4_5"
 MODEL_ID_INT4 = "openbmb/MiniCPM-V-4_5-int4"
+
+
+def _patch_tokenizer_compat(tokenizer):
+    """Patch tokenizer for transformers 5.x compatibility.
+
+    transformers 5.x returns a generic TokenizersBackend instead
+    of the custom MiniCPMVTokenizerFast, losing im_start_id etc.
+    """
+    if hasattr(tokenizer, 'im_start_id'):
+        return
+    _special = {
+        'im_start': '<image>',
+        'im_end': '</image>',
+        'slice_start': '<slice>',
+        'slice_end': '</slice>',
+        'im_id_start': '<image_id>',
+        'im_id_end': '</image_id>',
+    }
+    for attr, token in _special.items():
+        setattr(tokenizer, attr, token)
+        tid = tokenizer.convert_tokens_to_ids(token)
+        setattr(tokenizer, f'{attr}_id', tid)
+
+    if not hasattr(tokenizer, 'eos_id'):
+        tokenizer.eos_id = tokenizer.eos_token_id
+    if not hasattr(tokenizer, 'bos_id'):
+        tokenizer.bos_id = tokenizer.bos_token_id
+    if not hasattr(tokenizer, 'unk_id'):
+        tokenizer.unk_id = tokenizer.unk_token_id
+    if not hasattr(tokenizer, 'newline_id'):
+        tokenizer.newline_id = (
+            tokenizer.convert_tokens_to_ids('\n')
+        )
 CACHE_DIR_NAME = "minicpm"
 
 # System prompt presets
@@ -158,6 +191,58 @@ def _touch_model():
             _unload_thread.start()
 
 
+class _TiedWeightsDescriptor:
+    """
+    Descriptor that provides a fallback for all_tied_weights_keys.
+
+    On get: returns the instance value if set, else falls back to
+    _tied_weights_keys, else returns [].
+    On set: stores as a normal instance attribute.
+    """
+
+    def __set_name__(self, owner, name):
+        self._name = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        # Check instance __dict__ first (set by post_init etc.)
+        val = obj.__dict__.get('all_tied_weights_keys')
+        if val is not None:
+            return val
+        tied = getattr(obj, '_tied_weights_keys', None)
+        if tied is not None:
+            return tied
+        return {}
+
+    def __set__(self, obj, value):
+        obj.__dict__['all_tied_weights_keys'] = value
+
+
+def _patch_minicpm_tied_weights(model_id, cache_dir):
+    """
+    Patch PreTrainedModel to provide all_tied_weights_keys.
+
+    transformers 4.51+ accesses all_tied_weights_keys during
+    from_pretrained (in _get_device_map), but MiniCPM's remote
+    code only defines _tied_weights_keys. Uses a descriptor
+    that allows both getting (with fallback) and setting.
+    """
+    try:
+        from transformers import PreTrainedModel
+        if not isinstance(
+            PreTrainedModel.__dict__.get('all_tied_weights_keys'),
+            _TiedWeightsDescriptor
+        ):
+            PreTrainedModel.all_tied_weights_keys = (
+                _TiedWeightsDescriptor()
+            )
+            print("[TrentNodes] Patched PreTrainedModel"
+                  ".all_tied_weights_keys")
+    except Exception as e:
+        print(f"[TrentNodes] tied_weights patch skipped: {e}")
+
+
 def load_minicpm_model(
     device: Optional[torch.device] = None
 ) -> Tuple[any, any]:
@@ -205,6 +290,15 @@ def load_minicpm_model(
                 cache_dir=cache_dir
             )
 
+            _patch_tokenizer_compat(tokenizer)
+
+            # Compat shim: MiniCPM remote code defines
+            # _tied_weights_keys but transformers 4.51+ checks
+            # all_tied_weights_keys during from_pretrained.
+            # Patch the class before loading so device_map="auto"
+            # doesn't crash.
+            _patch_minicpm_tied_weights(model_id, cache_dir)
+
             # Load pre-quantized int4 model
             load_kwargs = {
                 "trust_remote_code": True,
@@ -226,13 +320,20 @@ def load_minicpm_model(
 
             model = model.eval()
 
-            # Compat shim: older MiniCPM remote code defines
-            # _tied_weights_keys but transformers 4.51+ may
-            # access all_tied_weights_keys
-            if not hasattr(model, 'all_tied_weights_keys'):
-                model.all_tied_weights_keys = getattr(
-                    model, '_tied_weights_keys', []
+            # Force-init the model's processor so we can patch
+            # its tokenizer before first inference.
+            if getattr(model, 'processor', None) is None:
+                from transformers import AutoProcessor
+                model.processor = AutoProcessor.from_pretrained(
+                    model_id,
+                    trust_remote_code=True,
+                    cache_dir=cache_dir
                 )
+            _patch_tokenizer_compat(model.processor.tokenizer)
+            print(
+                "[TrentNodes] Patched tokenizer for "
+                "transformers 5.x compat"
+            )
 
             _minicpm_model = model
             _minicpm_tokenizer = tokenizer
