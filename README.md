@@ -7,6 +7,28 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
+### NEW: PSD Background Replacement (3 modes + auto-detect)
+
+> Swap backgrounds in messy PSDs where there's no clean single
+> "background" layer. **PSDLayerCompositor** now supports three
+> replacement modes:
+>
+> - **single** — swap one layer by index (original behavior).
+> - **replace_range** — swap a contiguous range of layers
+>   `[replacement_index..replacement_end_index]` with one image,
+>   sized to the canvas or the layers' union bbox.
+> - **underlay** — paste the replacement under all original layers
+>   (escape hatch when you can't pin down the background range).
+>
+> **PSDBackgroundDetect** scores layers from the splitter manifest
+> using name regex, full-canvas coverage, opacity, blend mode, and
+> bottom-bias, and outputs a recommended `bg_start` / `bg_end` range
+> to wire into the compositor. Use the detect → range → underlay
+> ladder when one mode doesn't quite fit.
+>
+> v1 limitation: PSD re-export (`output_psd_path`) only works in
+> `single` mode. Find them under **Trent/PSD**.
+
 ### NEW: CorridorKey Green Screen Keyer
 
 > Neural green screen keying using **CorridorKey** (Corridor Digital).
@@ -100,6 +122,34 @@ Apply configurable, temporally coherent degradation to video frame batches for g
 
 **Video Layer Ho Down**
 Multi-layer compositing node with interactive drag-to-position canvas preview. Place up to 5 transparent foreground layers onto a background image or video batch. Dynamic layer inputs -- connect one and the next appears automatically (up to 5). Each layer has independent scale, opacity, and blend mode (normal, multiply, screen, overlay, add). Supports RGBA 4-channel images for transparency, automatic batch size alignment (single frame layers repeat across entire video), and partial off-screen placement. All compositing is GPU-accelerated via PyTorch. Features a live canvas with checkerboard transparency indicator, click-to-select layers, drag-to-position, crosshair alignment guides, coordinate display, and a center-reset button.
+
+### 🎨 Trent/PSD (6 nodes)
+
+**PSD Layer Splitter**
+Rasterizes a `.psd` into per-layer PNGs and writes a `_manifest.json` capturing index, position, size, opacity, blend mode, visibility, group path, and (v2) `bbox_area_ratio`, `covers_canvas`, `is_fully_opaque` for downstream tools. Supports `canvas` or `cropped` layer sizing, optional group extraction, hidden-layer inclusion, and per-kind filters (pixel, type, shape, smartobject, fill, group, adjustment).
+
+**PSD Layer Loader**
+Loads previously-split layers from a folder (the splitter's output) without re-rasterizing. Use this when iterating on downstream nodes — skips the slow PSD parse. Range-selects via `start_index` / `end_index`, optionally loads alpha as a separate mask.
+
+**PSD Layer Compositor**
+Recomposites layers from a splitter folder back into a single image, reading positions/opacity/visibility from `_manifest.json`. Three replacement modes for swapping out a background: **single** (swap one layer by index), **replace_range** (swap a contiguous index range with one image — for messy PSDs where the "background" is multiple stacked layers), and **underlay** (paste replacement under all originals as an escape hatch). `replacement_fit` (stretch/fit/cover/center) and `range_fit` (canvas/union_bbox) control sizing. Optionally re-exports a modified `.psd` via `output_psd_path` (single mode only in v1).
+
+**PSD Background Detect**
+Scores layers from a `_manifest.json` and recommends a contiguous index range that's likely the background. Signals: name regex match (`bg|background|backdrop|sky|wall|floor` by default), full-canvas coverage, opacity + normal blend mode, bbox area ratio, bottom-bias; penalises text and adjustment layers. Outputs `bg_start`, `bg_end`, `confidence`, and a human-readable `rationale` you can wire to `easy showAnything` to see exactly which layers were picked and why. Wire `bg_start`/`bg_end` into the compositor's `replacement_index`/`replacement_end_index` and switch the compositor to `replace_range` mode for a fully-automated background swap.
+
+**PSD Layer Names**
+Lists every layer name in a `.psd` file — no rasterization, no manifest side-effects, just walks the layer tree. Use this to find the exact `target_layer_name` to feed `PSDLayerSaveAsPSD`. Optional group inclusion and group-path display.
+
+**PSD Layer Save As PSD**
+Replaces one layer's pixels in an existing `.psd` with a provided image and saves to a new path (the original is never overwritten). Locates the layer by name (recursively walks groups), preserves the original layer's name, opacity, blend mode, and visibility, and respects non-Latin layer names through the proper Unicode tagged block.
+
+#### Recommended workflow for messy PSDs
+
+When the "background" isn't a single clean layer, ladder through the three modes:
+
+1. **Detect → range** — wire `PSDBackgroundDetect` to the compositor's `replacement_index`/`replacement_end_index`, set mode to `replace_range`. The detector's `rationale` output (piped to `easy showAnything`) shows which layers it picked and why, so you can sanity-check the call.
+2. **Manual range** — if the detector misfires, leave the mode as `replace_range` and type the indices directly. The detector is a convenience, not a dependency.
+3. **Underlay** — when you genuinely can't pin down a range, switch to `underlay`. The replacement paints under all originals and you toggle visibility on the offending opaque layers in the source PSD.
 
 ### 🎞️ Animation/Timing (2 nodes)
 
