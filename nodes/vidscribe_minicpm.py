@@ -203,7 +203,8 @@ class VidScribeMiniCPMBeta:
             return (
                 "[Error] MiniCPM dependencies not installed. "
                 "Run: pip install transformers accelerate bitsandbytes",
-                images
+                images,
+                ""
             )
 
         # Resolve system prompt
