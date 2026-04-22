@@ -430,6 +430,25 @@ class PSDLayerSplitter:
                 except Exception:
                     pass
 
+            # Enriched fields for background detection
+            l_w = int(layer.width or 0)
+            l_h = int(layer.height or 0)
+            l_op = int(layer.opacity or 0)
+            blend_mode_str = str(layer.blend_mode)
+            canvas_area = max(1, canvas_w * canvas_h)
+            bbox_area_ratio = (
+                (l_w * l_h) / canvas_area
+                if l_w > 0 and l_h > 0 else 0.0
+            )
+            covers_canvas = (
+                l_w >= int(canvas_w * 0.9)
+                and l_h >= int(canvas_h * 0.9)
+            )
+            is_fully_opaque = (
+                l_op == 255
+                and "normal" in blend_mode_str.lower()
+            )
+
             manifest_layers.append({
                 "index": idx,
                 "filename": filename,
@@ -437,7 +456,7 @@ class PSDLayerSplitter:
                 "kind": kind,
                 "visible": layer.visible,
                 "opacity": layer.opacity,
-                "blend_mode": str(layer.blend_mode),
+                "blend_mode": blend_mode_str,
                 "position": {
                     "left": layer.left,
                     "top": layer.top,
@@ -455,6 +474,9 @@ class PSDLayerSplitter:
                 ),
                 "group_path": get_group_path(layer),
                 "text": text_content,
+                "bbox_area_ratio": round(bbox_area_ratio, 4),
+                "covers_canvas": covers_canvas,
+                "is_fully_opaque": is_fully_opaque,
             })
 
             idx += 1
@@ -474,6 +496,7 @@ class PSDLayerSplitter:
         # Save manifest
         if save_manifest:
             manifest = {
+                "manifest_version": 2,
                 "source_psd": os.path.abspath(psd_path),
                 "canvas_width": canvas_w,
                 "canvas_height": canvas_h,
