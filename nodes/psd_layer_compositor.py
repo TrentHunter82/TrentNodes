@@ -15,7 +15,7 @@ from typing import Any, Dict, Tuple
 
 import numpy as np
 import torch
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps
 
 from psd_tools import PSDImage
 from psd_tools.api.layers import PixelLayer, TypeLayer
@@ -234,6 +234,20 @@ class PSDLayerCompositor:
                         "only."
                     ),
                 }),
+                "text_shadow": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Add a soft drop shadow behind "
+                        "each recolored text layer. Helps "
+                        "text read on busy or chromatic "
+                        "backgrounds. Applied to flat "
+                        "IMAGE preview and (when "
+                        "output_psd_path is set) inserted "
+                        "as a separate raster layer below "
+                        "each TypeLayer in the saved PSD. "
+                        "No-op when text_recolor_mode=off."
+                    ),
+                }),
             },
         }
 
@@ -264,6 +278,7 @@ class PSDLayerCompositor:
         text_color="#FFFFFF",
         auto_contrast_threshold=0.5,
         text_layer_pattern="",
+        text_shadow=False,
         **kwargs,
     ) -> Tuple[torch.Tensor]:
         # Coerce inputs (defensive against widget shifting)
@@ -312,6 +327,7 @@ class PSDLayerCompositor:
         auto_contrast_threshold = max(
             0.0, min(1.0, auto_contrast_threshold)
         )
+        text_shadow = bool(text_shadow)
 
         # Pre-parse the manual color so a typo errors fast
         # rather than silently per layer.
@@ -479,6 +495,7 @@ class PSDLayerCompositor:
         # during the flat composite. Reused by the PSD save
         # path to apply matching clipping overlays.
         text_color_cache: Dict[str, Tuple[int, int, int]] = {}
+        text_alpha_cache: Dict[str, Image.Image] = {}
         for lyr in layers_sorted:
             idx = int(lyr["index"])
             filename = lyr["filename"]
@@ -575,7 +592,23 @@ class PSDLayerCompositor:
                 cache_key = lyr.get("original_name") or ""
                 if cache_key:
                     text_color_cache[cache_key] = chosen_rgb
+                    if text_shadow:
+                        text_alpha_cache[cache_key] = (
+                            layer_img.getchannel("A").copy()
+                        )
                 recolored_count += 1
+
+                if text_shadow:
+                    shadow_img, sdx, sdy = (
+                        self._build_shadow_image(
+                            layer_img.getchannel("A")
+                        )
+                    )
+                    canvas.paste(
+                        shadow_img,
+                        (paste_x + sdx, paste_y + sdy),
+                        shadow_img,
+                    )
 
             # Alpha-composite onto canvas
             canvas.paste(
@@ -625,7 +658,9 @@ class PSDLayerCompositor:
                     output_psd_path=output_psd_path,
                     text_recolor_mode=text_recolor_mode,
                     text_color_cache=text_color_cache,
+                    text_alpha_cache=text_alpha_cache,
                     text_pattern_re=text_pattern_re,
+                    text_shadow=text_shadow,
                 )
 
         # Convert to ComfyUI image tensor
@@ -756,12 +791,13 @@ class PSDLayerCompositor:
         paste_x,
         paste_y,
     ):
-        """Sample bg under the layer and return a pure
-        complementary color: hue shifted 180 degrees,
-        saturation boosted so the complement reads colorful,
-        value inverted (1 - v) for natural luminance
-        contrast. No thresholds, no branching - bypasses
-        auto_contrast_threshold entirely.
+        """Sample bg under the layer and return a high-
+        contrast complementary color. Hue shifted 180 deg,
+        saturation floored at 0.7 so the complement reads
+        as a color (not a tinted gray), value clamped to
+        an extreme based on bg luminance so we always hit
+        a real luminance delta against the bg even when
+        the bg is mid-tone.
         """
         mean_rgb, weight_sum = PSDLayerCompositor._sample_bg_rgb(
             alpha, canvas, paste_x, paste_y
@@ -772,11 +808,12 @@ class PSDLayerCompositor:
         r = mean_rgb[0] / 255.0
         g = mean_rgb[1] / 255.0
         b = mean_rgb[2] / 255.0
-        h, s, v = colorsys.rgb_to_hsv(r, g, b)
+        h, s, _ = colorsys.rgb_to_hsv(r, g, b)
+        bg_lum = 0.299 * r + 0.587 * g + 0.114 * b
 
         new_h = (h + 0.5) % 1.0
-        new_s = max(0.55, s)
-        new_v = 1.0 - v
+        new_s = max(0.7, s)
+        new_v = 0.05 if bg_lum > 0.5 else 0.95
 
         nr, ng, nb = colorsys.hsv_to_rgb(new_h, new_s, new_v)
         return (
@@ -784,6 +821,39 @@ class PSDLayerCompositor:
             int(round(ng * 255)),
             int(round(nb * 255)),
         )
+
+    @staticmethod
+    def _build_shadow_image(alpha):
+        """Build a soft drop-shadow RGBA image from a
+        glyph alpha mask. Returns (shadow_pil, dx, dy)
+        where (dx, dy) is the offset to apply to the
+        original layer's paste_x/paste_y. The shadow pil
+        is padded by blur_radius*2 px so the blur isn't
+        clipped at the original alpha bounds.
+        """
+        offset_x = 4
+        offset_y = 4
+        blur_radius = 4
+        pad = blur_radius * 2
+        shadow_color = (0, 0, 0, 180)
+
+        aw, ah = alpha.size
+        out_w = aw + 2 * pad
+        out_h = ah + 2 * pad
+
+        canvas = Image.new(
+            "RGBA", (out_w, out_h), (0, 0, 0, 0)
+        )
+        fill = Image.new(
+            "RGBA", (out_w, out_h), shadow_color
+        )
+        mask = Image.new("L", (out_w, out_h), 0)
+        mask.paste(alpha, (pad, pad))
+        canvas.paste(fill, (0, 0), mask)
+        canvas = canvas.filter(
+            ImageFilter.GaussianBlur(radius=blur_radius)
+        )
+        return canvas, offset_x - pad, offset_y - pad
 
     @staticmethod
     def _union_bbox(
@@ -833,7 +903,9 @@ class PSDLayerCompositor:
         output_psd_path,
         text_recolor_mode="off",
         text_color_cache=None,
+        text_alpha_cache=None,
         text_pattern_re=None,
+        text_shadow=False,
     ):
         """Open the source PSD, swap one layer, save anew.
 
@@ -919,7 +991,11 @@ class PSDLayerCompositor:
         clip_count = 0
         if text_recolor_mode != "off" and text_color_cache:
             clip_count = self._apply_text_clipping_overlays(
-                psd, text_color_cache, text_pattern_re,
+                psd,
+                text_color_cache,
+                text_pattern_re,
+                alpha_cache=text_alpha_cache,
+                text_shadow=text_shadow,
             )
 
         with open(output_psd_path, "wb") as fp:
@@ -940,7 +1016,11 @@ class PSDLayerCompositor:
 
     @staticmethod
     def _apply_text_clipping_overlays(
-        psd, color_cache, text_pattern_re=None,
+        psd,
+        color_cache,
+        text_pattern_re=None,
+        alpha_cache=None,
+        text_shadow=False,
     ):
         """For each layer in psd that is either a TypeLayer
         OR has a name matching text_pattern_re, and whose
@@ -951,7 +1031,13 @@ class PSDLayerCompositor:
         rasterized pixel layers stay as their original
         pixels with the clipping color baked over).
 
-        Returns the number of clipping layers added.
+        When text_shadow is True and alpha_cache has an
+        entry for the layer, also insert a soft drop-shadow
+        PixelLayer directly below the text. Final z-order
+        per text node: ..., shadow, text, recolor_clip.
+
+        Returns the number of recolor clipping layers added
+        (shadow layers are not counted separately).
         """
         # Snapshot first - we mutate parent layer lists
         # below.
@@ -996,6 +1082,40 @@ class PSDLayerCompositor:
                     break
             if idx is None:
                 continue
+
+            if text_shadow and alpha_cache:
+                alpha = alpha_cache.get(text_layer.name)
+                if alpha is not None and alpha.size[0] > 0:
+                    shadow_pil, sdx, sdy = (
+                        PSDLayerCompositor._build_shadow_image(
+                            alpha
+                        )
+                    )
+                    shadow_layer = PixelLayer.frompil(
+                        pil_im=shadow_pil,
+                        psd_file=psd,
+                        layer_name="shadow",
+                        top=top + sdy,
+                        left=left + sdx,
+                        compression=Compression.RLE,
+                    )
+                    shadow_layer.name = (
+                        f"{text_layer.name} - shadow"
+                    )
+                    shadow_layer.opacity = 255
+                    shadow_layer.visible = True
+                    shadow_layer.blend_mode = BlendMode.NORMAL
+                    shadow_layer.clipping = False
+                    # Insert at idx pushes text from idx
+                    # to idx+1; shadow ends up visually
+                    # below the text.
+                    parent.insert(idx, shadow_layer)
+                    # Re-resolve text layer's new idx for
+                    # the recolor clip insert below.
+                    for i, child in enumerate(parent):
+                        if child is text_layer:
+                            idx = i
+                            break
 
             fill_pil = Image.new(
                 "RGBA",
