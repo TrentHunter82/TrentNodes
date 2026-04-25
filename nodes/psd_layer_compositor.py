@@ -10,6 +10,7 @@ layer with a provided image (e.g. swap a background).
 import colorsys
 import json
 import os
+import re
 from typing import Any, Dict, Tuple
 
 import numpy as np
@@ -216,6 +217,20 @@ class PSDLayerCompositor:
                         "white; otherwise to black."
                     ),
                 }),
+                "text_layer_pattern": ("STRING", {
+                    "default": "",
+                    "placeholder": r"(?i)\btext\b",
+                    "tooltip": (
+                        "Regex matched against layer names. "
+                        "Any layer whose name matches is "
+                        "treated as text and recolored, in "
+                        "addition to real TypeLayers. Use "
+                        "this when text in your PSD is "
+                        "rasterized (kind='pixel') but "
+                        "named consistently. Empty = "
+                        "TypeLayers only."
+                    ),
+                }),
             },
         }
 
@@ -245,6 +260,7 @@ class PSDLayerCompositor:
         text_recolor_mode="off",
         text_color="#FFFFFF",
         auto_contrast_threshold=0.5,
+        text_layer_pattern="",
         **kwargs,
     ) -> Tuple[torch.Tensor]:
         # Coerce inputs (defensive against widget shifting)
@@ -300,6 +316,19 @@ class PSDLayerCompositor:
         if text_recolor_mode == "manual":
             rgba = parse_background_color(text_color)
             manual_text_rgb = (rgba[0], rgba[1], rgba[2])
+
+        # Compile the optional name pattern that promotes
+        # non-TypeLayer layers (e.g. rasterized text named
+        # consistently) into the text-recolor pass.
+        text_layer_pattern = str(text_layer_pattern or "").strip()
+        text_pattern_re = None
+        if text_layer_pattern:
+            try:
+                text_pattern_re = re.compile(text_layer_pattern)
+            except re.error as e:
+                raise ValueError(
+                    f"Invalid text_layer_pattern regex: {e}"
+                )
 
         if not folder_path:
             raise ValueError("folder_path is required")
@@ -410,22 +439,35 @@ class PSDLayerCompositor:
                 1 for l in layers_sorted
                 if str(l.get("kind", "")).lower() == "type"
             )
+            pattern_matches = 0
+            if text_pattern_re is not None:
+                pattern_matches = sum(
+                    1 for l in layers_sorted
+                    if text_pattern_re.search(
+                        l.get("original_name", "") or ""
+                    )
+                )
             print(
                 f"[PSDLayerCompositor] text_recolor_mode="
                 f"{text_recolor_mode} | text_color="
                 f"{text_color} | threshold="
                 f"{auto_contrast_threshold} | "
+                f"text_layer_pattern="
+                f"{text_layer_pattern!r} | "
                 f"layer kinds in manifest: {kinds_seen} | "
                 f"text layers (kind=='type'): {type_count}"
+                f" | name-pattern matches: "
+                f"{pattern_matches}"
             )
-            if type_count == 0:
+            if type_count == 0 and pattern_matches == 0:
                 print(
                     "[PSDLayerCompositor] WARNING: no "
-                    "kind=='type' layers in this manifest. "
-                    "Re-split the PSD with the current "
-                    "PSDLayerSplitter so the manifest "
-                    "includes a 'kind' field for text "
-                    "layers."
+                    "kind=='type' layers and no name "
+                    "pattern matches. Either re-split the "
+                    "PSD so TypeLayers are tagged kind="
+                    "'type', or set text_layer_pattern to "
+                    "a regex that matches your text layer "
+                    "names (e.g. '(?i)\\btext\\b')."
                 )
 
         composited = 0
@@ -507,8 +549,16 @@ class PSDLayerCompositor:
             # is being replaced by an external image -
             # nobody wants their replacement turned into
             # a flat color.
+            name_for_match = lyr.get("original_name", "") or ""
+            is_text_layer = (
+                kind == "type"
+                or (
+                    text_pattern_re is not None
+                    and bool(text_pattern_re.search(name_for_match))
+                )
+            )
             if (text_recolor_mode != "off"
-                    and kind == "type"
+                    and is_text_layer
                     and not is_replacement):
                 layer_img, chosen_rgb = self._recolor_text_layer(
                     layer_img=layer_img,
@@ -572,6 +622,7 @@ class PSDLayerCompositor:
                     output_psd_path=output_psd_path,
                     text_recolor_mode=text_recolor_mode,
                     text_color_cache=text_color_cache,
+                    text_pattern_re=text_pattern_re,
                 )
 
         # Convert to ComfyUI image tensor
@@ -779,6 +830,7 @@ class PSDLayerCompositor:
         output_psd_path,
         text_recolor_mode="off",
         text_color_cache=None,
+        text_pattern_re=None,
     ):
         """Open the source PSD, swap one layer, save anew.
 
@@ -864,7 +916,7 @@ class PSDLayerCompositor:
         clip_count = 0
         if text_recolor_mode != "off" and text_color_cache:
             clip_count = self._apply_text_clipping_overlays(
-                psd, text_color_cache
+                psd, text_color_cache, text_pattern_re,
             )
 
         with open(output_psd_path, "wb") as fp:
@@ -884,23 +936,39 @@ class PSDLayerCompositor:
         )
 
     @staticmethod
-    def _apply_text_clipping_overlays(psd, color_cache):
-        """For each TypeLayer in psd whose name is in
-        color_cache, insert a same-sized solid-color
-        PixelLayer directly above it with clipping=True.
-        The TypeLayer is left untouched.
+    def _apply_text_clipping_overlays(
+        psd, color_cache, text_pattern_re=None,
+    ):
+        """For each layer in psd that is either a TypeLayer
+        OR has a name matching text_pattern_re, and whose
+        name is in color_cache, insert a same-sized solid-
+        color PixelLayer directly above it with
+        clipping=True. The original layer is left
+        untouched (TypeLayers stay editable as text;
+        rasterized pixel layers stay as their original
+        pixels with the clipping color baked over).
 
         Returns the number of clipping layers added.
         """
         # Snapshot first - we mutate parent layer lists
         # below.
-        type_layers = [
+        text_layers = [
             layer for layer in psd.descendants()
-            if isinstance(layer, TypeLayer)
+            if (
+                isinstance(layer, TypeLayer)
+                or (
+                    text_pattern_re is not None
+                    and bool(
+                        text_pattern_re.search(
+                            layer.name or ""
+                        )
+                    )
+                )
+            )
         ]
 
         added = 0
-        for text_layer in type_layers:
+        for text_layer in text_layers:
             color = color_cache.get(text_layer.name)
             if color is None:
                 continue
