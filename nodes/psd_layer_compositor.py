@@ -7,6 +7,7 @@ and opacity from _manifest.json. Optionally replaces one
 layer with a provided image (e.g. swap a background).
 """
 
+import colorsys
 import json
 import os
 from typing import Any, Dict, Tuple
@@ -16,6 +17,8 @@ import torch
 from PIL import Image, ImageOps
 
 from psd_tools import PSDImage
+from psd_tools.api.layers import PixelLayer, TypeLayer
+from psd_tools.constants import BlendMode, Compression
 
 from .psd_utils import (
     parse_background_color,
@@ -167,6 +170,52 @@ class PSDLayerCompositor:
                         "replacement_index >= 0."
                     ),
                 }),
+                "text_recolor_mode": (
+                    ["off", "manual", "auto_contrast", "complement"],
+                    {
+                        "default": "off",
+                        "tooltip": (
+                            "Recolor PSD text layers "
+                            "(kind=='type') in the output. "
+                            "off = leave colors alone. "
+                            "manual = use text_color for "
+                            "every text layer. "
+                            "auto_contrast = pick black or "
+                            "white per layer based on the "
+                            "luminance of pixels behind it. "
+                            "complement = sample bg under "
+                            "each text layer and pick a "
+                            "complementary color (hue +180) "
+                            "with luminance pushed for "
+                            "legibility. When output_psd_path "
+                            "is set, recolor is also applied "
+                            "to the saved PSD as clipping "
+                            "PixelLayers above each text "
+                            "layer (text stays editable)."
+                        ),
+                    },
+                ),
+                "text_color": ("STRING", {
+                    "default": "#FFFFFF",
+                    "tooltip": (
+                        "Color for text layers when "
+                        "text_recolor_mode=manual. Hex "
+                        "(#RRGGBB), CSS name, or rgb()."
+                    ),
+                }),
+                "auto_contrast_threshold": ("FLOAT", {
+                    "default": 0.5,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.05,
+                    "tooltip": (
+                        "Used when "
+                        "text_recolor_mode=auto_contrast. "
+                        "If avg luminance under the text "
+                        "(0..1) is below this, recolor to "
+                        "white; otherwise to black."
+                    ),
+                }),
             },
         }
 
@@ -193,6 +242,9 @@ class PSDLayerCompositor:
         respect_visibility,
         replacement_image=None,
         output_psd_path="",
+        text_recolor_mode="off",
+        text_color="#FFFFFF",
+        auto_contrast_threshold=0.5,
         **kwargs,
     ) -> Tuple[torch.Tensor]:
         # Coerce inputs (defensive against widget shifting)
@@ -225,6 +277,29 @@ class PSDLayerCompositor:
         background_color = str(background_color or "transparent")
         respect_visibility = bool(respect_visibility)
         output_psd_path = str(output_psd_path or "").strip()
+
+        text_recolor_mode = str(text_recolor_mode or "off")
+        if text_recolor_mode not in (
+            "off", "manual", "auto_contrast", "complement"
+        ):
+            text_recolor_mode = "off"
+        text_color = str(text_color or "#FFFFFF").strip()
+        try:
+            auto_contrast_threshold = float(
+                auto_contrast_threshold
+            )
+        except (TypeError, ValueError):
+            auto_contrast_threshold = 0.5
+        auto_contrast_threshold = max(
+            0.0, min(1.0, auto_contrast_threshold)
+        )
+
+        # Pre-parse the manual color so a typo errors fast
+        # rather than silently per layer.
+        manual_text_rgb = None
+        if text_recolor_mode == "manual":
+            rgba = parse_background_color(text_color)
+            manual_text_rgb = (rgba[0], rgba[1], rgba[2])
 
         if not folder_path:
             raise ValueError("folder_path is required")
@@ -326,7 +401,39 @@ class PSDLayerCompositor:
             )
             canvas.paste(range_img, (bx0, by0), range_img)
 
+        if text_recolor_mode != "off":
+            kinds_seen = sorted(
+                {str(l.get("kind", "")).lower()
+                 for l in layers_sorted}
+            )
+            type_count = sum(
+                1 for l in layers_sorted
+                if str(l.get("kind", "")).lower() == "type"
+            )
+            print(
+                f"[PSDLayerCompositor] text_recolor_mode="
+                f"{text_recolor_mode} | text_color="
+                f"{text_color} | threshold="
+                f"{auto_contrast_threshold} | "
+                f"layer kinds in manifest: {kinds_seen} | "
+                f"text layers (kind=='type'): {type_count}"
+            )
+            if type_count == 0:
+                print(
+                    "[PSDLayerCompositor] WARNING: no "
+                    "kind=='type' layers in this manifest. "
+                    "Re-split the PSD with the current "
+                    "PSDLayerSplitter so the manifest "
+                    "includes a 'kind' field for text "
+                    "layers."
+                )
+
         composited = 0
+        recolored_count = 0
+        # Maps text-layer original_name -> (r, g, b) chosen
+        # during the flat composite. Reused by the PSD save
+        # path to apply matching clipping overlays.
+        text_color_cache: Dict[str, Tuple[int, int, int]] = {}
         for lyr in layers_sorted:
             idx = int(lyr["index"])
             filename = lyr["filename"]
@@ -336,6 +443,7 @@ class PSDLayerCompositor:
             height = int(lyr["size"]["height"])
             opacity = int(lyr.get("opacity", 255))
             visible = bool(lyr.get("visible", True))
+            kind = str(lyr.get("kind", "")).lower()
 
             if respect_visibility and not visible:
                 continue
@@ -346,6 +454,7 @@ class PSDLayerCompositor:
                 continue
 
             # Single-layer swap
+            is_replacement = False
             if (replacement_mode == "single"
                     and replacement_pil is not None
                     and idx == replacement_index):
@@ -357,6 +466,7 @@ class PSDLayerCompositor:
                     width, height,
                     replacement_fit,
                 )
+                is_replacement = True
             else:
                 layer_path = os.path.join(
                     folder_path, filename
@@ -389,6 +499,31 @@ class PSDLayerCompositor:
                 )
                 layer_img.putalpha(alpha)
 
+            # Recolor PSD text layers (kind=='type'). Done
+            # before the composite so auto_contrast can
+            # sample the canvas as it currently stands -
+            # which is exactly what will sit behind the
+            # text after this paste. Skip when this slot
+            # is being replaced by an external image -
+            # nobody wants their replacement turned into
+            # a flat color.
+            if (text_recolor_mode != "off"
+                    and kind == "type"
+                    and not is_replacement):
+                layer_img, chosen_rgb = self._recolor_text_layer(
+                    layer_img=layer_img,
+                    canvas=canvas,
+                    paste_x=paste_x,
+                    paste_y=paste_y,
+                    mode=text_recolor_mode,
+                    manual_rgb=manual_text_rgb,
+                    threshold=auto_contrast_threshold,
+                )
+                cache_key = lyr.get("original_name") or ""
+                if cache_key:
+                    text_color_cache[cache_key] = chosen_rgb
+                recolored_count += 1
+
             # Alpha-composite onto canvas
             canvas.paste(
                 layer_img, (paste_x, paste_y), layer_img
@@ -401,10 +536,17 @@ class PSDLayerCompositor:
                 "or missing)"
             )
 
+        recolor_note = ""
+        if text_recolor_mode != "off":
+            recolor_note = (
+                f" (recolored {recolored_count} text "
+                f"layer(s) via {text_recolor_mode})"
+            )
         print(
             f"[PSDLayerCompositor] Composited "
             f"{composited} layer(s) into "
             f"{canvas_w}x{canvas_h} canvas"
+            f"{recolor_note}"
         )
 
         # Optional: also write a new .psd by swapping the
@@ -428,6 +570,8 @@ class PSDLayerCompositor:
                     replacement_pil=replacement_pil,
                     replacement_mode=replacement_fit,
                     output_psd_path=output_psd_path,
+                    text_recolor_mode=text_recolor_mode,
+                    text_color_cache=text_color_cache,
                 )
 
         # Convert to ComfyUI image tensor
@@ -435,6 +579,159 @@ class PSDLayerCompositor:
         arr = np.array(rgb).astype(np.float32) / 255.0
         tensor = torch.from_numpy(arr)[None, ...]
         return (tensor,)
+
+    @staticmethod
+    def _recolor_text_layer(
+        layer_img,
+        canvas,
+        paste_x,
+        paste_y,
+        mode,
+        manual_rgb,
+        threshold,
+    ):
+        """Return (recolored_rgba_image, chosen_rgb).
+
+        Alpha is preserved so the text's anti-aliased edges
+        stay intact. The chosen RGB is also returned so the
+        caller can cache it for the PSD-side recolor pass.
+        """
+        alpha = layer_img.getchannel("A")
+
+        if mode == "manual" and manual_rgb is not None:
+            new_rgb = manual_rgb
+        elif mode == "complement":
+            new_rgb = PSDLayerCompositor._complement_rgb(
+                alpha=alpha,
+                canvas=canvas,
+                paste_x=paste_x,
+                paste_y=paste_y,
+            )
+        else:  # auto_contrast
+            new_rgb = PSDLayerCompositor._auto_contrast_rgb(
+                alpha=alpha,
+                canvas=canvas,
+                paste_x=paste_x,
+                paste_y=paste_y,
+                threshold=threshold,
+            )
+
+        recolored = Image.new(
+            "RGB", layer_img.size, new_rgb
+        )
+        recolored.putalpha(alpha)
+        return recolored, new_rgb
+
+    @staticmethod
+    def _sample_bg_rgb(alpha, canvas, paste_x, paste_y):
+        """Alpha-weighted mean RGB of the canvas region
+        beneath the layer. Returns (mean_rgb, weight_sum).
+        weight_sum == 0 when the layer is entirely off-
+        canvas or has no opaque pixels in the overlap."""
+        layer_w, layer_h = alpha.size
+        canvas_w, canvas_h = canvas.size
+
+        x0 = max(0, paste_x)
+        y0 = max(0, paste_y)
+        x1 = min(canvas_w, paste_x + layer_w)
+        y1 = min(canvas_h, paste_y + layer_h)
+        if x1 <= x0 or y1 <= y0:
+            return (0.0, 0.0, 0.0), 0.0
+
+        canvas_crop = canvas.crop((x0, y0, x1, y1))
+        layer_x0 = x0 - paste_x
+        layer_y0 = y0 - paste_y
+        layer_x1 = layer_x0 + (x1 - x0)
+        layer_y1 = layer_y0 + (y1 - y0)
+        alpha_crop = alpha.crop(
+            (layer_x0, layer_y0, layer_x1, layer_y1)
+        )
+
+        canvas_arr = np.asarray(
+            canvas_crop.convert("RGB"),
+            dtype=np.float32,
+        )
+        alpha_arr = np.asarray(
+            alpha_crop, dtype=np.float32
+        )
+        weight_sum = float(alpha_arr.sum())
+        if weight_sum <= 0.0:
+            return (0.0, 0.0, 0.0), 0.0
+
+        weighted = canvas_arr * alpha_arr[..., None]
+        mean_rgb = (
+            weighted.reshape(-1, 3).sum(axis=0) / weight_sum
+        )
+        return (
+            float(mean_rgb[0]),
+            float(mean_rgb[1]),
+            float(mean_rgb[2]),
+        ), weight_sum
+
+    @staticmethod
+    def _auto_contrast_rgb(
+        alpha,
+        canvas,
+        paste_x,
+        paste_y,
+        threshold,
+    ):
+        """Pick (255,255,255) or (0,0,0) based on the
+        alpha-weighted luminance of the canvas region
+        beneath the layer."""
+        mean_rgb, weight_sum = PSDLayerCompositor._sample_bg_rgb(
+            alpha, canvas, paste_x, paste_y
+        )
+        if weight_sum <= 0.0:
+            return (255, 255, 255)
+
+        # ITU-R BT.601 luminance, normalized to 0..1
+        avg_lum = (
+            0.299 * mean_rgb[0]
+            + 0.587 * mean_rgb[1]
+            + 0.114 * mean_rgb[2]
+        ) / 255.0
+        if avg_lum < threshold:
+            return (255, 255, 255)
+        return (0, 0, 0)
+
+    @staticmethod
+    def _complement_rgb(
+        alpha,
+        canvas,
+        paste_x,
+        paste_y,
+    ):
+        """Sample bg under the layer, return a complementary
+        color (hue +180) with saturation boosted and value
+        pushed to enforce legibility against the bg.
+        """
+        mean_rgb, weight_sum = PSDLayerCompositor._sample_bg_rgb(
+            alpha, canvas, paste_x, paste_y
+        )
+        if weight_sum <= 0.0:
+            return (255, 255, 255)
+
+        r = mean_rgb[0] / 255.0
+        g = mean_rgb[1] / 255.0
+        b = mean_rgb[2] / 255.0
+        h, s, v = colorsys.rgb_to_hsv(r, g, b)
+
+        # Shift hue 180 degrees, boost saturation, then
+        # force value so the result has strong luminance
+        # contrast against the bg.
+        new_h = (h + 0.5) % 1.0
+        new_s = max(0.55, s)
+
+        bg_lum = 0.299 * r + 0.587 * g + 0.114 * b
+        new_v = 0.15 if bg_lum > 0.5 else 0.95
+
+        nr, ng, nb = colorsys.hsv_to_rgb(new_h, new_s, new_v)
+        return (
+            int(round(nr * 255)),
+            int(round(ng * 255)),
+            int(round(nb * 255)),
+        )
 
     @staticmethod
     def _union_bbox(
@@ -482,6 +779,8 @@ class PSDLayerCompositor:
         replacement_pil,
         replacement_mode,
         output_psd_path,
+        text_recolor_mode="off",
+        text_color_cache=None,
     ):
         """Open the source PSD, swap one layer, save anew.
 
@@ -489,6 +788,13 @@ class PSDLayerCompositor:
         layer name is resolved from the manifest using
         replacement_index. The original PSD is never
         overwritten - output_psd_path must differ.
+
+        When text_recolor_mode is set and text_color_cache
+        is non-empty, also insert a clipping PixelLayer
+        above each TypeLayer whose name appears in the
+        cache, filled with that layer's chosen color. The
+        TypeLayers themselves are untouched - text stays
+        editable in Photoshop.
         """
         if replacement_pil is None:
             raise ValueError(
@@ -557,14 +863,100 @@ class PSDLayerCompositor:
             replacement_mode,
         )
 
+        clip_count = 0
+        if text_recolor_mode != "off" and text_color_cache:
+            clip_count = self._apply_text_clipping_overlays(
+                psd, text_color_cache
+            )
+
         with open(output_psd_path, "wb") as fp:
             psd.save(fp)
 
+        clip_note = ""
+        if clip_count:
+            clip_note = (
+                f", added {clip_count} text recolor "
+                f"clipping layer(s)"
+            )
         print(
             f"[PSDLayerCompositor] Wrote modified PSD to "
             f"{output_psd_path} (replaced layer "
-            f"'{old_name}' at index {replacement_index})"
+            f"'{old_name}' at index {replacement_index}"
+            f"{clip_note})"
         )
+
+    @staticmethod
+    def _apply_text_clipping_overlays(psd, color_cache):
+        """For each TypeLayer in psd whose name is in
+        color_cache, insert a same-sized solid-color
+        PixelLayer directly above it with clipping=True.
+        The TypeLayer is left untouched.
+
+        Returns the number of clipping layers added.
+        """
+        # Snapshot first - we mutate parent layer lists
+        # below.
+        type_layers = [
+            layer for layer in psd.descendants()
+            if isinstance(layer, TypeLayer)
+        ]
+
+        added = 0
+        for text_layer in type_layers:
+            color = color_cache.get(text_layer.name)
+            if color is None:
+                continue
+
+            left = int(text_layer.left)
+            top = int(text_layer.top)
+            width = int(text_layer.width)
+            height = int(text_layer.height)
+            if width <= 0 or height <= 0:
+                continue
+
+            parent = text_layer.parent
+            if parent is None:
+                continue
+            # Find current idx by identity. We may have
+            # inserted earlier siblings already, so the
+            # idx must be re-resolved here.
+            idx = None
+            for i, child in enumerate(parent):
+                if child is text_layer:
+                    idx = i
+                    break
+            if idx is None:
+                continue
+
+            fill_pil = Image.new(
+                "RGBA",
+                (width, height),
+                (color[0], color[1], color[2], 255),
+            )
+            clip_layer = PixelLayer.frompil(
+                pil_im=fill_pil,
+                psd_file=psd,
+                layer_name="recolor",
+                top=top,
+                left=left,
+                compression=Compression.RLE,
+            )
+            # Set the human-readable name through the
+            # property setter so non-ASCII glyphs route
+            # through the tagged-block path.
+            clip_layer.name = f"{text_layer.name} - recolor"
+            clip_layer.opacity = 255
+            clip_layer.visible = True
+            clip_layer.blend_mode = BlendMode.NORMAL
+            clip_layer.clipping = True
+
+            # Insert at idx + 1 so the clip layer sits
+            # visually above the text layer (psd_tools
+            # internal lists are bottom-to-top).
+            parent.insert(idx + 1, clip_layer)
+            added += 1
+
+        return added
 
 
 NODE_CLASS_MAPPINGS = {
