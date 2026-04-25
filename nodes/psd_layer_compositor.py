@@ -218,17 +218,20 @@ class PSDLayerCompositor:
                     ),
                 }),
                 "text_layer_pattern": ("STRING", {
-                    "default": "",
-                    "placeholder": r"(?i)\btext\b",
+                    "default": "(?i)text",
+                    "placeholder": "(?i)text",
                     "tooltip": (
                         "Regex matched against layer names. "
                         "Any layer whose name matches is "
                         "treated as text and recolored, in "
-                        "addition to real TypeLayers. Use "
-                        "this when text in your PSD is "
-                        "rasterized (kind='pixel') but "
-                        "named consistently. Empty = "
-                        "TypeLayers only."
+                        "addition to real TypeLayers. The "
+                        "default '(?i)text' matches any "
+                        "layer whose name contains 'text' "
+                        "(case-insensitive) anywhere - "
+                        "'Text 1', 'Layer 4 - text', "
+                        "'header_text' all match. Clear "
+                        "the field to recolor TypeLayers "
+                        "only."
                     ),
                 }),
             },
