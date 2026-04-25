@@ -74,6 +74,15 @@ def _score_layer(
         score -= 2.0
         reasons.append(f"penalty:{kind}")
 
+    # Name-based text detection: catches rasterized text
+    # layers (kind='pixel') that wouldn't trigger the
+    # kind-based penalty above. Heavier hit because these
+    # often cover the full canvas and would otherwise
+    # outscore real backgrounds.
+    if re.search(r"(?i)\btext\b", name):
+        score -= 5.0
+        reasons.append("penalty:text-name")
+
     return score, reasons
 
 
