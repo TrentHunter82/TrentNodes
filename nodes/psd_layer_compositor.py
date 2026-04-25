@@ -797,7 +797,10 @@ class PSDLayerCompositor:
         as a color (not a tinted gray), value clamped to
         an extreme based on bg luminance so we always hit
         a real luminance delta against the bg even when
-        the bg is mid-tone.
+        the bg is mid-tone. As a special case, very dark
+        bg (luminance < 0.2) short-circuits to pure white -
+        a saturated complement on near-black tends to
+        read as muddy color noise where plain white wins.
         """
         mean_rgb, weight_sum = PSDLayerCompositor._sample_bg_rgb(
             alpha, canvas, paste_x, paste_y
@@ -808,9 +811,13 @@ class PSDLayerCompositor:
         r = mean_rgb[0] / 255.0
         g = mean_rgb[1] / 255.0
         b = mean_rgb[2] / 255.0
-        h, s, _ = colorsys.rgb_to_hsv(r, g, b)
         bg_lum = 0.299 * r + 0.587 * g + 0.114 * b
 
+        # Near-black bg: skip complement, use pure white.
+        if bg_lum < 0.2:
+            return (255, 255, 255)
+
+        h, s, _ = colorsys.rgb_to_hsv(r, g, b)
         new_h = (h + 0.5) % 1.0
         new_s = max(0.7, s)
         new_v = 0.05 if bg_lum > 0.5 else 0.95
