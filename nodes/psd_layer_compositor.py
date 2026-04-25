@@ -7,7 +7,6 @@ and opacity from _manifest.json. Optionally replaces one
 layer with a provided image (e.g. swap a background).
 """
 
-import colorsys
 import json
 import os
 import re
@@ -184,11 +183,13 @@ class PSDLayerCompositor:
                             "auto_contrast = pick black or "
                             "white per layer based on the "
                             "luminance of pixels behind it. "
-                            "complement = sample bg under "
-                            "each text layer and pick a "
-                            "complementary color (hue +180) "
-                            "with luminance pushed for "
-                            "legibility. When output_psd_path "
+                            "complement = magazine-cover "
+                            "convention: white on darker bg, "
+                            "black on lighter bg, decided "
+                            "per text layer from the bg "
+                            "luminance underneath. Combine "
+                            "with text_shadow for busy bgs. "
+                            "When output_psd_path "
                             "is set, recolor is also applied "
                             "to the saved PSD as clipping "
                             "PixelLayers above each text "
@@ -791,16 +792,13 @@ class PSDLayerCompositor:
         paste_x,
         paste_y,
     ):
-        """Sample bg under the layer and return a high-
-        contrast complementary color. Hue shifted 180 deg,
-        saturation floored at 0.7 so the complement reads
-        as a color (not a tinted gray), value clamped to
-        an extreme based on bg luminance so we always hit
-        a real luminance delta against the bg even when
-        the bg is mid-tone. As a special case, very dark
-        bg (luminance < 0.2) short-circuits to pure white -
-        a saturated complement on near-black tends to
-        read as muddy color noise where plain white wins.
+        """Magazine-cover convention: white on darker bg,
+        black on lighter bg. Picks one of the two extremes
+        per text layer based on alpha-weighted bg luminance
+        (BT.601). Ignores hue and saturation entirely - on
+        busy or chromatic backgrounds the drop shadow + the
+        clipping mask already do the separation work.
+        Threshold is fixed at 0.5; no widget dependency.
         """
         mean_rgb, weight_sum = PSDLayerCompositor._sample_bg_rgb(
             alpha, canvas, paste_x, paste_y
@@ -808,26 +806,13 @@ class PSDLayerCompositor:
         if weight_sum <= 0.0:
             return (255, 255, 255)
 
-        r = mean_rgb[0] / 255.0
-        g = mean_rgb[1] / 255.0
-        b = mean_rgb[2] / 255.0
-        bg_lum = 0.299 * r + 0.587 * g + 0.114 * b
+        bg_lum = (
+            0.299 * mean_rgb[0]
+            + 0.587 * mean_rgb[1]
+            + 0.114 * mean_rgb[2]
+        ) / 255.0
 
-        # Near-black bg: skip complement, use pure white.
-        if bg_lum < 0.2:
-            return (255, 255, 255)
-
-        h, s, _ = colorsys.rgb_to_hsv(r, g, b)
-        new_h = (h + 0.5) % 1.0
-        new_s = max(0.7, s)
-        new_v = 0.05 if bg_lum > 0.5 else 0.95
-
-        nr, ng, nb = colorsys.hsv_to_rgb(new_h, new_s, new_v)
-        return (
-            int(round(nr * 255)),
-            int(round(ng * 255)),
-            int(round(nb * 255)),
-        )
+        return (255, 255, 255) if bg_lum < 0.5 else (0, 0, 0)
 
     @staticmethod
     def _build_shadow_image(alpha):
