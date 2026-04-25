@@ -702,9 +702,12 @@ class PSDLayerCompositor:
         paste_x,
         paste_y,
     ):
-        """Sample bg under the layer, return a complementary
-        color (hue +180) with saturation boosted and value
-        pushed to enforce legibility against the bg.
+        """Sample bg under the layer and return a pure
+        complementary color: hue shifted 180 degrees,
+        saturation boosted so the complement reads colorful,
+        value inverted (1 - v) for natural luminance
+        contrast. No thresholds, no branching - bypasses
+        auto_contrast_threshold entirely.
         """
         mean_rgb, weight_sum = PSDLayerCompositor._sample_bg_rgb(
             alpha, canvas, paste_x, paste_y
@@ -717,14 +720,9 @@ class PSDLayerCompositor:
         b = mean_rgb[2] / 255.0
         h, s, v = colorsys.rgb_to_hsv(r, g, b)
 
-        # Shift hue 180 degrees, boost saturation, then
-        # force value so the result has strong luminance
-        # contrast against the bg.
         new_h = (h + 0.5) % 1.0
         new_s = max(0.55, s)
-
-        bg_lum = 0.299 * r + 0.587 * g + 0.114 * b
-        new_v = 0.15 if bg_lum > 0.5 else 0.95
+        new_v = 1.0 - v
 
         nr, ng, nb = colorsys.hsv_to_rgb(new_h, new_s, new_v)
         return (
