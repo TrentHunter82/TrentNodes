@@ -650,11 +650,12 @@ class PSDLayerCompositor:
                             bg_lum_std=bg_lum_std,
                         )
                     )
-                    canvas.paste(
-                        sep_img,
-                        (paste_x + sdx, paste_y + sdy),
-                        sep_img,
-                    )
+                    if sep_img is not None:
+                        canvas.paste(
+                            sep_img,
+                            (paste_x + sdx, paste_y + sdy),
+                            sep_img,
+                        )
 
             # Alpha-composite onto canvas
             canvas.paste(
@@ -921,42 +922,57 @@ class PSDLayerCompositor:
     @staticmethod
     def _build_boxout_image(alpha, text_rgb=(0, 0, 0)):
         """Build a magazine-style boxout: a semi-opaque
-        rectangular panel sized to the alpha bbox plus
-        padding, color-flipped to oppose the text fill.
-        Returns (boxout_pil, dx, dy).
+        rectangular panel sized to the actual opaque
+        content of the alpha, plus padding, color-flipped
+        to oppose the text fill. Returns (boxout_pil, dx,
+        dy) with offsets relative to the alpha's top-left
+        - so the caller still pastes at (paste_x + dx,
+        paste_y + dy). Returns (None, 0, 0) when the layer
+        has no opaque pixels.
+
+        Cropping to alpha.getbbox() (not alpha.size) is
+        critical: some splitters export every layer at
+        full canvas size with transparent padding, which
+        would otherwise produce a canvas-sized solid panel.
         """
+        content_bbox = alpha.getbbox()
+        if content_bbox is None:
+            return None, 0, 0
+
         text_lum = (
             0.299 * text_rgb[0]
             + 0.587 * text_rgb[1]
             + 0.114 * text_rgb[2]
         ) / 255.0
-        # Inverted color, ~86% opacity. Just translucent
-        # enough that the bg texture is faintly visible
-        # without compromising legibility.
         if text_lum < 0.5:
             box_color = (255, 255, 255, 220)
         else:
             box_color = (0, 0, 0, 220)
 
+        cl, ct, cr, cb = content_bbox
+        cw = cr - cl
+        ch = cb - ct
+
         # Pad scales with single-line glyph height (line
-        # count from runs of opaque rows in the mask).
-        arr = np.asarray(alpha, dtype=np.uint8)
+        # count from runs of opaque rows in the cropped
+        # content area).
+        cropped = alpha.crop(content_bbox)
+        arr = np.asarray(cropped, dtype=np.uint8)
         if arr.ndim == 2 and arr.shape[0] > 0:
             opaque_rows = (arr > 32).any(axis=1)
             edges = np.diff(opaque_rows.astype(np.int8))
             n_lines = int(max(1, (edges == 1).sum()))
-            glyph_h = max(8, alpha.size[1] / n_lines)
+            glyph_h = max(8, ch / n_lines)
         else:
-            glyph_h = max(8, alpha.size[1])
+            glyph_h = max(8, ch)
         pad = max(6, min(24, int(round(glyph_h * 0.18))))
 
-        aw, ah = alpha.size
         out = Image.new(
             "RGBA",
-            (aw + 2 * pad, ah + 2 * pad),
+            (cw + 2 * pad, ch + 2 * pad),
             box_color,
         )
-        return out, -pad, -pad
+        return out, cl - pad, ct - pad
 
     @staticmethod
     def _build_separator_image(
@@ -1301,6 +1317,8 @@ class PSDLayerCompositor:
                             bg_lum_std=bg_lum_std,
                         )
                     )
+                    if shadow_pil is None:
+                        continue
                     is_boxout = (
                         bg_lum_std
                         >= PSDLayerCompositor.BOXOUT_LUM_STD_THRESHOLD
