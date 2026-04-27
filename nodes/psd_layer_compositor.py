@@ -891,21 +891,20 @@ class PSDLayerCompositor:
         paste_x,
         paste_y,
     ):
-        """Magazine-cover convention with a bimodal-bg
-        override. Decides per text layer:
+        """Magazine-cover convention. Picks white or black
+        per text layer from alpha-weighted bg luminance:
+        white when bg lum < 0.4, black otherwise. Bimodal
+        and cluttered bgs are handled separately by the
+        separator stage (it picks boxout vs halo from
+        bg_lum_std), not here - so this stage assumes the
+        text color will sit on a clean enough surface to
+        read from luminance alone, whether that surface is
+        the bg itself or a boxout panel underneath.
 
-          1. If alpha-weighted bg luminance std dev > 0.15
-             (bimodal / variegated bg with both light and
-             dark patches under the glyph), force white -
-             the existing black drop shadow then handles
-             separation against the light patches while
-             white handles the dark ones.
-          2. Otherwise, white when bg luminance < 0.4,
-             black when >= 0.4. The 0.4 cutoff (not 0.5)
-             biases borderline mid-tones toward black -
-             dark text on mid-tone reads more cleanly
-             than light text on mid-tone for the same
-             contrast delta.
+        The 0.4 cutoff (not 0.5) biases borderline mid-tones
+        toward black - dark text on mid-tone reads more
+        cleanly than light text on mid-tone for the same
+        contrast delta.
         """
         mean_rgb, weight_sum = PSDLayerCompositor._sample_bg_rgb(
             alpha, canvas, paste_x, paste_y
@@ -918,19 +917,20 @@ class PSDLayerCompositor:
             + 0.587 * mean_rgb[1]
             + 0.114 * mean_rgb[2]
         ) / 255.0
-        bg_lum_std = PSDLayerCompositor._sample_bg_lum_std(
-            alpha, canvas, paste_x, paste_y
-        )
-        if bg_lum_std > 0.15:
-            return (255, 255, 255)
 
         return (255, 255, 255) if bg_lum < 0.4 else (0, 0, 0)
 
     # Threshold above which a glyph's bg is considered
-    # too cluttered for a halo and warrants a boxout.
-    # Empirical: vintage paper sits ~0.10, halftone /
-    # line-art / heavy patterns hit 0.20+.
-    BOXOUT_LUM_STD_THRESHOLD = 0.20
+    # too bimodal/cluttered for a halo and warrants a
+    # boxout panel. Magazine convention: any time the bg
+    # has both light and dark content under the glyph, a
+    # panel is the right call. Empirical bands:
+    #   <0.13  uniform / mildly textured    -> halo
+    #   >=0.13 bimodal / cluttered / busy   -> boxout
+    # (Smooth gradient ~0.05, vintage paper ~0.08,
+    # photographic shading ~0.12-0.16, tile mosaic /
+    # halftone ~0.18+, heavy line-art clutter 0.25+.)
+    BOXOUT_LUM_STD_THRESHOLD = 0.13
 
     @staticmethod
     def _build_boxout_image(alpha, text_rgb=(0, 0, 0)):
