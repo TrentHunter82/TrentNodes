@@ -497,6 +497,7 @@ class PSDLayerCompositor:
         # path to apply matching clipping overlays.
         text_color_cache: Dict[str, Tuple[int, int, int]] = {}
         text_alpha_cache: Dict[str, Image.Image] = {}
+        text_lum_std_cache: Dict[str, float] = {}
         for lyr in layers_sorted:
             idx = int(lyr["index"])
             filename = lyr["filename"]
@@ -600,16 +601,25 @@ class PSDLayerCompositor:
                 recolored_count += 1
 
                 if text_shadow:
-                    shadow_img, sdx, sdy = (
-                        self._build_shadow_image(
+                    bg_lum_std = self._sample_bg_lum_std(
+                        layer_img.getchannel("A"),
+                        canvas, paste_x, paste_y,
+                    )
+                    if cache_key:
+                        text_lum_std_cache[cache_key] = (
+                            bg_lum_std
+                        )
+                    sep_img, sdx, sdy = (
+                        self._build_separator_image(
                             layer_img.getchannel("A"),
                             text_rgb=chosen_rgb,
+                            bg_lum_std=bg_lum_std,
                         )
                     )
                     canvas.paste(
-                        shadow_img,
+                        sep_img,
                         (paste_x + sdx, paste_y + sdy),
-                        shadow_img,
+                        sep_img,
                     )
 
             # Alpha-composite onto canvas
@@ -661,6 +671,7 @@ class PSDLayerCompositor:
                     text_recolor_mode=text_recolor_mode,
                     text_color_cache=text_color_cache,
                     text_alpha_cache=text_alpha_cache,
+                    text_lum_std_cache=text_lum_std_cache,
                     text_pattern_re=text_pattern_re,
                     text_shadow=text_shadow,
                 )
@@ -760,6 +771,58 @@ class PSDLayerCompositor:
         ), weight_sum
 
     @staticmethod
+    def _sample_bg_lum_std(alpha, canvas, paste_x, paste_y):
+        """Alpha-weighted standard deviation of BT.601
+        luminance under the glyph (returned in 0..1 range).
+        Used to detect cluttered/bimodal bgs that need a
+        boxout instead of a halo. Returns 0.0 when the
+        layer is entirely off-canvas or fully transparent.
+        """
+        layer_w, layer_h = alpha.size
+        canvas_w, canvas_h = canvas.size
+
+        x0 = max(0, paste_x)
+        y0 = max(0, paste_y)
+        x1 = min(canvas_w, paste_x + layer_w)
+        y1 = min(canvas_h, paste_y + layer_h)
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+
+        canvas_crop = canvas.crop((x0, y0, x1, y1))
+        layer_x0 = x0 - paste_x
+        layer_y0 = y0 - paste_y
+        layer_x1 = layer_x0 + (x1 - x0)
+        layer_y1 = layer_y0 + (y1 - y0)
+        alpha_crop = alpha.crop(
+            (layer_x0, layer_y0, layer_x1, layer_y1)
+        )
+
+        canvas_arr = np.asarray(
+            canvas_crop.convert("RGB"),
+            dtype=np.float32,
+        )
+        alpha_arr = np.asarray(
+            alpha_crop, dtype=np.float32
+        )
+        weight_sum = float(alpha_arr.sum())
+        if weight_sum <= 0.0:
+            return 0.0
+
+        lum_arr = (
+            0.299 * canvas_arr[..., 0]
+            + 0.587 * canvas_arr[..., 1]
+            + 0.114 * canvas_arr[..., 2]
+        ) / 255.0
+        weighted_lum_mean = float(
+            (lum_arr * alpha_arr).sum() / weight_sum
+        )
+        var = float(
+            (alpha_arr * (lum_arr - weighted_lum_mean) ** 2).sum()
+            / weight_sum
+        )
+        return float(np.sqrt(max(0.0, var)))
+
+    @staticmethod
     def _auto_contrast_rgb(
         alpha,
         canvas,
@@ -814,6 +877,67 @@ class PSDLayerCompositor:
         ) / 255.0
 
         return (255, 255, 255) if bg_lum < 0.5 else (0, 0, 0)
+
+    # Threshold above which a glyph's bg is considered
+    # too cluttered for a halo and warrants a boxout.
+    # Empirical: vintage paper sits ~0.10, halftone /
+    # line-art / heavy patterns hit 0.20+.
+    BOXOUT_LUM_STD_THRESHOLD = 0.20
+
+    @staticmethod
+    def _build_boxout_image(alpha, text_rgb=(0, 0, 0)):
+        """Build a magazine-style boxout: a semi-opaque
+        rectangular panel sized to the alpha bbox plus
+        padding, color-flipped to oppose the text fill.
+        Returns (boxout_pil, dx, dy).
+        """
+        text_lum = (
+            0.299 * text_rgb[0]
+            + 0.587 * text_rgb[1]
+            + 0.114 * text_rgb[2]
+        ) / 255.0
+        # Inverted color, ~86% opacity. Just translucent
+        # enough that the bg texture is faintly visible
+        # without compromising legibility.
+        if text_lum < 0.5:
+            box_color = (255, 255, 255, 220)
+        else:
+            box_color = (0, 0, 0, 220)
+
+        # Pad scales with single-line glyph height (line
+        # count from runs of opaque rows in the mask).
+        arr = np.asarray(alpha, dtype=np.uint8)
+        if arr.ndim == 2 and arr.shape[0] > 0:
+            opaque_rows = (arr > 32).any(axis=1)
+            edges = np.diff(opaque_rows.astype(np.int8))
+            n_lines = int(max(1, (edges == 1).sum()))
+            glyph_h = max(8, alpha.size[1] / n_lines)
+        else:
+            glyph_h = max(8, alpha.size[1])
+        pad = max(6, min(24, int(round(glyph_h * 0.18))))
+
+        aw, ah = alpha.size
+        out = Image.new(
+            "RGBA",
+            (aw + 2 * pad, ah + 2 * pad),
+            box_color,
+        )
+        return out, -pad, -pad
+
+    @staticmethod
+    def _build_separator_image(
+        alpha, text_rgb, bg_lum_std,
+    ):
+        """Auto-pick halo (low bg variance) vs boxout
+        (high variance) per-layer based on alpha-weighted
+        bg luminance std dev. Returns (pil, dx, dy)."""
+        if bg_lum_std >= PSDLayerCompositor.BOXOUT_LUM_STD_THRESHOLD:
+            return PSDLayerCompositor._build_boxout_image(
+                alpha, text_rgb=text_rgb
+            )
+        return PSDLayerCompositor._build_shadow_image(
+            alpha, text_rgb=text_rgb
+        )
 
     @staticmethod
     def _build_shadow_image(alpha, text_rgb=(0, 0, 0)):
@@ -944,6 +1068,7 @@ class PSDLayerCompositor:
         text_recolor_mode="off",
         text_color_cache=None,
         text_alpha_cache=None,
+        text_lum_std_cache=None,
         text_pattern_re=None,
         text_shadow=False,
     ):
@@ -1035,6 +1160,7 @@ class PSDLayerCompositor:
                 text_color_cache,
                 text_pattern_re,
                 alpha_cache=text_alpha_cache,
+                lum_std_cache=text_lum_std_cache,
                 text_shadow=text_shadow,
             )
 
@@ -1060,6 +1186,7 @@ class PSDLayerCompositor:
         color_cache,
         text_pattern_re=None,
         alpha_cache=None,
+        lum_std_cache=None,
         text_shadow=False,
     ):
         """For each layer in psd that is either a TypeLayer
@@ -1126,21 +1253,35 @@ class PSDLayerCompositor:
             if text_shadow and alpha_cache:
                 alpha = alpha_cache.get(text_layer.name)
                 if alpha is not None and alpha.size[0] > 0:
+                    bg_lum_std = 0.0
+                    if lum_std_cache is not None:
+                        bg_lum_std = float(
+                            lum_std_cache.get(
+                                text_layer.name, 0.0
+                            )
+                        )
                     shadow_pil, sdx, sdy = (
-                        PSDLayerCompositor._build_shadow_image(
-                            alpha, text_rgb=color
+                        PSDLayerCompositor._build_separator_image(
+                            alpha,
+                            text_rgb=color,
+                            bg_lum_std=bg_lum_std,
                         )
                     )
+                    is_boxout = (
+                        bg_lum_std
+                        >= PSDLayerCompositor.BOXOUT_LUM_STD_THRESHOLD
+                    )
+                    sep_kind = "boxout" if is_boxout else "shadow"
                     shadow_layer = PixelLayer.frompil(
                         pil_im=shadow_pil,
                         psd_file=psd,
-                        layer_name="shadow",
+                        layer_name=sep_kind,
                         top=top + sdy,
                         left=left + sdx,
                         compression=Compression.RLE,
                     )
                     shadow_layer.name = (
-                        f"{text_layer.name} - shadow"
+                        f"{text_layer.name} - {sep_kind}"
                     )
                     shadow_layer.opacity = 255
                     shadow_layer.visible = True
