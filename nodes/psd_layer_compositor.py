@@ -584,36 +584,34 @@ class PSDLayerCompositor:
                 and bool(text_pattern_re.search(name_for_match))
             )
             if matched_by_pattern:
-                # Safety: refuse to treat layers that nearly
-                # cover the canvas as text. Real text rarely
-                # exceeds ~60% of the canvas; a layer that
-                # big is almost always a vignette, overlay,
-                # or texture that incidentally matched the
-                # name regex (e.g. "background_texture"
-                # contains "text" as a substring).
+                # Safety: refuse to treat layers whose actual
+                # opaque content fills most of the canvas as
+                # text. Real text rarely exceeds ~60% of the
+                # canvas; a layer that big is almost always a
+                # vignette, overlay, or texture that
+                # incidentally matched the name regex (e.g.
+                # "background_texture" contains "text" as a
+                # substring).
                 #
-                # Read bbox from manifest, not from the PNG -
-                # some splitters export every layer at full
-                # canvas size with transparent padding, which
-                # would falsely trip this check on every
-                # text layer.
-                bbox_ratio = lyr.get("bbox_area_ratio")
-                if bbox_ratio is None:
-                    bw = int(
-                        lyr.get("size", {}).get("width", 0)
-                    )
-                    bh = int(
-                        lyr.get("size", {}).get("height", 0)
-                    )
-                    canvas_area = max(1, canvas_w * canvas_h)
-                    if bw > 0 and bh > 0:
-                        bbox_ratio = (
-                            (bw * bh) / canvas_area
-                        )
-                    else:
-                        bbox_ratio = 0.0
-                if bbox_ratio > 0.6:
+                # Use Image.getbbox() on the alpha channel -
+                # this is the bbox of opaque pixels in the
+                # rasterized layer, regardless of whether the
+                # PNG (or PSD-stored bbox) is canvas-sized
+                # with transparent padding. Text layers will
+                # report a small content bbox even when their
+                # raster is full-canvas; only true full-frame
+                # overlays will report ratio > 0.6.
+                content_bbox = (
+                    layer_img.getchannel("A").getbbox()
+                )
+                if content_bbox is None:
                     matched_by_pattern = False
+                else:
+                    cw = content_bbox[2] - content_bbox[0]
+                    ch = content_bbox[3] - content_bbox[1]
+                    canvas_area = max(1, canvas_w * canvas_h)
+                    if (cw * ch) > 0.6 * canvas_area:
+                        matched_by_pattern = False
             is_text_layer = kind == "type" or matched_by_pattern
             if (text_recolor_mode != "off"
                     and is_text_layer
