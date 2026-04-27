@@ -825,10 +825,17 @@ class PSDLayerCompositor:
         the original alpha bounds.
 
         Color auto-flips by text luminance (BT.601):
-          dark text  (lum < 0.5) -> white halo, no offset
-          light text (lum >= 0.5) -> black drop, +4/+4
-        Halo gets slightly higher alpha (200 vs 180) so
-        a white shadow on a light bg still reads.
+          dark text  (lum < 0.5) -> dense white halo,
+            no offset, alpha 240 (almost solid - magazine
+            outline trick that masks busy textures).
+          light text (lum >= 0.5) -> softer black drop,
+            offset proportional to glyph height, alpha 180.
+
+        Blur and offset scale with estimated single-line
+        glyph height (alpha bbox height divided by line
+        count, where line count comes from runs of opaque
+        rows in the mask). Caps at sensible bounds so a
+        100-line block doesn't ask for a 1px blur.
         """
         text_lum = (
             0.299 * text_rgb[0]
@@ -837,16 +844,30 @@ class PSDLayerCompositor:
         ) / 255.0
         is_halo = text_lum < 0.5
 
-        blur_radius = 4
-        pad = blur_radius * 2
+        # Estimate single-line glyph height from row density.
+        arr = np.asarray(alpha, dtype=np.uint8)
+        if arr.ndim == 2 and arr.shape[0] > 0:
+            opaque_rows = (arr > 32).any(axis=1)
+            edges = np.diff(opaque_rows.astype(np.int8))
+            n_lines = int(max(1, (edges == 1).sum()))
+            glyph_h = max(8, alpha.size[1] / n_lines)
+        else:
+            glyph_h = max(8, alpha.size[1])
+
+        # Halo wants chunky blur to mask textured bgs;
+        # drop wants a tighter, offset shadow.
         if is_halo:
+            blur_radius = max(3, min(24, int(round(glyph_h * 0.12))))
             offset_x = 0
             offset_y = 0
-            shadow_color = (255, 255, 255, 200)
+            shadow_color = (255, 255, 255, 240)
         else:
-            offset_x = 4
-            offset_y = 4
+            blur_radius = max(2, min(20, int(round(glyph_h * 0.08))))
+            offset = max(2, min(12, int(round(glyph_h * 0.06))))
+            offset_x = offset
+            offset_y = offset
             shadow_color = (0, 0, 0, 180)
+        pad = blur_radius * 2
 
         aw, ah = alpha.size
         out_w = aw + 2 * pad
