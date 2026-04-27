@@ -219,20 +219,26 @@ class PSDLayerCompositor:
                     ),
                 }),
                 "text_layer_pattern": ("STRING", {
-                    "default": "(?i)text",
-                    "placeholder": "(?i)text",
+                    "default": (
+                        r"(?<![A-Za-z])[Tt][Ee][Xx][Tt](?![a-z])"
+                    ),
+                    "placeholder": (
+                        r"(?<![A-Za-z])[Tt][Ee][Xx][Tt](?![a-z])"
+                    ),
                     "tooltip": (
                         "Regex matched against layer names. "
                         "Any layer whose name matches is "
                         "treated as text and recolored, in "
                         "addition to real TypeLayers. The "
-                        "default '(?i)text' matches any "
-                        "layer whose name contains 'text' "
-                        "(case-insensitive) anywhere - "
-                        "'Text 1', 'Layer 4 - text', "
-                        "'header_text' all match. Clear "
-                        "the field to recolor TypeLayers "
-                        "only."
+                        "default catches 'Text 1', "
+                        "'Layer 4 - text', 'header_text', "
+                        "'TextLayer' while excluding "
+                        "'texture', 'context', 'subtext'. "
+                        "(Layers covering >60% of the "
+                        "canvas are also ignored as a "
+                        "safety net against matched "
+                        "overlays/textures.) Clear the "
+                        "field to recolor TypeLayers only."
                     ),
                 }),
                 "text_shadow": ("BOOLEAN", {
@@ -572,13 +578,28 @@ class PSDLayerCompositor:
             # nobody wants their replacement turned into
             # a flat color.
             name_for_match = lyr.get("original_name", "") or ""
-            is_text_layer = (
-                kind == "type"
-                or (
-                    text_pattern_re is not None
-                    and bool(text_pattern_re.search(name_for_match))
-                )
+            matched_by_pattern = (
+                kind != "type"
+                and text_pattern_re is not None
+                and bool(text_pattern_re.search(name_for_match))
             )
+            if matched_by_pattern:
+                # Safety: refuse to treat layers that nearly
+                # cover the canvas as text. Real text rarely
+                # exceeds ~60% of the canvas; a layer that
+                # big is almost always a vignette, overlay,
+                # or texture that incidentally matched the
+                # name regex (e.g. "background_texture"
+                # contains "text" as a substring).
+                lw = layer_img.size[0]
+                lh = layer_img.size[1]
+                if (
+                    canvas_w * canvas_h > 0
+                    and lw * lh
+                    > 0.6 * canvas_w * canvas_h
+                ):
+                    matched_by_pattern = False
+            is_text_layer = kind == "type" or matched_by_pattern
             if (text_recolor_mode != "off"
                     and is_text_layer
                     and not is_replacement):
