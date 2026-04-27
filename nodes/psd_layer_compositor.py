@@ -857,13 +857,13 @@ class PSDLayerCompositor:
         # Halo wants chunky blur to mask textured bgs;
         # drop wants a tighter, offset shadow.
         if is_halo:
-            blur_radius = max(3, min(24, int(round(glyph_h * 0.12))))
+            blur_radius = max(3, min(16, int(round(glyph_h * 0.07))))
             offset_x = 0
             offset_y = 0
             shadow_color = (255, 255, 255, 240)
         else:
-            blur_radius = max(2, min(20, int(round(glyph_h * 0.08))))
-            offset = max(2, min(12, int(round(glyph_h * 0.06))))
+            blur_radius = max(2, min(12, int(round(glyph_h * 0.04))))
+            offset = max(2, min(8, int(round(glyph_h * 0.03))))
             offset_x = offset
             offset_y = offset
             shadow_color = (0, 0, 0, 180)
