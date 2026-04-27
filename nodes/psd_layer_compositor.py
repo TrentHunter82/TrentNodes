@@ -891,13 +891,21 @@ class PSDLayerCompositor:
         paste_x,
         paste_y,
     ):
-        """Magazine-cover convention: white on darker bg,
-        black on lighter bg. Picks one of the two extremes
-        per text layer based on alpha-weighted bg luminance
-        (BT.601). Ignores hue and saturation entirely - on
-        busy or chromatic backgrounds the drop shadow + the
-        clipping mask already do the separation work.
-        Threshold is fixed at 0.5; no widget dependency.
+        """Magazine-cover convention with a bimodal-bg
+        override. Decides per text layer:
+
+          1. If alpha-weighted bg luminance std dev > 0.15
+             (bimodal / variegated bg with both light and
+             dark patches under the glyph), force white -
+             the existing black drop shadow then handles
+             separation against the light patches while
+             white handles the dark ones.
+          2. Otherwise, white when bg luminance < 0.4,
+             black when >= 0.4. The 0.4 cutoff (not 0.5)
+             biases borderline mid-tones toward black -
+             dark text on mid-tone reads more cleanly
+             than light text on mid-tone for the same
+             contrast delta.
         """
         mean_rgb, weight_sum = PSDLayerCompositor._sample_bg_rgb(
             alpha, canvas, paste_x, paste_y
@@ -910,8 +918,13 @@ class PSDLayerCompositor:
             + 0.587 * mean_rgb[1]
             + 0.114 * mean_rgb[2]
         ) / 255.0
+        bg_lum_std = PSDLayerCompositor._sample_bg_lum_std(
+            alpha, canvas, paste_x, paste_y
+        )
+        if bg_lum_std > 0.15:
+            return (255, 255, 255)
 
-        return (255, 255, 255) if bg_lum < 0.5 else (0, 0, 0)
+        return (255, 255, 255) if bg_lum < 0.4 else (0, 0, 0)
 
     # Threshold above which a glyph's bg is considered
     # too cluttered for a halo and warrants a boxout.
