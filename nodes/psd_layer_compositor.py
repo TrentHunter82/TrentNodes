@@ -591,13 +591,28 @@ class PSDLayerCompositor:
                 # or texture that incidentally matched the
                 # name regex (e.g. "background_texture"
                 # contains "text" as a substring).
-                lw = layer_img.size[0]
-                lh = layer_img.size[1]
-                if (
-                    canvas_w * canvas_h > 0
-                    and lw * lh
-                    > 0.6 * canvas_w * canvas_h
-                ):
+                #
+                # Read bbox from manifest, not from the PNG -
+                # some splitters export every layer at full
+                # canvas size with transparent padding, which
+                # would falsely trip this check on every
+                # text layer.
+                bbox_ratio = lyr.get("bbox_area_ratio")
+                if bbox_ratio is None:
+                    bw = int(
+                        lyr.get("size", {}).get("width", 0)
+                    )
+                    bh = int(
+                        lyr.get("size", {}).get("height", 0)
+                    )
+                    canvas_area = max(1, canvas_w * canvas_h)
+                    if bw > 0 and bh > 0:
+                        bbox_ratio = (
+                            (bw * bh) / canvas_area
+                        )
+                    else:
+                        bbox_ratio = 0.0
+                if bbox_ratio > 0.6:
                     matched_by_pattern = False
             is_text_layer = kind == "type" or matched_by_pattern
             if (text_recolor_mode != "off"
