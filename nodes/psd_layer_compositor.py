@@ -873,8 +873,16 @@ class PSDLayerCompositor:
         out_w = aw + 2 * pad
         out_h = ah + 2 * pad
 
+        # Init canvas with the shadow's own RGB at alpha 0
+        # so GaussianBlur doesn't bleed dark RGB from the
+        # transparent border into the visible halo edge
+        # (PIL blurs all channels, including RGB, even
+        # where alpha is 0 - causes a dark fringe outside
+        # the glow if the canvas starts at (0,0,0,0)).
         canvas = Image.new(
-            "RGBA", (out_w, out_h), (0, 0, 0, 0)
+            "RGBA",
+            (out_w, out_h),
+            (shadow_color[0], shadow_color[1], shadow_color[2], 0),
         )
         fill = Image.new(
             "RGBA", (out_w, out_h), shadow_color
