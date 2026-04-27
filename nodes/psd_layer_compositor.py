@@ -602,7 +602,8 @@ class PSDLayerCompositor:
                 if text_shadow:
                     shadow_img, sdx, sdy = (
                         self._build_shadow_image(
-                            layer_img.getchannel("A")
+                            layer_img.getchannel("A"),
+                            text_rgb=chosen_rgb,
                         )
                     )
                     canvas.paste(
@@ -815,19 +816,37 @@ class PSDLayerCompositor:
         return (255, 255, 255) if bg_lum < 0.5 else (0, 0, 0)
 
     @staticmethod
-    def _build_shadow_image(alpha):
-        """Build a soft drop-shadow RGBA image from a
-        glyph alpha mask. Returns (shadow_pil, dx, dy)
-        where (dx, dy) is the offset to apply to the
-        original layer's paste_x/paste_y. The shadow pil
-        is padded by blur_radius*2 px so the blur isn't
-        clipped at the original alpha bounds.
+    def _build_shadow_image(alpha, text_rgb=(0, 0, 0)):
+        """Build a soft shadow RGBA image from a glyph
+        alpha mask. Returns (shadow_pil, dx, dy) where
+        (dx, dy) is the offset to apply to the original
+        layer's paste_x/paste_y. The shadow pil is padded
+        by blur_radius*2 px so the blur isn't clipped at
+        the original alpha bounds.
+
+        Color auto-flips by text luminance (BT.601):
+          dark text  (lum < 0.5) -> white halo, no offset
+          light text (lum >= 0.5) -> black drop, +4/+4
+        Halo gets slightly higher alpha (200 vs 180) so
+        a white shadow on a light bg still reads.
         """
-        offset_x = 4
-        offset_y = 4
+        text_lum = (
+            0.299 * text_rgb[0]
+            + 0.587 * text_rgb[1]
+            + 0.114 * text_rgb[2]
+        ) / 255.0
+        is_halo = text_lum < 0.5
+
         blur_radius = 4
         pad = blur_radius * 2
-        shadow_color = (0, 0, 0, 180)
+        if is_halo:
+            offset_x = 0
+            offset_y = 0
+            shadow_color = (255, 255, 255, 200)
+        else:
+            offset_x = 4
+            offset_y = 4
+            shadow_color = (0, 0, 0, 180)
 
         aw, ah = alpha.size
         out_w = aw + 2 * pad
@@ -1080,7 +1099,7 @@ class PSDLayerCompositor:
                 if alpha is not None and alpha.size[0] > 0:
                     shadow_pil, sdx, sdy = (
                         PSDLayerCompositor._build_shadow_image(
-                            alpha
+                            alpha, text_rgb=color
                         )
                     )
                     shadow_layer = PixelLayer.frompil(
