@@ -891,20 +891,27 @@ class PSDLayerCompositor:
         paste_x,
         paste_y,
     ):
-        """Magazine-cover convention. Picks white or black
-        per text layer from alpha-weighted bg luminance:
-        white when bg lum < 0.4, black otherwise. Bimodal
-        and cluttered bgs are handled separately by the
-        separator stage (it picks boxout vs halo from
-        bg_lum_std), not here - so this stage assumes the
-        text color will sit on a clean enough surface to
-        read from luminance alone, whether that surface is
-        the bg itself or a boxout panel underneath.
+        """Magazine-cover convention. Picks white, black,
+        or one of two iconic magazine accent colors per
+        text layer from alpha-weighted bg stats:
+
+        Accent rule (only triggers on clean paper, matte
+        black, or plain gray bgs):
+          if mean bg saturation < 0.15 AND lum_std < 0.08:
+              light neutral (lum >= 0.5) -> magazine red
+              dark  neutral (lum <  0.5) -> magazine yellow
+
+        Otherwise default to neutral text:
+          white when bg lum < 0.4, black when >= 0.4
 
         The 0.4 cutoff (not 0.5) biases borderline mid-tones
         toward black - dark text on mid-tone reads more
         cleanly than light text on mid-tone for the same
         contrast delta.
+
+        Bimodal and cluttered bgs are handled separately by
+        the separator stage (it picks boxout vs halo from
+        bg_lum_std), not here.
         """
         mean_rgb, weight_sum = PSDLayerCompositor._sample_bg_rgb(
             alpha, canvas, paste_x, paste_y
@@ -917,6 +924,25 @@ class PSDLayerCompositor:
             + 0.587 * mean_rgb[1]
             + 0.114 * mean_rgb[2]
         ) / 255.0
+
+        # HSV saturation of the mean bg color: 0 = gray,
+        # 1 = pure hue. Computed without colorsys so we
+        # don't reintroduce the import for one line.
+        mx = max(mean_rgb[0], mean_rgb[1], mean_rgb[2])
+        mn = min(mean_rgb[0], mean_rgb[1], mean_rgb[2])
+        bg_sat = (mx - mn) / mx if mx > 0 else 0.0
+
+        bg_lum_std = PSDLayerCompositor._sample_bg_lum_std(
+            alpha, canvas, paste_x, paste_y
+        )
+
+        # Neutral + uniform -> magazine accent
+        if bg_sat < 0.15 and bg_lum_std < 0.08:
+            if bg_lum >= 0.5:
+                # Time/Cosmo/Vogue red on light paper
+                return (200, 16, 46)
+            # National Geographic-esque yellow on dark
+            return (255, 213, 0)
 
         return (255, 255, 255) if bg_lum < 0.4 else (0, 0, 0)
 
