@@ -1252,8 +1252,14 @@ class PSDLayerCompositor:
         """Resolve the user's output_psd_path widget value
         into a concrete filesystem path.
 
-        - Absolute path: returned verbatim. Will overwrite
-          if the file already exists (legacy behavior).
+        - Absolute path that ends with a slash OR names an
+          existing directory: treated as a destination
+          folder. Drops 'PSDComp_NNNNN_.psd' inside it with
+          an auto-incrementing counter so successive queues
+          don't collide.
+        - Absolute file path (with .psd extension or
+          otherwise): returned verbatim. Will overwrite if
+          the file already exists.
         - Relative / bare prefix: resolved against ComfyUI's
           output folder with an auto-incrementing counter,
           matching the SaveImage convention. e.g.
@@ -1265,7 +1271,26 @@ class PSDLayerCompositor:
         path = (user_path or "").strip()
         if not path:
             return path
+
         if os.path.isabs(path):
+            # Directory-style absolute path - autonumber
+            # inside it.
+            if (
+                path.endswith(("/", "\\"))
+                or os.path.isdir(path)
+            ):
+                target_dir = path.rstrip("/\\")
+                os.makedirs(target_dir, exist_ok=True)
+                counter = 1
+                while True:
+                    candidate = os.path.join(
+                        target_dir,
+                        f"PSDComp_{counter:05}_.psd",
+                    )
+                    if not os.path.exists(candidate):
+                        return candidate
+                    counter += 1
+            # Plain absolute file path - use verbatim.
             return path
 
         # Strip a trailing .psd if the user typed one - the
