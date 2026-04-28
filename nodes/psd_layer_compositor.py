@@ -838,14 +838,19 @@ class PSDLayerCompositor:
         """Returns True if the alpha mask resembles text
         glyphs (thin strokes) rather than a filled shape.
 
-        Method: estimate single-line glyph height from
-        contiguous opaque-row runs, erode the alpha by
-        ~8% of glyph height, compare opaque-pixel count
-        before vs after. Text loses 50%+ of opaque pixels
-        because glyph strokes are mostly within one
-        stroke-width of the edge; filled graphics keep
-        most pixels because their interior is far from
-        any edge.
+        Method: crop alpha to its content bbox, estimate
+        single-line glyph height from contiguous opaque-row
+        runs, erode the cropped alpha by ~8% of glyph height,
+        and compare opaque-pixel count before vs after. Text
+        loses 50%+ of opaque pixels (glyph strokes are mostly
+        within one stroke-width of the edge); filled graphics
+        keep most pixels.
+
+        Cropping to the bbox first is critical for perf -
+        splitters that export every layer at canvas size
+        with transparent padding would otherwise force the
+        MinFilter to run over millions of zero pixels and
+        lock the UI for seconds per layer.
 
         Used to promote Smart Object / Shape / Fill layers
         into the text-recolor pass when the rasterized
@@ -853,28 +858,34 @@ class PSDLayerCompositor:
         Photoshop where TypeLayers are auto-wrapped as
         Vector Smart Objects.
         """
-        arr = np.asarray(alpha, dtype=np.uint8) > 32
-        total = int(arr.sum())
-        if total < 100:
-            return False
-
         bbox = alpha.getbbox()
         if bbox is None:
             return False
         cl, ct, cr, cb = bbox
         content_h = cb - ct
-        if content_h <= 0:
+        content_w = cr - cl
+        if content_h <= 0 or content_w <= 0:
             return False
 
-        sub = arr[ct:cb, cl:cr]
-        opaque_rows = sub.any(axis=1)
+        cropped = alpha.crop(bbox)
+        arr = np.asarray(cropped, dtype=np.uint8) > 32
+        total = int(arr.sum())
+        if total < 100:
+            return False
+
+        opaque_rows = arr.any(axis=1)
         edges = np.diff(opaque_rows.astype(np.int8))
         n_lines = int(max(1, (edges == 1).sum()))
         glyph_h = max(8, content_h / n_lines)
 
-        erosion_size = max(1, int(round(glyph_h * 0.08)))
+        # Cap erosion at 8px (kernel 17) so even huge
+        # display headlines don't trigger an O(n*k^2)
+        # filter that takes seconds. 8% of glyph height is
+        # the natural target; the cap only kicks in for
+        # glyphs >= ~100px tall.
+        erosion_size = max(1, min(8, int(round(glyph_h * 0.08))))
         kernel = 2 * erosion_size + 1
-        eroded = alpha.filter(
+        eroded = cropped.filter(
             ImageFilter.MinFilter(kernel)
         )
         eroded_arr = (
