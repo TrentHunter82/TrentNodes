@@ -129,12 +129,18 @@ class PSDBackgroundDetect:
                 }),
                 "name_pattern": ("STRING", {
                     "default": (
-                        r"(?i)\b(bg|background|backdrop|"
-                        r"sky|wall|floor)\b"
+                        r"(?i)(\b(bg|background|backdrop|"
+                        r"sky|wall|floor|fondo|hintergrund|"
+                        r"arrière-plan|fond)\b|背景|배경)"
                     ),
                     "tooltip": (
                         "Regex matched against layer "
-                        "names. Big score boost on hit."
+                        "names. Big score boost on hit. "
+                        "Default covers English plus a few "
+                        "common localizations: Chinese/"
+                        "Japanese 背景, Korean 배경, "
+                        "Spanish fondo, German hintergrund, "
+                        "French arrière-plan / fond."
                     ),
                 }),
                 "min_confidence": ("FLOAT", {

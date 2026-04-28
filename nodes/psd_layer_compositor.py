@@ -220,19 +220,24 @@ class PSDLayerCompositor:
                 }),
                 "text_layer_pattern": ("STRING", {
                     "default": (
-                        r"(?<![A-Za-z])[Tt][Ee][Xx][Tt](?![a-z])"
+                        r"(?:(?<![A-Za-z])[Tt][Ee][Xx][Tt]"
+                        r"(?![a-z])|文字|文本|标题|字幕)"
                     ),
                     "placeholder": (
-                        r"(?<![A-Za-z])[Tt][Ee][Xx][Tt](?![a-z])"
+                        r"(?:(?<![A-Za-z])[Tt][Ee][Xx][Tt]"
+                        r"(?![a-z])|文字|文本|标题|字幕)"
                     ),
                     "tooltip": (
                         "Regex matched against layer names. "
                         "Any layer whose name matches is "
                         "treated as text and recolored, in "
-                        "addition to real TypeLayers. The "
+                        "addition to real TypeLayers and "
+                        "text-shaped Smart Objects. The "
                         "default catches 'Text 1', "
                         "'Layer 4 - text', 'header_text', "
-                        "'TextLayer' while excluding "
+                        "'TextLayer', plus Chinese 文字 / "
+                        "文本 / 标题 / 字幕 (text / title / "
+                        "subtitle), while excluding "
                         "'texture', 'context', 'subtext'. "
                         "(Layers covering >60% of the "
                         "canvas are also ignored as a "
@@ -498,6 +503,7 @@ class PSDLayerCompositor:
 
         composited = 0
         recolored_count = 0
+        shape_matched_count = 0
         # Maps text-layer original_name -> (r, g, b) chosen
         # during the flat composite. Reused by the PSD save
         # path to apply matching clipping overlays.
@@ -583,36 +589,53 @@ class PSDLayerCompositor:
                 and text_pattern_re is not None
                 and bool(text_pattern_re.search(name_for_match))
             )
-            if matched_by_pattern:
+            # Promote Smart Object / Shape / Fill layers
+            # whose rasterized content looks text-shaped.
+            # Catches Chinese-localized PSDs that wrap text
+            # in Vector Smart Objects (矢量智能对象) without
+            # any "text" hint in the name. Pixel layers are
+            # excluded so noisy photos don't trigger.
+            matched_by_shape = (
+                not matched_by_pattern
+                and kind in (
+                    "smartobject", "shape", "fill",
+                )
+                and self._alpha_looks_textlike(
+                    layer_img.getchannel("A")
+                )
+            )
+            if matched_by_pattern or matched_by_shape:
                 # Safety: refuse to treat layers whose actual
                 # opaque content fills most of the canvas as
                 # text. Real text rarely exceeds ~60% of the
                 # canvas; a layer that big is almost always a
-                # vignette, overlay, or texture that
-                # incidentally matched the name regex (e.g.
-                # "background_texture" contains "text" as a
-                # substring).
+                # vignette, overlay, or texture.
                 #
                 # Use Image.getbbox() on the alpha channel -
                 # this is the bbox of opaque pixels in the
                 # rasterized layer, regardless of whether the
                 # PNG (or PSD-stored bbox) is canvas-sized
-                # with transparent padding. Text layers will
-                # report a small content bbox even when their
-                # raster is full-canvas; only true full-frame
-                # overlays will report ratio > 0.6.
+                # with transparent padding.
                 content_bbox = (
                     layer_img.getchannel("A").getbbox()
                 )
                 if content_bbox is None:
                     matched_by_pattern = False
+                    matched_by_shape = False
                 else:
                     cw = content_bbox[2] - content_bbox[0]
                     ch = content_bbox[3] - content_bbox[1]
                     canvas_area = max(1, canvas_w * canvas_h)
                     if (cw * ch) > 0.6 * canvas_area:
                         matched_by_pattern = False
-            is_text_layer = kind == "type" or matched_by_pattern
+                        matched_by_shape = False
+            is_text_layer = (
+                kind == "type"
+                or matched_by_pattern
+                or matched_by_shape
+            )
+            if matched_by_shape:
+                shape_matched_count += 1
             if (text_recolor_mode != "off"
                     and is_text_layer
                     and not is_replacement):
@@ -671,9 +694,14 @@ class PSDLayerCompositor:
 
         recolor_note = ""
         if text_recolor_mode != "off":
+            shape_note = (
+                f", {shape_matched_count} via shape"
+                if shape_matched_count else ""
+            )
             recolor_note = (
                 f" (recolored {recolored_count} text "
-                f"layer(s) via {text_recolor_mode})"
+                f"layer(s) via {text_recolor_mode}"
+                f"{shape_note})"
             )
         print(
             f"[PSDLayerCompositor] Composited "
@@ -804,6 +832,58 @@ class PSDLayerCompositor:
             float(mean_rgb[1]),
             float(mean_rgb[2]),
         ), weight_sum
+
+    @staticmethod
+    def _alpha_looks_textlike(alpha):
+        """Returns True if the alpha mask resembles text
+        glyphs (thin strokes) rather than a filled shape.
+
+        Method: estimate single-line glyph height from
+        contiguous opaque-row runs, erode the alpha by
+        ~8% of glyph height, compare opaque-pixel count
+        before vs after. Text loses 50%+ of opaque pixels
+        because glyph strokes are mostly within one
+        stroke-width of the edge; filled graphics keep
+        most pixels because their interior is far from
+        any edge.
+
+        Used to promote Smart Object / Shape / Fill layers
+        into the text-recolor pass when the rasterized
+        content actually contains text, common in Chinese
+        Photoshop where TypeLayers are auto-wrapped as
+        Vector Smart Objects.
+        """
+        arr = np.asarray(alpha, dtype=np.uint8) > 32
+        total = int(arr.sum())
+        if total < 100:
+            return False
+
+        bbox = alpha.getbbox()
+        if bbox is None:
+            return False
+        cl, ct, cr, cb = bbox
+        content_h = cb - ct
+        if content_h <= 0:
+            return False
+
+        sub = arr[ct:cb, cl:cr]
+        opaque_rows = sub.any(axis=1)
+        edges = np.diff(opaque_rows.astype(np.int8))
+        n_lines = int(max(1, (edges == 1).sum()))
+        glyph_h = max(8, content_h / n_lines)
+
+        erosion_size = max(1, int(round(glyph_h * 0.08)))
+        kernel = 2 * erosion_size + 1
+        eroded = alpha.filter(
+            ImageFilter.MinFilter(kernel)
+        )
+        eroded_arr = (
+            np.asarray(eroded, dtype=np.uint8) > 32
+        )
+        loss_ratio = (
+            1.0 - (eroded_arr.sum() / max(1, total))
+        )
+        return loss_ratio > 0.5
 
     @staticmethod
     def _sample_bg_lum_std(alpha, canvas, paste_x, paste_y):
