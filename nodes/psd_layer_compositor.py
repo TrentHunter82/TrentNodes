@@ -1490,17 +1490,26 @@ class PSDLayerCompositor:
                 pass
 
         # Sanity check: re-open the saved file with
-        # psd_tools. If it can't parse what we just wrote,
-        # the file is genuinely corrupt - log it loudly so
-        # the user doesn't waste time debugging Photoshop.
+        # psd_tools. Always log the result so the user can
+        # tell at a glance whether the file is structurally
+        # valid PSD bytes (and thus any "EOF in Photoshop"
+        # is a Photoshop-side / smart-object quirk) vs.
+        # genuinely corrupt (we wrote bad bytes).
         try:
             file_size = os.path.getsize(output_psd_path)
-            PSDImage.open(output_psd_path)
+            reopened = PSDImage.open(output_psd_path)
+            n_layers = len(list(reopened.descendants()))
+            print(
+                f"[PSDLayerCompositor] post-save validation:"
+                f" psd_tools re-opened {file_size} bytes,"
+                f" {n_layers} descendant layer(s) - OK"
+            )
         except Exception as e:
             print(
                 f"[PSDLayerCompositor] WARNING: saved PSD "
                 f"failed re-open by psd_tools "
-                f"({file_size} bytes): {type(e).__name__}: {e}"
+                f"({file_size} bytes): "
+                f"{type(e).__name__}: {e}"
             )
 
         clip_note = ""
