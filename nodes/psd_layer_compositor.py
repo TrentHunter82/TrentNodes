@@ -1473,8 +1473,21 @@ class PSDLayerCompositor:
                 text_shadow=text_shadow,
             )
 
+        # Force flush + fsync so the file is fully on disk
+        # before any reader (Photoshop on a WSL /mnt/c
+        # mount, etc.) tries to open it. Without fsync,
+        # Photoshop on Windows can race the WSL writer and
+        # see a truncated file ("unexpected end-of-file").
         with open(output_psd_path, "wb") as fp:
             psd.save(fp)
+            fp.flush()
+            try:
+                os.fsync(fp.fileno())
+            except (OSError, AttributeError):
+                # fsync isn't available on every fs/fp;
+                # silent failure is fine - flush already
+                # happened above.
+                pass
 
         clip_note = ""
         if clip_count:
