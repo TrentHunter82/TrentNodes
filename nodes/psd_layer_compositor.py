@@ -155,17 +155,27 @@ class PSDLayerCompositor:
                     ),
                 }),
                 "output_psd_path": ("STRING", {
-                    "default": "",
-                    "placeholder": "/path/to/new.psd",
+                    "default": "PSDComp",
+                    "placeholder": (
+                        "PSDComp  (or subfolder/prefix, "
+                        "or /abs/path.psd)"
+                    ),
                     "tooltip": (
-                        "Optional. If set, also writes a "
-                        "new .psd by opening the original "
-                        "PSD (from the manifest) and "
-                        "swapping the layer at "
-                        "replacement_index with "
-                        "replacement_image. Original PSD is "
-                        "never overwritten - must be a "
-                        "different path. Requires "
+                        "Filename or path for the saved "
+                        ".psd. Three modes:\n"
+                        "  - bare prefix ('PSDComp', "
+                        "'posters/run'): saves to ComfyUI "
+                        "output folder with auto-incrementing "
+                        "counter (PSDComp_00001_.psd, etc.). "
+                        "Subfolders are auto-created.\n"
+                        "  - absolute path "
+                        "('/abs/path.psd'): saves to that "
+                        "exact path; overwrites if it "
+                        "exists.\n"
+                        "  - empty: skip PSD save (only "
+                        "produce the flat IMAGE output).\n"
+                        "Original source PSD is never "
+                        "overwritten. Requires "
                         "replacement_image and "
                         "replacement_index >= 0."
                     ),
@@ -711,33 +721,29 @@ class PSDLayerCompositor:
         )
 
         # Optional: also write a new .psd by swapping the
-        # target layer in the original PSD and saving to a
-        # different path. The original is never modified.
-        # v1: only single-layer mode supports PSD re-export.
+        # bottom layer of the replaced range with the
+        # replacement_image and hiding any layers above it
+        # within the range. Original PSD is never modified.
         if output_psd_path:
-            if replacement_mode != "single":
-                print(
-                    f"[PSDLayerCompositor] output_psd_path "
-                    f"is set but replacement_mode is "
-                    f"'{replacement_mode}'. PSD re-export "
-                    f"only supports 'single' mode in v1. "
-                    f"Skipping PSD write."
-                )
-            else:
-                self._save_modified_psd(
-                    manifest=manifest,
-                    layers=layers,
-                    replacement_index=replacement_index,
-                    replacement_pil=replacement_pil,
-                    replacement_mode=replacement_fit,
-                    output_psd_path=output_psd_path,
-                    text_recolor_mode=text_recolor_mode,
-                    text_color_cache=text_color_cache,
-                    text_alpha_cache=text_alpha_cache,
-                    text_lum_std_cache=text_lum_std_cache,
-                    text_pattern_re=text_pattern_re,
-                    text_shadow=text_shadow,
-                )
+            self._save_modified_psd(
+                manifest=manifest,
+                layers=layers,
+                replacement_index=replacement_index,
+                replacement_end_index=(
+                    replacement_end_index
+                    if replacement_mode == "replace_range"
+                    else -1
+                ),
+                replacement_pil=replacement_pil,
+                replacement_mode=replacement_fit,
+                output_psd_path=output_psd_path,
+                text_recolor_mode=text_recolor_mode,
+                text_color_cache=text_color_cache,
+                text_alpha_cache=text_alpha_cache,
+                text_lum_std_cache=text_lum_std_cache,
+                text_pattern_re=text_pattern_re,
+                text_shadow=text_shadow,
+            )
 
         # Convert to ComfyUI image tensor
         rgb = canvas.convert("RGB")
@@ -1241,6 +1247,49 @@ class PSDLayerCompositor:
         y1 = max(0, min(y1, canvas_h))
         return (x0, y0, x1, y1)
 
+    @staticmethod
+    def _resolve_output_psd_path(user_path):
+        """Resolve the user's output_psd_path widget value
+        into a concrete filesystem path.
+
+        - Absolute path: returned verbatim. Will overwrite
+          if the file already exists (legacy behavior).
+        - Relative / bare prefix: resolved against ComfyUI's
+          output folder with an auto-incrementing counter,
+          matching the SaveImage convention. e.g.
+          'PSDComp' -> '<output>/PSDComp_00001_.psd' on
+          first run, '_00002_' on the next, etc.
+          'posters/run' -> '<output>/posters/run_00001_.psd';
+          subfolders are auto-created.
+        """
+        path = (user_path or "").strip()
+        if not path:
+            return path
+        if os.path.isabs(path):
+            return path
+
+        # Strip a trailing .psd if the user typed one - the
+        # counter goes between the prefix and the extension.
+        if path.lower().endswith(".psd"):
+            path = path[: -len(".psd")]
+        if not path:
+            path = "PSDComp"
+
+        try:
+            import folder_paths
+        except ImportError:
+            # Outside ComfyUI - fall back to CWD relative.
+            return os.path.abspath(path + ".psd")
+
+        output_dir = folder_paths.get_output_directory()
+        full_folder, fname, counter, _, _ = (
+            folder_paths.get_save_image_path(path, output_dir)
+        )
+        os.makedirs(full_folder, exist_ok=True)
+        return os.path.join(
+            full_folder, f"{fname}_{counter:05}_.psd"
+        )
+
     def _save_modified_psd(
         self,
         manifest,
@@ -1249,6 +1298,7 @@ class PSDLayerCompositor:
         replacement_pil,
         replacement_mode,
         output_psd_path,
+        replacement_end_index=-1,
         text_recolor_mode="off",
         text_color_cache=None,
         text_alpha_cache=None,
@@ -1262,6 +1312,14 @@ class PSDLayerCompositor:
         layer name is resolved from the manifest using
         replacement_index. The original PSD is never
         overwritten - output_psd_path must differ.
+
+        When replacement_end_index > replacement_index, this
+        operates in range mode: the bottom layer of the
+        range gets the replacement pixels, and every layer
+        above it within the range is hidden (visible=False)
+        in the saved PSD. Mirrors the flat composite where
+        those layers were collectively replaced by one
+        image.
 
         When text_recolor_mode is set and text_color_cache
         is non-empty, also insert a clipping PixelLayer
@@ -1293,6 +1351,16 @@ class PSDLayerCompositor:
                 f"Original PSD not found at "
                 f"{source_psd_path}"
             )
+
+        # Resolve output path. Bare prefix or relative path
+        # routes through ComfyUI's output folder with an
+        # auto-incrementing counter (matches SaveImage
+        # convention). Absolute path is used verbatim.
+        output_psd_path = (
+            PSDLayerCompositor._resolve_output_psd_path(
+                output_psd_path
+            )
+        )
 
         if (
             os.path.abspath(output_psd_path)
@@ -1337,6 +1405,38 @@ class PSDLayerCompositor:
             replacement_mode,
         )
 
+        # Range mode: hide every layer above the bottom of
+        # the replaced range. Mirrors the flat composite,
+        # where those layers were swallowed by the single
+        # replacement image.
+        hidden_count = 0
+        if replacement_end_index > replacement_index:
+            from .psd_utils import find_layer_by_name
+            for idx in range(
+                replacement_index + 1,
+                replacement_end_index + 1,
+            ):
+                hide_target = next(
+                    (
+                        lyr for lyr in layers
+                        if int(lyr["index"]) == idx
+                    ),
+                    None,
+                )
+                if hide_target is None:
+                    continue
+                hide_name = hide_target.get(
+                    "original_name", ""
+                )
+                if not hide_name:
+                    continue
+                hit = find_layer_by_name(psd, hide_name)
+                if hit is None:
+                    continue
+                _, _, layer_obj = hit
+                layer_obj.visible = False
+                hidden_count += 1
+
         clip_count = 0
         if text_recolor_mode != "off" and text_color_cache:
             clip_count = self._apply_text_clipping_overlays(
@@ -1357,11 +1457,18 @@ class PSDLayerCompositor:
                 f", added {clip_count} text recolor "
                 f"clipping layer(s)"
             )
+        hidden_note = ""
+        if hidden_count:
+            hidden_note = (
+                f", hid {hidden_count} layer(s) in range "
+                f"{replacement_index+1}-"
+                f"{replacement_end_index}"
+            )
         print(
             f"[PSDLayerCompositor] Wrote modified PSD to "
             f"{output_psd_path} (replaced layer "
             f"'{old_name}' at index {replacement_index}"
-            f"{clip_note})"
+            f"{hidden_note}{clip_note})"
         )
 
     @staticmethod
