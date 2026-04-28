@@ -17,7 +17,13 @@ import torch
 from PIL import Image, ImageFilter, ImageOps
 
 from psd_tools import PSDImage
-from psd_tools.api.layers import PixelLayer, TypeLayer
+from psd_tools.api.layers import (
+    FillLayer,
+    PixelLayer,
+    ShapeLayer,
+    SmartObjectLayer,
+    TypeLayer,
+)
 from psd_tools.constants import BlendMode, Compression
 
 from .psd_utils import (
@@ -1315,6 +1321,84 @@ class PSDLayerCompositor:
             full_folder, f"{fname}_{counter:05}_.psd"
         )
 
+    @staticmethod
+    def _flatten_nonraster_layers(psd):
+        """Replace SmartObjectLayer / ShapeLayer / FillLayer
+        instances with plain PixelLayers built from their
+        rasterized preview. psd_tools reads these layer
+        types but its rewrite of their descriptor blocks
+        doesn't always survive Photoshop's stricter parser
+        ('unexpected end-of-file'). Flattening sacrifices
+        vector / smart-object editability on those layers
+        but produces a Photoshop-readable file.
+
+        TypeLayers are intentionally left alone - text
+        recolor relies on them staying editable underneath
+        the clip layers we add.
+
+        Returns the number of layers flattened (for logging).
+        """
+        targets = [
+            layer for layer in psd.descendants()
+            if isinstance(
+                layer,
+                (SmartObjectLayer, ShapeLayer, FillLayer),
+            )
+        ]
+
+        flattened = 0
+        for layer in targets:
+            parent = layer.parent
+            if parent is None:
+                continue
+            idx = None
+            for i, child in enumerate(parent):
+                if child is layer:
+                    idx = i
+                    break
+            if idx is None:
+                continue
+
+            try:
+                pil = layer.composite()
+            except Exception:
+                continue
+            if pil is None:
+                continue
+            if pil.mode != "RGBA":
+                pil = pil.convert("RGBA")
+
+            old_name = layer.name
+            old_top = int(layer.top)
+            old_left = int(layer.left)
+            old_opacity = int(layer.opacity)
+            old_visible = bool(layer.visible)
+            old_blend = layer.blend_mode
+            old_clipping = bool(
+                getattr(layer, "clipping", False)
+            )
+
+            # ASCII placeholder name + Unicode-safe setter,
+            # mirroring replace_psd_layer_pixels' pattern.
+            new_layer = PixelLayer.frompil(
+                pil_im=pil,
+                psd_file=psd,
+                layer_name="Layer",
+                top=old_top,
+                left=old_left,
+                compression=Compression.RLE,
+            )
+            new_layer.name = old_name
+            new_layer.opacity = old_opacity
+            new_layer.visible = old_visible
+            new_layer.blend_mode = old_blend
+            new_layer.clipping = old_clipping
+
+            parent[idx] = new_layer
+            flattened += 1
+
+        return flattened
+
     def _save_modified_psd(
         self,
         manifest,
@@ -1473,6 +1557,18 @@ class PSDLayerCompositor:
                 text_shadow=text_shadow,
             )
 
+        # psd_tools' rewrite of Smart Object / Shape / Fill
+        # descriptor blocks doesn't always survive
+        # Photoshop's stricter parser, producing files that
+        # open in psd_tools but EOF in Photoshop. Flatten
+        # those layer types to plain PixelLayers before
+        # save. TypeLayers are left alone so text recolor
+        # via clip layers keeps the underlying text
+        # editable.
+        flattened_count = (
+            PSDLayerCompositor._flatten_nonraster_layers(psd)
+        )
+
         # Force flush + fsync so the file is fully on disk
         # before any reader (Photoshop on a WSL /mnt/c
         # mount, etc.) tries to open it. Without fsync,
@@ -1525,11 +1621,18 @@ class PSDLayerCompositor:
                 f"{replacement_index+1}-"
                 f"{replacement_end_index}"
             )
+        flattened_note = ""
+        if flattened_count:
+            flattened_note = (
+                f", flattened {flattened_count} smart/"
+                f"shape/fill layer(s) for Photoshop "
+                f"compatibility"
+            )
         print(
             f"[PSDLayerCompositor] Wrote modified PSD to "
             f"{output_psd_path} (replaced layer "
             f"'{old_name}' at index {replacement_index}"
-            f"{hidden_note}{clip_note})"
+            f"{hidden_note}{clip_note}{flattened_note})"
         )
 
     @staticmethod
