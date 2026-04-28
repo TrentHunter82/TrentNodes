@@ -1489,6 +1489,20 @@ class PSDLayerCompositor:
                 # happened above.
                 pass
 
+        # Sanity check: re-open the saved file with
+        # psd_tools. If it can't parse what we just wrote,
+        # the file is genuinely corrupt - log it loudly so
+        # the user doesn't waste time debugging Photoshop.
+        try:
+            file_size = os.path.getsize(output_psd_path)
+            PSDImage.open(output_psd_path)
+        except Exception as e:
+            print(
+                f"[PSDLayerCompositor] WARNING: saved PSD "
+                f"failed re-open by psd_tools "
+                f"({file_size} bytes): {type(e).__name__}: {e}"
+            )
+
         clip_note = ""
         if clip_count:
             clip_note = (
