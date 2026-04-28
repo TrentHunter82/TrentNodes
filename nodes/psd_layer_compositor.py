@@ -1095,7 +1095,11 @@ class PSDLayerCompositor:
             glyph_h = max(8, ch / n_lines)
         else:
             glyph_h = max(8, ch)
-        pad = max(6, min(24, int(round(glyph_h * 0.18))))
+        # Generous padding around the text - magazine
+        # boxouts need breathing room, not a tight crop.
+        # 25% of glyph height with min 12 / max 40 px gives
+        # editorial-feeling margins at every text size.
+        pad = max(12, min(40, int(round(glyph_h * 0.25))))
 
         out = Image.new(
             "RGBA",
