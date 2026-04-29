@@ -4,16 +4,7 @@ StringListCowboy - Make a list of strings with optional prepend/append.
 Lassos strings together into a list and brands them with prefix/suffix text.
 Dynamic inputs expand as you connect more values.
 """
-
-
-class AnyType(str):
-    """Wildcard type that matches any input type."""
-
-    def __ne__(self, __value: object) -> bool:
-        return False
-
-
-any_typ = AnyType("*")
+from ..utils.any_type import any_typ
 
 
 class StringListCowboy:

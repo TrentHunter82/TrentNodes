@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Tuple
 
 from comfy_execution.graph import ExecutionBlocker
 
+from ..utils.any_type import any_typ
+from ..utils.lazy import connected_inputs
 from ..utils.truthiness import is_truthy
 
 
@@ -30,23 +32,27 @@ class FirstValid:
         return {
             "required": {},
             "optional": {
-                "first": ("*", {
+                "first": (any_typ, {
                     "lazy": True,
                     "tooltip": "Highest priority input - checked first"
                 }),
-                "second": ("*", {
+                "second": (any_typ, {
                     "lazy": True,
                     "tooltip": "Second priority - used if first is falsy"
                 }),
-                "third": ("*", {
+                "third": (any_typ, {
                     "lazy": True,
                     "tooltip": "Third priority / fallback - used if first "
                                "and second are falsy"
                 }),
             },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+                "dynprompt": "DYNPROMPT",
+            },
         }
 
-    RETURN_TYPES = ("*",)
+    RETURN_TYPES = (any_typ,)
     RETURN_NAMES = ("output",)
 
     FUNCTION = "select_first"
@@ -67,35 +73,30 @@ class FirstValid:
         first: Any = None,
         second: Any = None,
         third: Any = None,
+        unique_id: str = None,
+        dynprompt: Any = None,
     ) -> List[str]:
         """
         Request inputs lazily in priority order.
 
-        Only requests the next input if the current one is falsy.
-        This is the key optimization - we avoid evaluating later
-        inputs if an earlier one is already valid.
+        Only requests inputs that are actually connected. Requesting an
+        unconnected input causes ComfyUI to raise NodeInputError in
+        make_input_strong_link.
         """
-        # Check first - if not evaluated yet, request it
-        if first is None:
-            return ["first"]
+        connected = connected_inputs(
+            unique_id, dynprompt, ("first", "second", "third")
+        )
 
-        # First was evaluated - if truthy, we're done (no more needed)
-        if is_truthy(first):
-            return []
+        for name, value in (
+            ("first", first), ("second", second), ("third", third)
+        ):
+            if name not in connected:
+                continue
+            if value is None:
+                return [name]
+            if is_truthy(value):
+                return []
 
-        # First is falsy, check second
-        if second is None:
-            return ["second"]
-
-        # Second was evaluated - if truthy, we're done
-        if is_truthy(second):
-            return []
-
-        # Second is falsy, check third
-        if third is None:
-            return ["third"]
-
-        # All evaluated, nothing more needed
         return []
 
     def select_first(
@@ -103,6 +104,7 @@ class FirstValid:
         first: Any = None,
         second: Any = None,
         third: Any = None,
+        **_hidden: Any,
     ) -> Tuple[Any]:
         """
         Return the first truthy value, or block if all falsy.

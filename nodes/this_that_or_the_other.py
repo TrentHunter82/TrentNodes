@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Tuple
 
 from comfy_execution.graph import ExecutionBlocker
 
+from ..utils.any_type import any_typ
+from ..utils.lazy import connected_inputs
 from ..utils.truthiness import is_truthy
 
 
@@ -27,22 +29,26 @@ class ThisThatOrTheOther:
         return {
             "required": {},
             "optional": {
-                "this": ("*", {
+                "this": (any_typ, {
                     "lazy": True,
                     "tooltip": "First input - passes to this_out if truthy"
                 }),
-                "that": ("*", {
+                "that": (any_typ, {
                     "lazy": True,
                     "tooltip": "Second input - passes to that_out if truthy"
                 }),
-                "the_other": ("*", {
+                "the_other": (any_typ, {
                     "lazy": True,
                     "tooltip": "Third input - passes to the_other_out if truthy"
                 }),
             },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+                "dynprompt": "DYNPROMPT",
+            },
         }
 
-    RETURN_TYPES = ("*", "*", "*")
+    RETURN_TYPES = (any_typ, any_typ, any_typ)
     RETURN_NAMES = ("this_out", "that_out", "the_other_out")
 
     FUNCTION = "gate"
@@ -63,31 +69,32 @@ class ThisThatOrTheOther:
         this: Any = None,
         that: Any = None,
         the_other: Any = None,
+        unique_id: str = None,
+        dynprompt: Any = None,
     ) -> List[str]:
         """
-        Request evaluation of connected inputs.
+        Request evaluation of connected inputs only.
 
-        Returns list of input names that need to be evaluated.
-        For this node, we request all inputs since each channel is
-        independent and we need to evaluate all of them.
+        Requesting an unconnected input causes ComfyUI to raise
+        NodeInputError in make_input_strong_link, so we inspect the
+        prompt graph and skip unconnected slots.
         """
-        needed = []
-
-        # Request each input that hasn't been evaluated yet
-        if this is None:
-            needed.append("this")
-        if that is None:
-            needed.append("that")
-        if the_other is None:
-            needed.append("the_other")
-
-        return needed
+        connected = connected_inputs(
+            unique_id, dynprompt, ("this", "that", "the_other")
+        )
+        return [
+            name for name, value in (
+                ("this", this), ("that", that), ("the_other", the_other)
+            )
+            if name in connected and value is None
+        ]
 
     def gate(
         self,
         this: Any = None,
         that: Any = None,
         the_other: Any = None,
+        **_hidden: Any,
     ) -> Tuple[Any, Any, Any]:
         """
         Gate each input independently based on truthiness.
