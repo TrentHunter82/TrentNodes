@@ -9,6 +9,7 @@ GPU-accelerated video/image description using MiniCPM-V 4.5 with:
 
 import torch
 
+from ..utils.any_type import any_typ
 from ..utils.minicpm_wrapper import (
     is_minicpm_available,
     load_minicpm_model,
@@ -268,7 +269,7 @@ class UnloadMiniCPM:
         return {
             "required": {},
             "optional": {
-                "trigger": ("*", {"tooltip": "Connect any output to trigger unload"}),
+                "trigger": (any_typ, {"tooltip": "Connect any output to trigger unload"}),
             }
         }
 
