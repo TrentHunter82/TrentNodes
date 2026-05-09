@@ -7,17 +7,22 @@ import { app } from "../../scripts/app.js";
  * nodes left-to-right by connection depth (topological rank),
  * then resizes the group to wrap the result.
  *
- * Within a column, nodes are stacked top-to-bottom by the mean
- * y-position of their downstream targets (barycenter heuristic),
- * which keeps wires roughly parallel and minimizes crossings.
+ * Within a column, nodes are ordered to match the input-slot
+ * order of their downstream targets — the node feeding the
+ * topmost input slot comes first, the one feeding the next slot
+ * second, and so on. Spacing is uniform; we don't try to align
+ * exact pixel heights. Sinks and disconnected nodes fall back
+ * to their current y.
  *
- * Falls back to current y-position when a node has no downstream
- * targets inside the group.
+ * Leaf nodes (no in-group predecessors) are pulled rightward to
+ * sit one column to the left of their earliest target, so loose
+ * inputs stay close to where they plug in instead of piling up
+ * in column 0.
  */
 
 const PADDING = 20;
 const COL_GAP = 40;
-const ROW_GAP = 20;
+const ROW_GAP = 40;
 
 function getTitleHeight() {
     return (window.LiteGraph && window.LiteGraph.NODE_TITLE_HEIGHT) || 30;
@@ -173,31 +178,28 @@ function arrangeGroup(group, graph) {
     const { succ, pred } = buildAdjacency(nodes, graph);
     const rank = computeRanks(nodes, succ, pred);
 
+    // Pull leaves toward their targets: a node with no in-group
+    // predecessors snaps to (earliest_target_rank - 1) instead of
+    // sitting at column 0. This is safe because the leaf's
+    // contribution to its targets' longest-path rank is unchanged
+    // (target_rank >= leaf_rank + 1 still holds).
+    for (const n of nodes) {
+        if (pred.get(n.id).size > 0) continue;
+        const successors = succ.get(n.id);
+        if (!successors || successors.size === 0) continue;
+        let minTargetRank = Infinity;
+        for (const sid of successors) {
+            const r = rank.get(sid);
+            if (r != null && r < minTargetRank) minTargetRank = r;
+        }
+        if (minTargetRank > 1 && Number.isFinite(minTargetRank)) {
+            rank.set(n.id, minTargetRank - 1);
+        }
+    }
+
     const numCols = Math.max(...nodes.map((n) => rank.get(n.id))) + 1;
     const cols = Array.from({ length: numCols }, () => []);
     for (const n of nodes) cols[rank.get(n.id)].push(n);
-
-    // Sort each column by mean current y of downstream targets
-    // inside the group; fall back to own current y when a node
-    // has no in-group successors (sinks / disconnected nodes).
-    const meanSuccY = (node) => {
-        const s = succ.get(node.id);
-        if (!s || s.size === 0) return node.pos[1];
-        let total = 0, count = 0;
-        for (const sid of s) {
-            const sn = graph.getNodeById(sid);
-            if (sn) { total += sn.pos[1]; count++; }
-        }
-        return count > 0 ? total / count : node.pos[1];
-    };
-    for (let c = 0; c < numCols; c++) {
-        cols[c].sort((a, b) => {
-            const ay = meanSuccY(a);
-            const by = meanSuccY(b);
-            if (ay !== by) return ay - by;
-            return a.pos[1] - b.pos[1];
-        });
-    }
 
     const titleH = getTitleHeight();
     const colWidths = cols.map((col) =>
@@ -214,20 +216,84 @@ function arrangeGroup(group, graph) {
     const originX = group.pos[0] + PADDING;
     const originY = group.pos[1] + titleH + PADDING;
 
-    let maxColHeight = 0;
-    for (let c = 0; c < numCols; c++) {
-        let y = 0;
-        const colRight = colXOffsets[c] + colWidths[c];
-        for (const node of cols[c]) {
-            const [w, h] = effectiveSize(node);
-            const x = isCollapsed(node)
-                ? originX + colRight - w
-                : originX + colXOffsets[c];
-            node.pos = [x, originY + y];
-            y += h + ROW_GAP;
+    // Collapsed nodes right-align inside their column; full-size
+    // nodes left-align.
+    const xForNode = (node, c) => {
+        if (isCollapsed(node)) {
+            const w = effectiveSize(node)[0];
+            return originX + colXOffsets[c] + colWidths[c] - w;
         }
-        if (cols[c].length > 0) y -= ROW_GAP;
-        if (y > maxColHeight) maxColHeight = y;
+        return originX + colXOffsets[c];
+    };
+
+    // Place the rightmost column first, top-to-bottom by current y.
+    // It acts as the anchor that everything to the left orders against.
+    if (numCols > 0) {
+        const rc = numCols - 1;
+        cols[rc].sort((a, b) => a.pos[1] - b.pos[1]);
+        let y = originY;
+        for (const node of cols[rc]) {
+            node.pos = [xForNode(node, rc), y];
+            y += effectiveSize(node)[1] + ROW_GAP;
+        }
+    }
+
+    // Sort key for `node`: the (target_y, target_slot) of its
+    // primary in-group downstream link. Primary = the topmost
+    // already-placed target; ties broken by lowest input slot.
+    // Falls back to current y for sinks / disconnected nodes.
+    const sortKey = (node) => {
+        const targets = succ.get(node.id);
+        if (!targets || targets.size === 0 || !node.outputs) {
+            return [node.pos[1], 0];
+        }
+        let bestY = Infinity;
+        let bestSlot = 0;
+        let found = false;
+        for (let oi = 0; oi < node.outputs.length; oi++) {
+            const out = node.outputs[oi];
+            if (!out || !out.links) continue;
+            for (const linkId of out.links) {
+                const link = getLink(graph, linkId);
+                if (!link) continue;
+                if (!targets.has(link.target_id)) continue;
+                const tgt = graph.getNodeById(link.target_id);
+                if (!tgt) continue;
+                const ty = tgt.pos[1];
+                const ts = link.target_slot || 0;
+                if (!found || ty < bestY
+                    || (ty === bestY && ts < bestSlot)) {
+                    bestY = ty;
+                    bestSlot = ts;
+                    found = true;
+                }
+            }
+        }
+        return found ? [bestY, bestSlot] : [node.pos[1], 0];
+    };
+
+    // Place remaining columns right-to-left, ordered by
+    // (target_y, target_slot) so the node feeding the topmost input
+    // comes first, the next-slot feeder second, and so on.
+    for (let c = numCols - 2; c >= 0; c--) {
+        cols[c].sort((a, b) => {
+            const ka = sortKey(a);
+            const kb = sortKey(b);
+            if (ka[0] !== kb[0]) return ka[0] - kb[0];
+            return ka[1] - kb[1];
+        });
+        let y = originY;
+        for (const node of cols[c]) {
+            node.pos = [xForNode(node, c), y];
+            y += effectiveSize(node)[1] + ROW_GAP;
+        }
+    }
+
+    // Group height = wrap the lowest bottom edge across all columns.
+    let maxBottom = originY;
+    for (const n of nodes) {
+        const b = n.pos[1] + effectiveSize(n)[1];
+        if (b > maxBottom) maxBottom = b;
     }
 
     const totalW = numCols > 0
@@ -235,7 +301,7 @@ function arrangeGroup(group, graph) {
         : 0;
     group.size = [
         totalW + 2 * PADDING,
-        maxColHeight + 2 * PADDING + titleH
+        (maxBottom - originY) + 2 * PADDING + titleH
     ];
 }
 
