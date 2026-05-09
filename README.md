@@ -7,6 +7,19 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
+### NEW: Organize Group as Grid (Canvas Tool)
+
+> One-hotkey cleanup for messy groups. Select any group(s), hit
+> **Shift+Alt+A**, and every child node snaps into a left-to-right
+> layered layout based on connection order — sources on the left,
+> sinks on the right, columns ordered by topological depth. Within
+> a column, nodes are stacked top-to-bottom by the mean y of their
+> downstream targets so wires stay roughly parallel. Collapsed
+> nodes right-align inside their column so their output sockets
+> stay close to the next column. The group then resizes to wrap
+> the result. One Ctrl+Z reverts everything.
+> Find it under **TrentNodes** menu.
+
 ### NEW: PSD Background Replacement (3 modes + auto-detect)
 
 > Swap backgrounds in messy PSDs where there's no clean single
@@ -316,6 +329,9 @@ Both modes wrap the entire operation in a single undo transaction, so one Ctrl+Z
 **VHS Swap**
 One-hotkey swap of native ComfyUI video nodes to VHS (Video Helper Suite) equivalents. Replaces LoadVideo with VHS_LoadVideo and SaveVideo with VHS_VideoCombine, automatically collapsing intermediate GetVideoComponents and CreateVideo nodes and rewiring all connections. Works on selected nodes or the entire graph. Transfers widget values (filename, fps) and reconnects IMAGE/AUDIO outputs. Requires VHS to be installed. Hotkey: **Shift+V**, also available in the TrentNodes menu.
 
+**Organize Group as Grid**
+Lays out a group's child nodes in a clean left-to-right grid based on connection order. Columns are assigned by topological depth (longest path from a source node), so upstream nodes always sit to the left of their downstream targets — exactly mirroring how the wires read. Within a column, nodes are sorted by the mean y of their downstream targets (barycenter heuristic) to minimize wire crossings, with current y as a fallback for sinks and disconnected nodes. Collapsed nodes right-align inside their column so their output socket stays close to the next column instead of leaving a long horizontal gap. The group resizes to wrap the result, and the entire arrange is wrapped in a single undo transaction. Works on multi-selected groups. Hotkey: **Shift+Alt+A**, also available in the TrentNodes menu.
+
 ### 🌐 Trent/API (1 node)
 
 **FAL Kling V2V (O3 Pro)**
@@ -401,7 +417,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 ## Features
 
 ✅ **69 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
-✅ **Canvas tools** - Grid Paste for bulk node duplication with auto-layout
+✅ **Canvas tools** - Grid Paste, VHS Swap, and Organize Group as Grid (topological group layout)
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart
 ✅ **Colorful startup banner** with load validation
