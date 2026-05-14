@@ -44,10 +44,17 @@ class PSDLayerCompositor:
     CATEGORY = "Trent/PSD"
     FUNCTION = "composite"
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING")
+    RETURN_NAMES = ("image", "change_log", "summary")
     OUTPUT_TOOLTIPS = (
         "Composited image at the original PSD canvas size",
+        "Detailed summary of what changed from the input: "
+        "replaced layers, text recolors (with chosen colors "
+        "per layer), shadows added, skipped layers, and "
+        "output PSD path.",
+        "Short sentence-form description of the changes "
+        "(e.g. \"Replaced 4 layers; recolored 4 text layers "
+        "to white; added shadow to text.\").",
     )
     DESCRIPTION = (
         "Composite layers from a PSD Layer Splitter folder "
@@ -477,6 +484,9 @@ class PSDLayerCompositor:
             )
             canvas.paste(range_img, (bx0, by0), range_img)
 
+        kinds_seen: list = []
+        type_count = 0
+        pattern_matches = 0
         if text_recolor_mode != "off":
             kinds_seen = sorted(
                 {str(l.get("kind", "")).lower()
@@ -486,7 +496,6 @@ class PSDLayerCompositor:
                 1 for l in layers_sorted
                 if str(l.get("kind", "")).lower() == "type"
             )
-            pattern_matches = 0
             if text_pattern_re is not None:
                 pattern_matches = sum(
                     1 for l in layers_sorted
@@ -520,10 +529,25 @@ class PSDLayerCompositor:
         composited = 0
         recolored_count = 0
         shape_matched_count = 0
+        # change_log accumulators
+        skipped_visibility = 0
+        skipped_missing = 0
+        replaced_range_count = 0
+        replaced_single_name = ""
+        replaced_single_index = -1
+        shadow_added_count = 0
         # Maps text-layer original_name -> (r, g, b) chosen
         # during the flat composite. Reused by the PSD save
         # path to apply matching clipping overlays.
         text_color_cache: Dict[str, Tuple[int, int, int]] = {}
+        # Maps text-layer original_name -> (r, g, b) of the
+        # layer's dominant color BEFORE recolor. Used in the
+        # sentence-form summary ("changed text from X to Y").
+        text_color_orig_cache: Dict[str, Tuple[int, int, int]] = {}
+        # Maps text-layer original_name -> effect tag chosen
+        # during this composite ("shadow" | "glow" |
+        # "white_box" | "black_box"). Used in the summary.
+        text_effect_layers: Dict[str, str] = {}
         text_alpha_cache: Dict[str, Image.Image] = {}
         text_lum_std_cache: Dict[str, float] = {}
         for lyr in layers_sorted:
@@ -538,11 +562,13 @@ class PSDLayerCompositor:
             kind = str(lyr.get("kind", "")).lower()
 
             if respect_visibility and not visible:
+                skipped_visibility += 1
                 continue
 
             # Skip layers being replaced by range mode
             if (range_start >= 0
                     and range_start <= idx <= range_end):
+                replaced_range_count += 1
                 continue
 
             # Single-layer swap
@@ -559,6 +585,10 @@ class PSDLayerCompositor:
                     replacement_fit,
                 )
                 is_replacement = True
+                replaced_single_index = idx
+                replaced_single_name = (
+                    lyr.get("original_name", "") or filename
+                )
             else:
                 layer_path = os.path.join(
                     folder_path, filename
@@ -568,6 +598,7 @@ class PSDLayerCompositor:
                         f"[PSDLayerCompositor] Missing "
                         f"file, skipping: {filename}"
                     )
+                    skipped_missing += 1
                     continue
                 layer_img = Image.open(layer_path)
                 layer_img = ImageOps.exif_transpose(
@@ -655,6 +686,9 @@ class PSDLayerCompositor:
             if (text_recolor_mode != "off"
                     and is_text_layer
                     and not is_replacement):
+                orig_rgb = self._sample_layer_dominant_rgb(
+                    layer_img
+                )
                 layer_img, chosen_rgb = self._recolor_text_layer(
                     layer_img=layer_img,
                     canvas=canvas,
@@ -667,6 +701,10 @@ class PSDLayerCompositor:
                 cache_key = lyr.get("original_name") or ""
                 if cache_key:
                     text_color_cache[cache_key] = chosen_rgb
+                    if orig_rgb is not None:
+                        text_color_orig_cache[cache_key] = (
+                            orig_rgb
+                        )
                     if text_shadow:
                         text_alpha_cache[cache_key] = (
                             layer_img.getchannel("A").copy()
@@ -695,6 +733,32 @@ class PSDLayerCompositor:
                             (paste_x + sdx, paste_y + sdy),
                             sep_img,
                         )
+                        shadow_added_count += 1
+                        if cache_key:
+                            text_lum = (
+                                0.299 * chosen_rgb[0]
+                                + 0.587 * chosen_rgb[1]
+                                + 0.114 * chosen_rgb[2]
+                            ) / 255.0
+                            is_boxout = (
+                                bg_lum_std
+                                >= self.BOXOUT_LUM_STD_THRESHOLD
+                            )
+                            if is_boxout:
+                                effect = (
+                                    "white_box"
+                                    if text_lum < 0.5
+                                    else "black_box"
+                                )
+                            else:
+                                effect = (
+                                    "glow"
+                                    if text_lum < 0.5
+                                    else "shadow"
+                                )
+                            text_effect_layers[cache_key] = (
+                                effect
+                            )
 
             # Alpha-composite onto canvas
             canvas.paste(
@@ -755,7 +819,258 @@ class PSDLayerCompositor:
         rgb = canvas.convert("RGB")
         arr = np.array(rgb).astype(np.float32) / 255.0
         tensor = torch.from_numpy(arr)[None, ...]
-        return (tensor,)
+
+        # Build human-readable change_log
+        log = []
+        log.append("[PSDLayerCompositor] Change Summary")
+        log.append("=" * 40)
+        log.append(f"Source folder: {folder_path}")
+        log.append(f"Canvas: {canvas_w}x{canvas_h}")
+        log.append(f"Background: {background_color}")
+        log.append(f"Layer sizing: {sizing}")
+        log.append("")
+        log.append(f"Layers in manifest: {len(layers_sorted)}")
+        log.append(f"  composited:           {composited}")
+        log.append(f"  skipped (hidden):     {skipped_visibility}")
+        log.append(f"  skipped (missing):    {skipped_missing}")
+        log.append(f"  in replacement range: {replaced_range_count}")
+        log.append("")
+
+        log.append("Replacement:")
+        if replacement_pil is None:
+            log.append("  none (no replacement_image provided)")
+        else:
+            log.append(f"  mode: {replacement_mode}")
+            log.append(f"  fit:  {replacement_fit}")
+            log.append(
+                f"  input size: "
+                f"{replacement_pil.width}x{replacement_pil.height}"
+            )
+            if replacement_mode == "single":
+                if replaced_single_index >= 0:
+                    log.append(
+                        f"  replaced layer index: "
+                        f"{replaced_single_index}"
+                    )
+                    log.append(
+                        f'  replaced layer name:  '
+                        f'"{replaced_single_name}"'
+                    )
+                else:
+                    log.append(
+                        f"  requested index {replacement_index} "
+                        f"was not composited (hidden, missing, "
+                        f"or out of range)"
+                    )
+            elif replacement_mode == "replace_range":
+                if range_start >= 0:
+                    log.append(
+                        f"  range: layers "
+                        f"{range_start}..{range_end} "
+                        f"({range_end - range_start + 1} "
+                        f"layer(s))"
+                    )
+                    log.append(f"  range_fit: {range_fit}")
+                else:
+                    log.append(
+                        "  range not applied "
+                        "(replacement_index < 0)"
+                    )
+            elif replacement_mode == "underlay":
+                log.append(
+                    "  pasted as underlay below all "
+                    "original layers"
+                )
+        log.append("")
+
+        log.append("Text recolor:")
+        if text_recolor_mode == "off":
+            log.append("  off")
+        else:
+            log.append(f"  mode:      {text_recolor_mode}")
+            log.append(f"  text_color: {text_color}")
+            log.append(
+                f"  threshold:  {auto_contrast_threshold}"
+            )
+            log.append(
+                f"  pattern:    {text_layer_pattern!r}"
+            )
+            log.append(
+                f"  layer kinds in manifest: {kinds_seen}"
+            )
+            log.append(
+                f"  type-tagged layers: {type_count}"
+            )
+            log.append(
+                f"  name-pattern matches: {pattern_matches}"
+            )
+            log.append(
+                f"  shape-detected matches: "
+                f"{shape_matched_count}"
+            )
+            log.append(
+                f"  recolored: {recolored_count} layer(s)"
+            )
+            for name, rgb_tuple in text_color_cache.items():
+                hex_color = (
+                    f"#{rgb_tuple[0]:02X}"
+                    f"{rgb_tuple[1]:02X}"
+                    f"{rgb_tuple[2]:02X}"
+                )
+                log.append(f'    - "{name}" -> {hex_color}')
+        log.append("")
+
+        log.append("Text shadow:")
+        if not text_shadow:
+            log.append("  disabled")
+        elif text_recolor_mode == "off":
+            log.append(
+                "  enabled but inactive "
+                "(text_recolor_mode is off)"
+            )
+        else:
+            log.append(
+                f"  enabled — shadows added: "
+                f"{shadow_added_count}"
+            )
+        log.append("")
+
+        log.append("Output PSD:")
+        if output_psd_path:
+            log.append(f"  path: {output_psd_path}")
+        else:
+            log.append("  not written")
+
+        change_log = "\n".join(log)
+
+        # Build sentence-form summary: one line per
+        # distinct change. Text size is positional within
+        # this workflow: top-most recolored text = large,
+        # bottom-most = small, middle = medium.
+        sentences = []
+
+        if replacement_pil is not None:
+            if replacement_mode == "underlay":
+                sentences.append("Added background image.")
+            elif (
+                (replacement_mode == "single"
+                 and replaced_single_index >= 0)
+                or (replacement_mode == "replace_range"
+                    and range_start >= 0)
+            ):
+                sentences.append("Changed background.")
+
+        # Map recolored text layer name -> position.top from
+        # manifest so we can sort by vertical position.
+        text_layer_top: Dict[str, int] = {}
+        for lyr in layers_sorted:
+            name = lyr.get("original_name", "") or ""
+            if name and name in text_color_cache:
+                text_layer_top[name] = int(
+                    lyr.get("position", {}).get("top", 0)
+                )
+
+        # Sort recolored text layers by vertical position
+        # (top of canvas first, bottom last).
+        sorted_text_names = sorted(
+            text_color_cache.keys(),
+            key=lambda n: text_layer_top.get(n, 0),
+        )
+
+        # Assign size class by position.
+        text_layer_size: Dict[str, str] = {}
+        n_text = len(sorted_text_names)
+        for i, name in enumerate(sorted_text_names):
+            if n_text == 1:
+                text_layer_size[name] = "large"
+            elif n_text == 2:
+                text_layer_size[name] = (
+                    "large" if i == 0 else "small"
+                )
+            else:
+                if i == 0:
+                    text_layer_size[name] = "large"
+                elif i == n_text - 1:
+                    text_layer_size[name] = "small"
+                else:
+                    text_layer_size[name] = "medium"
+
+        # Map positional size class to a "where" phrase
+        # that follows the word "text".
+        position_phrase = {
+            "large":  "at the top",
+            "medium": "in the middle",
+            "small":  "at the bottom",
+        }
+
+        def _text_with_position(size: str) -> str:
+            where = position_phrase.get(size, "")
+            return f"text {where}" if where else "text"
+
+        # Per-(size, orig, new) recolor lines, deduped.
+        seen_recolors: set = set()
+        for name in sorted_text_names:
+            new_rgb = text_color_cache[name]
+            new_name = self._color_name(new_rgb)
+            orig_rgb = text_color_orig_cache.get(name)
+            orig_name = (
+                self._color_name(orig_rgb)
+                if orig_rgb is not None else None
+            )
+            size = text_layer_size.get(name, "")
+            text_phrase = _text_with_position(size)
+            if (orig_name and new_name
+                    and orig_name != new_name):
+                key = (size, orig_name, new_name)
+                if key in seen_recolors:
+                    continue
+                seen_recolors.add(key)
+                sentences.append(
+                    f"Changed {text_phrase} from "
+                    f"{orig_name} to {new_name}."
+                )
+            elif new_name and not orig_name:
+                key = (size, None, new_name)
+                if key in seen_recolors:
+                    continue
+                seen_recolors.add(key)
+                sentences.append(
+                    f"Changed {text_phrase} to {new_name}."
+                )
+
+        # Per-(size, effect) effect lines, deduped.
+        # _build_separator_image picks one of four effects
+        # per layer based on text luminance and bg variance.
+        effect_phrases = {
+            "shadow":    "shadow to",
+            "glow":      "glow to",
+            "white_box": "white box behind",
+            "black_box": "black box behind",
+        }
+        seen_effects: set = set()
+        for name in sorted_text_names:
+            effect = text_effect_layers.get(name)
+            if not effect:
+                continue
+            size = text_layer_size.get(name, "")
+            key = (size, effect)
+            if key in seen_effects:
+                continue
+            seen_effects.add(key)
+            text_phrase = _text_with_position(size)
+            phrase = effect_phrases.get(
+                effect, "shadow to"
+            )
+            sentences.append(
+                f"Added {phrase} {text_phrase}."
+            )
+
+        if not sentences:
+            summary = "No changes."
+        else:
+            summary = " ".join(sentences)
+
+        return (tensor, change_log, summary)
 
     @staticmethod
     def _recolor_text_layer(
@@ -798,6 +1113,62 @@ class PSDLayerCompositor:
         )
         recolored.putalpha(alpha)
         return recolored, new_rgb
+
+    @staticmethod
+    def _sample_layer_dominant_rgb(layer_img):
+        """Alpha-weighted mean RGB of the layer's own
+        opaque pixels. Returns None if the layer has no
+        opaque content. For solid-color text layers this
+        is a good approximation of 'the text color'."""
+        arr = np.array(layer_img)
+        if arr.ndim != 3 or arr.shape[-1] < 4:
+            return None
+        a = arr[..., 3].astype(np.float32)
+        w = float(a.sum())
+        if w == 0.0:
+            return None
+        rgb = arr[..., :3].astype(np.float32)
+        mean_r = (rgb[..., 0] * a).sum() / w
+        mean_g = (rgb[..., 1] * a).sum() / w
+        mean_b = (rgb[..., 2] * a).sum() / w
+        return (
+            int(round(mean_r)),
+            int(round(mean_g)),
+            int(round(mean_b)),
+        )
+
+    @staticmethod
+    def _color_name(rgb):
+        """Map an (r, g, b) tuple to a human-friendly
+        name for the sentence-form summary. Falls back to
+        '#RRGGBB' for off-palette colors."""
+        r, g, b = rgb
+        if r >= 240 and g >= 240 and b >= 240:
+            return "white"
+        if r <= 15 and g <= 15 and b <= 15:
+            return "black"
+        spread = max(r, g, b) - min(r, g, b)
+        if spread <= 15:
+            avg = (r + g + b) // 3
+            if avg > 192:
+                return "light gray"
+            if avg < 64:
+                return "dark gray"
+            return "gray"
+        rh, gh, bh = r > 128, g > 128, b > 128
+        if rh and gh and not bh:
+            return "yellow"
+        if rh and bh and not gh:
+            return "magenta"
+        if gh and bh and not rh:
+            return "cyan"
+        if rh and not gh and not bh:
+            return "red"
+        if gh and not rh and not bh:
+            return "green"
+        if bh and not rh and not gh:
+            return "blue"
+        return f"#{r:02X}{g:02X}{b:02X}"
 
     @staticmethod
     def _sample_bg_rgb(alpha, canvas, paste_x, paste_y):
@@ -1381,9 +1752,9 @@ class PSDLayerCompositor:
             # ASCII placeholder name + Unicode-safe setter,
             # mirroring replace_psd_layer_pixels' pattern.
             new_layer = PixelLayer.frompil(
-                pil_im=pil,
-                psd_file=psd,
-                layer_name="Layer",
+                pil,
+                parent,
+                name="Layer",
                 top=old_top,
                 left=old_left,
                 compression=Compression.RLE,
@@ -1730,9 +2101,9 @@ class PSDLayerCompositor:
                     )
                     sep_kind = "boxout" if is_boxout else "shadow"
                     shadow_layer = PixelLayer.frompil(
-                        pil_im=shadow_pil,
-                        psd_file=psd,
-                        layer_name=sep_kind,
+                        shadow_pil,
+                        parent,
+                        name=sep_kind,
                         top=top + sdy,
                         left=left + sdx,
                         compression=Compression.RLE,
@@ -1761,9 +2132,9 @@ class PSDLayerCompositor:
                 (color[0], color[1], color[2], 255),
             )
             clip_layer = PixelLayer.frompil(
-                pil_im=fill_pil,
-                psd_file=psd,
-                layer_name="recolor",
+                fill_pil,
+                parent,
+                name="recolor",
                 top=top,
                 left=left,
                 compression=Compression.RLE,
