@@ -69,6 +69,18 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 > nodes. Works on selected nodes or the entire graph. **Shift+V**
 > Find it under **TrentNodes** menu.
 
+### NEW: Wire VHS Combine (Canvas Tool)
+
+> Pairs with VHS Swap. Once you have a VHS Load Video and a
+> VHS_VideoCombine in the graph, hit **Shift+Alt+V** to: add (or
+> reuse) a `VHS_VideoInfo` off the Load's `video_info` output,
+> convert the Combine's `frame_rate` widget to an input and wire
+> the source `loaded_fps` into it, and set the Combine to
+> `video/h264-mp4` with `crf=13`. Selection-aware (uses selected
+> nodes when present, otherwise falls back to the single matching
+> pair in the graph). Single Ctrl+Z reverts everything.
+> Find it under **TrentNodes** menu.
+
 ---
 
 ## Installation
@@ -329,6 +341,9 @@ Both modes wrap the entire operation in a single undo transaction, so one Ctrl+Z
 **VHS Swap**
 One-hotkey swap of native ComfyUI video nodes to VHS (Video Helper Suite) equivalents. Replaces LoadVideo with VHS_LoadVideo and SaveVideo with VHS_VideoCombine, automatically collapsing intermediate GetVideoComponents and CreateVideo nodes and rewiring all connections. Works on selected nodes or the entire graph. Transfers widget values (filename, fps) and reconnects IMAGE/AUDIO outputs. Requires VHS to be installed. Hotkey: **Shift+V**, also available in the TrentNodes menu.
 
+**Wire VHS Combine**
+Companion to VHS Swap that finishes the wiring. Drops in (or reuses) a `VHS_VideoInfo` node off the Load Video's `video_info` output, converts the `VHS_VideoCombine` `frame_rate` widget to an input and connects the source's `loaded_fps` into it, and sets the Combine's format to `video/h264-mp4` with `crf=13`. Selection-aware: with one VHS Load Video + one VHS Video Combine selected, those are used; otherwise it falls back to the single matching pair in the graph. Whole operation is one undo. Requires VHS to be installed. Hotkey: **Shift+Alt+V**, also available in the TrentNodes menu.
+
 **Organize Group as Grid**
 Lays out a group's child nodes in a clean left-to-right grid based on connection order. Columns are assigned by topological depth (longest path from a source node), so upstream nodes always sit to the left of their downstream targets — exactly mirroring how the wires read. Within a column, nodes are sorted by the mean y of their downstream targets (barycenter heuristic) to minimize wire crossings, with current y as a fallback for sinks and disconnected nodes. Collapsed nodes right-align inside their column so their output socket stays close to the next column instead of leaving a long horizontal gap. The group resizes to wrap the result, and the entire arrange is wrapped in a single undo transaction. Works on multi-selected groups. Hotkey: **Shift+Alt+A**, also available in the TrentNodes menu.
 
@@ -417,7 +432,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 ## Features
 
 ✅ **69 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
-✅ **Canvas tools** - Grid Paste, VHS Swap, and Organize Group as Grid (topological group layout)
+✅ **Canvas tools** - Grid Paste, VHS Swap, Wire VHS Combine, and Organize Group as Grid (topological group layout)
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart
 ✅ **Colorful startup banner** with load validation
