@@ -6,11 +6,13 @@ background color parsing used by both PSDLayerCompositor
 and PSDLayerSaveAsPSD.
 """
 
+import json
+import os
 from typing import Any, List, Optional, Tuple
 
 import numpy as np
 import torch
-from PIL import Image, ImageColor
+from PIL import Image, ImageColor, ImageOps
 
 from psd_tools import PSDImage
 from psd_tools.api.layers import PixelLayer
@@ -165,6 +167,139 @@ def list_all_layer_names(
         if layer.is_group():
             names.extend(list_all_layer_names(layer, path))
     return names
+
+
+def composite_layer_range(
+    folder_path: str,
+    start_index: int,
+    end_index: int,
+    background_color: str,
+    respect_visibility: bool,
+    log_prefix: str = "[PSDLayerFlatten]",
+) -> Tuple[Image.Image, int]:
+    """
+    Composite a contiguous index range of split PSD layers
+    into a single RGBA PIL image.
+
+    Reads _manifest.json from a PSDLayerSplitter output
+    folder, pastes each in-range layer onto a canvas with
+    the requested backdrop, honoring per-layer position,
+    opacity, and (optionally) visibility flags.
+
+    Returns (canvas, composited_count). Caller is
+    responsible for converting the PIL image to whatever
+    tensor shape its node returns.
+    """
+    folder_path = str(folder_path or "").strip()
+    try:
+        start_index = int(start_index)
+    except (TypeError, ValueError):
+        start_index = 0
+    try:
+        end_index = int(end_index)
+    except (TypeError, ValueError):
+        end_index = 0
+    if end_index < start_index:
+        start_index, end_index = end_index, start_index
+
+    background_color = str(background_color or "transparent")
+    respect_visibility = bool(respect_visibility)
+
+    if not folder_path:
+        raise ValueError("folder_path is required")
+    if not os.path.isdir(folder_path):
+        raise FileNotFoundError(
+            f"Folder not found: {folder_path}"
+        )
+
+    manifest_path = os.path.join(
+        folder_path, "_manifest.json"
+    )
+    if not os.path.isfile(manifest_path):
+        raise FileNotFoundError(
+            f"_manifest.json not found in {folder_path}"
+        )
+
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+
+    canvas_w = int(manifest["canvas_width"])
+    canvas_h = int(manifest["canvas_height"])
+    layers = manifest.get("layers", [])
+    if not layers:
+        raise RuntimeError("Manifest contains no layers")
+
+    sizing = (
+        manifest.get("extraction_settings", {})
+        .get("layer_sizing", "cropped")
+    )
+
+    bg_rgba = parse_background_color(background_color)
+    canvas = Image.new(
+        "RGBA", (canvas_w, canvas_h), bg_rgba
+    )
+
+    layers_sorted = sorted(
+        layers, key=lambda lyr: lyr["index"]
+    )
+
+    composited = 0
+    for lyr in layers_sorted:
+        idx = int(lyr["index"])
+        if idx < start_index or idx > end_index:
+            continue
+
+        if (respect_visibility
+                and not bool(lyr.get("visible", True))):
+            continue
+
+        filename = lyr["filename"]
+        layer_path = os.path.join(folder_path, filename)
+        if not os.path.isfile(layer_path):
+            print(
+                f"{log_prefix} Missing file, "
+                f"skipping: {filename}"
+            )
+            continue
+
+        layer_img = Image.open(layer_path)
+        layer_img = ImageOps.exif_transpose(layer_img)
+        layer_img = layer_img.convert("RGBA")
+
+        if sizing == "canvas":
+            paste_x, paste_y = 0, 0
+        else:
+            paste_x = int(lyr["position"]["left"])
+            paste_y = int(lyr["position"]["top"])
+
+        opacity = int(lyr.get("opacity", 255))
+        if opacity < 255:
+            alpha = layer_img.getchannel("A")
+            scale = opacity / 255.0
+            alpha = alpha.point(
+                lambda v, s=scale: int(v * s)
+            )
+            layer_img.putalpha(alpha)
+
+        canvas.paste(
+            layer_img, (paste_x, paste_y), layer_img
+        )
+        composited += 1
+
+    if composited == 0:
+        print(
+            f"{log_prefix} No layers in range "
+            f"{start_index}..{end_index} (all skipped "
+            f"or missing)"
+        )
+
+    print(
+        f"{log_prefix} Flattened {composited} "
+        f"layer(s) from range {start_index}..{end_index} "
+        f"into {canvas_w}x{canvas_h}"
+    )
+
+    return canvas, composited
 
 
 def replace_psd_layer_pixels(
