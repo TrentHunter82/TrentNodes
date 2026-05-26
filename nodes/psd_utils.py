@@ -357,9 +357,9 @@ def replace_psd_layer_pixels(
     # setter, which routes Unicode into the proper
     # tagged block.
     new_layer = PixelLayer.frompil(
-        pil_im=new_pil,
-        psd_file=psd,
-        layer_name="Layer",
+        image=new_pil,
+        parent=psd,
+        name="Layer",
         top=old_top,
         left=old_left,
         compression=Compression.RLE,
