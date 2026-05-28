@@ -169,6 +169,46 @@ def list_all_layer_names(
     return names
 
 
+def replace_layer_in_parent(parent, old_idx, new_layer):
+    """Replace the layer at position old_idx with new_layer.
+
+    psd_tools 1.16's GroupMixin.__setitem__ inserts rather
+    than replaces, which leaves the old layer in the tree
+    one slot above the new one. This helper does an actual
+    replace by removing the old layer and repositioning the
+    new layer.
+
+    Assumes new_layer was just created with frompil(parent=
+    parent), so it's already a child of parent (typically
+    at the end of the list). If new_layer isn't found in
+    parent, it's inserted at old_idx.
+    """
+    # Remove the old layer first.
+    del parent[old_idx]
+
+    # Locate new_layer by identity (its index may shift
+    # after the delete).
+    new_idx = None
+    for i, child in enumerate(parent):
+        if child is new_layer:
+            new_idx = i
+            break
+
+    if new_idx is None:
+        # Not currently in parent - just insert at target.
+        parent.insert(old_idx, new_layer)
+        return
+
+    # If already at target position, nothing to move.
+    if new_idx == old_idx:
+        return
+
+    # Move new_layer from new_idx to old_idx.
+    moved = parent[new_idx]
+    del parent[new_idx]
+    parent.insert(old_idx, moved)
+
+
 def composite_layer_range(
     folder_path: str,
     start_index: int,
@@ -358,7 +398,7 @@ def replace_psd_layer_pixels(
     # tagged block.
     new_layer = PixelLayer.frompil(
         image=new_pil,
-        parent=psd,
+        parent=parent,
         name="Layer",
         top=old_top,
         left=old_left,
@@ -369,5 +409,5 @@ def replace_psd_layer_pixels(
     new_layer.blend_mode = old_blend_mode
     new_layer.visible = old_visible
 
-    parent[idx] = new_layer
+    replace_layer_in_parent(parent, idx, new_layer)
     return old_name

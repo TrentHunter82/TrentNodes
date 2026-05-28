@@ -28,6 +28,7 @@ from psd_tools.constants import BlendMode, Compression
 
 from .psd_utils import (
     parse_background_color,
+    replace_layer_in_parent,
     replace_psd_layer_pixels,
     resize_to_bounds,
     tensor_to_pil_rgba,
@@ -44,8 +45,10 @@ class PSDLayerCompositor:
     CATEGORY = "Trent/PSD"
     FUNCTION = "composite"
 
-    RETURN_TYPES = ("IMAGE", "STRING", "STRING")
-    RETURN_NAMES = ("image", "change_log", "summary")
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING", "STRING")
+    RETURN_NAMES = (
+        "image", "change_log", "summary", "psd_path",
+    )
     OUTPUT_TOOLTIPS = (
         "Composited image at the original PSD canvas size",
         "Detailed summary of what changed from the input: "
@@ -55,6 +58,10 @@ class PSDLayerCompositor:
         "Short sentence-form description of the changes "
         "(e.g. \"Replaced 4 layers; recolored 4 text layers "
         "to white; added shadow to text.\").",
+        "Absolute path of the saved PSD file (after "
+        "resolution of relative paths / counter increment). "
+        "Empty string when output_psd_path is blank (no "
+        "PSD save was requested).",
     )
     DESCRIPTION = (
         "Composite layers from a PSD Layer Splitter folder "
@@ -283,6 +290,49 @@ class PSDLayerCompositor:
                         "No-op when text_recolor_mode=off."
                     ),
                 }),
+                "flatten_recolored_text": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Affects the saved PSD only. "
+                        "OFF (default): keep TypeLayers "
+                        "editable - insert a same-shaped "
+                        "clipping PixelLayer above each "
+                        "recolored TypeLayer to tint it. "
+                        "ON: rasterize recolored TypeLayers "
+                        "in place as flat PixelLayers - the "
+                        "saved PSD shows clean recolored "
+                        "text with no clip-layer "
+                        "indirection, but the text is no "
+                        "longer editable in Photoshop. "
+                        "Useful for clean handoffs when the "
+                        "recipient doesn't need to change "
+                        "the words. Shadow/glow/box decoration "
+                        "layers are unaffected. No-op when "
+                        "text_recolor_mode=off."
+                    ),
+                }),
+                "delete_replaced_layers": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Affects the saved PSD only. "
+                        "Applies in replace_range mode "
+                        "to the layers between "
+                        "replacement_index+1 and "
+                        "replacement_end_index "
+                        "(the ones swallowed by the "
+                        "replacement image). "
+                        "OFF (default): those layers stay "
+                        "in the saved PSD but are set to "
+                        "visible=False (recoverable if "
+                        "needed). "
+                        "ON: those layers are removed from "
+                        "the saved PSD entirely - cleaner "
+                        "handoff, smaller file. Only "
+                        "affects the saved file; the source "
+                        "PSD is never modified. No-op in "
+                        "single or underlay replacement_mode."
+                    ),
+                }),
             },
         }
 
@@ -314,6 +364,8 @@ class PSDLayerCompositor:
         auto_contrast_threshold=0.5,
         text_layer_pattern="",
         text_shadow=False,
+        flatten_recolored_text=False,
+        delete_replaced_layers=False,
         **kwargs,
     ) -> Tuple[torch.Tensor]:
         # Coerce inputs (defensive against widget shifting)
@@ -363,6 +415,8 @@ class PSDLayerCompositor:
             0.0, min(1.0, auto_contrast_threshold)
         )
         text_shadow = bool(text_shadow)
+        flatten_recolored_text = bool(flatten_recolored_text)
+        delete_replaced_layers = bool(delete_replaced_layers)
 
         # Pre-parse the manual color so a typo errors fast
         # rather than silently per layer.
@@ -794,8 +848,9 @@ class PSDLayerCompositor:
         # bottom layer of the replaced range with the
         # replacement_image and hiding any layers above it
         # within the range. Original PSD is never modified.
+        saved_psd_path = ""
         if output_psd_path:
-            self._save_modified_psd(
+            saved_psd_path = self._save_modified_psd(
                 manifest=manifest,
                 layers=layers,
                 replacement_index=replacement_index,
@@ -813,6 +868,8 @@ class PSDLayerCompositor:
                 text_lum_std_cache=text_lum_std_cache,
                 text_pattern_re=text_pattern_re,
                 text_shadow=text_shadow,
+                flatten_recolored_text=flatten_recolored_text,
+                delete_replaced_layers=delete_replaced_layers,
             )
 
         # Convert to ComfyUI image tensor
@@ -936,7 +993,9 @@ class PSDLayerCompositor:
         log.append("")
 
         log.append("Output PSD:")
-        if output_psd_path:
+        if saved_psd_path:
+            log.append(f"  path: {saved_psd_path}")
+        elif output_psd_path:
             log.append(f"  path: {output_psd_path}")
         else:
             log.append("  not written")
@@ -1070,7 +1129,7 @@ class PSDLayerCompositor:
         else:
             summary = " ".join(sentences)
 
-        return (tensor, change_log, summary)
+        return (tensor, change_log, summary, saved_psd_path)
 
     @staticmethod
     def _recolor_text_layer(
@@ -1765,7 +1824,7 @@ class PSDLayerCompositor:
             new_layer.blend_mode = old_blend
             new_layer.clipping = old_clipping
 
-            parent[idx] = new_layer
+            replace_layer_in_parent(parent, idx, new_layer)
             flattened += 1
 
         return flattened
@@ -1785,6 +1844,8 @@ class PSDLayerCompositor:
         text_lum_std_cache=None,
         text_pattern_re=None,
         text_shadow=False,
+        flatten_recolored_text=False,
+        delete_replaced_layers=False,
     ):
         """Open the source PSD, swap one layer, save anew.
 
@@ -1888,8 +1949,11 @@ class PSDLayerCompositor:
         # Range mode: hide every layer above the bottom of
         # the replaced range. Mirrors the flat composite,
         # where those layers were swallowed by the single
-        # replacement image.
+        # replacement image. When delete_replaced_layers is
+        # True, those layers are removed from the saved PSD
+        # entirely instead of just hidden.
         hidden_count = 0
+        deleted_count = 0
         if replacement_end_index > replacement_index:
             from .psd_utils import find_layer_by_name
             for idx in range(
@@ -1913,9 +1977,13 @@ class PSDLayerCompositor:
                 hit = find_layer_by_name(psd, hide_name)
                 if hit is None:
                     continue
-                _, _, layer_obj = hit
-                layer_obj.visible = False
-                hidden_count += 1
+                hide_parent, hide_idx, layer_obj = hit
+                if delete_replaced_layers:
+                    del hide_parent[hide_idx]
+                    deleted_count += 1
+                else:
+                    layer_obj.visible = False
+                    hidden_count += 1
 
         clip_count = 0
         if text_recolor_mode != "off" and text_color_cache:
@@ -1926,6 +1994,7 @@ class PSDLayerCompositor:
                 alpha_cache=text_alpha_cache,
                 lum_std_cache=text_lum_std_cache,
                 text_shadow=text_shadow,
+                flatten_recolored_text=flatten_recolored_text,
             )
 
         # psd_tools' rewrite of Smart Object / Shape / Fill
@@ -1992,6 +2061,12 @@ class PSDLayerCompositor:
                 f"{replacement_index+1}-"
                 f"{replacement_end_index}"
             )
+        if deleted_count:
+            hidden_note = (
+                f", deleted {deleted_count} layer(s) in "
+                f"range {replacement_index+1}-"
+                f"{replacement_end_index}"
+            )
         flattened_note = ""
         if flattened_count:
             flattened_note = (
@@ -2005,6 +2080,7 @@ class PSDLayerCompositor:
             f"'{old_name}' at index {replacement_index}"
             f"{hidden_note}{clip_note}{flattened_note})"
         )
+        return output_psd_path
 
     @staticmethod
     def _apply_text_clipping_overlays(
@@ -2014,22 +2090,34 @@ class PSDLayerCompositor:
         alpha_cache=None,
         lum_std_cache=None,
         text_shadow=False,
+        flatten_recolored_text=False,
     ):
         """For each layer in psd that is either a TypeLayer
         OR has a name matching text_pattern_re, and whose
-        name is in color_cache, insert a same-sized solid-
-        color PixelLayer directly above it with
-        clipping=True. The original layer is left
-        untouched (TypeLayers stay editable as text;
-        rasterized pixel layers stay as their original
-        pixels with the clipping color baked over).
+        name is in color_cache, apply the chosen recolor.
+
+        Default (flatten_recolored_text=False): insert a
+        same-sized solid-color PixelLayer directly above
+        the original with clipping=True. TypeLayers stay
+        editable; rasterized pixel layers stay as their
+        original pixels with the clipping color baked over.
+
+        flatten_recolored_text=True: rasterize each
+        matched layer in place - replace it with a flat
+        PixelLayer whose RGB is the chosen color and whose
+        alpha is the layer's existing rasterized alpha.
+        Text editability is lost for those layers, but the
+        saved PSD has a clean structure with no
+        clipping-layer indirection. Useful for downstream
+        handoffs.
 
         When text_shadow is True and alpha_cache has an
         entry for the layer, also insert a soft drop-shadow
         PixelLayer directly below the text. Final z-order
-        per text node: ..., shadow, text, recolor_clip.
+        per text node (clip path): shadow, text, recolor_clip.
+        Flatten path: shadow, flat_recolored_text.
 
-        Returns the number of recolor clipping layers added
+        Returns the number of recolor operations applied
         (shadow layers are not counted separately).
         """
         # Snapshot first - we mutate parent layer lists
@@ -2125,6 +2213,50 @@ class PSDLayerCompositor:
                         if child is text_layer:
                             idx = i
                             break
+
+            if flatten_recolored_text:
+                # Rasterize the text layer in place: take
+                # its current alpha (the glyph shape) and
+                # paint the chosen color through it. The
+                # result is a flat PixelLayer with no
+                # clipping indirection - cleaner for
+                # downstream handoff, but the text is no
+                # longer editable in Photoshop.
+                try:
+                    rasterized = text_layer.composite()
+                except Exception:
+                    rasterized = None
+                if rasterized is None:
+                    continue
+                if rasterized.mode != "RGBA":
+                    rasterized = rasterized.convert("RGBA")
+                alpha_chan = rasterized.getchannel("A")
+                flat_rgb = Image.new(
+                    "RGB", rasterized.size, color
+                )
+                flat_rgb.putalpha(alpha_chan)
+
+                old_name = text_layer.name
+                old_opacity = int(text_layer.opacity)
+                old_visible = bool(text_layer.visible)
+                old_blend = text_layer.blend_mode
+
+                new_layer = PixelLayer.frompil(
+                    flat_rgb,
+                    parent,
+                    name="Layer",
+                    top=top,
+                    left=left,
+                    compression=Compression.RLE,
+                )
+                new_layer.name = old_name
+                new_layer.opacity = old_opacity
+                new_layer.visible = old_visible
+                new_layer.blend_mode = old_blend
+                new_layer.clipping = False
+                replace_layer_in_parent(parent, idx, new_layer)
+                added += 1
+                continue
 
             fill_pil = Image.new(
                 "RGBA",
