@@ -358,7 +358,7 @@ def replace_psd_layer_pixels(
     # tagged block.
     new_layer = PixelLayer.frompil(
         image=new_pil,
-        parent=psd,
+        parent=parent,
         name="Layer",
         top=old_top,
         left=old_left,
