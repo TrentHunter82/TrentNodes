@@ -10,7 +10,6 @@ No model is loaded or called here — all VLM interaction is via sockets:
   * `vlm_brief` output  -> feed to your VLM node alongside a reference image
   * `overrides_json` in -> wire the VLM's returned JSON back to fill regions
   * `import_json` in    -> a full Ideogram-4 caption from another node / KJ's editor
-  * `bboxes` in         -> region geometry from a grounding / detection node
 
 Several pure helpers (`_render_preview`, `_norm_bbox`, `_dumps`, ...) are adapted from
 KJNodes' Ideogram 4 Prompt Builder so the JSON round-trips cleanly into that node.
@@ -455,14 +454,11 @@ class CompositionCowboy:
                                              "fractions, or a KJ-style bbox [ymin,xmin,ymax,xmax] on a 0-1000 grid; "
                                              "plus optional type/text/desc/palette/role."}),
                 "image": ("IMAGE", {"tooltip": "Optional reference image shown behind the preview."}),
-                "bboxes": ("BOUNDING_BOX", {"forceInput": True,
-                            "tooltip": "Optional pixel-space boxes from a detection/grounding node (wire-only "
-                                       "socket); seeds regions when the preset has none, else repositions by index."}),
             },
         }
 
     RETURN_TYPES = ("STRING", "STRING", "IMAGE", "BOUNDING_BOX", "INT", "INT", "STRING", "STRING")
-    RETURN_NAMES = ("prompt_json", "prompt_text", "preview", "bboxes", "width", "height", "preset_name", "vlm_brief")
+    RETURN_NAMES = ("prompt_json", "prompt_text", "preview", "bboxes", "out_width", "out_height", "preset_name", "vlm_brief")
     FUNCTION = "build"
     CATEGORY = "TrentNodes/Prompt"
     DESCRIPTION = (
@@ -508,32 +504,6 @@ class CompositionCowboy:
                 idx = int(key) - 1
                 if 0 <= idx < len(boxes):
                     self._apply_content(boxes[idx], value)
-
-    @staticmethod
-    def _apply_bboxes(boxes, bboxes, width, height):
-        if not bboxes:
-            return boxes
-        if isinstance(bboxes, dict):
-            frame = [bboxes]
-        elif bboxes and isinstance(bboxes[0], (list, tuple)):
-            frame = bboxes[0]
-        else:
-            frame = bboxes
-        w = max(1, width)
-        h = max(1, height)
-        for i, bb in enumerate(frame):
-            if not isinstance(bb, dict):
-                continue
-            if not _all_finite(bb.get("x", 0), bb.get("y", 0), bb.get("width", 0), bb.get("height", 0)):
-                continue
-            geom = {"x": float(bb.get("x", 0)) / w, "y": float(bb.get("y", 0)) / h,
-                    "w": float(bb.get("width", 0)) / w, "h": float(bb.get("height", 0)) / h}
-            if i < len(boxes):
-                boxes[i].update(geom)
-                boxes[i].pop("nobbox", None)
-            else:
-                boxes.append({"role": "extra", "type": "obj", "text": "", "desc": "", "palette": [], **geom})
-        return boxes
 
     # ---- output builders ------------------------------------------------------------
     @staticmethod
@@ -613,7 +583,7 @@ class CompositionCowboy:
               json_mode, bg_brightness, title="", subtitle="", hero="", body="", brand="",
               extra="", high_level_description="", background="", style="none", style_detail="",
               aesthetics="", lighting="", medium="", style_palette="",
-              overrides_json="", import_json="", elements_json="", image=None, bboxes=None):
+              overrides_json="", import_json="", elements_json="", image=None):
         presets = _load_presets()
         label_to_preset = {_preset_label(p): p for p in presets}
 
@@ -679,9 +649,6 @@ class CompositionCowboy:
         slots = {"title": title, "subtitle": subtitle, "hero": hero,
                  "body": body, "brand": brand, "extra": extra}
         self._apply_overrides(boxes, slots, _parse_json_obj(overrides_json))
-
-        # Geometry piped in from a detection / grounding node.
-        boxes = self._apply_bboxes(boxes, bboxes, out_w, out_h)
 
         # Global KJ-parity overrides: a non-blank widget wins over the preset / import value.
         if isinstance(background, str) and background.strip():

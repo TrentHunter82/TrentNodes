@@ -139,7 +139,7 @@
   <div class="badges">
     <span class="badge"><b>Category</b> TrentNodes/Prompt</span>
     <span class="badge"><b>Presets</b> 18</span>
-    <span class="badge"><b>Inputs</b> 9 core + 17 optional</span>
+    <span class="badge"><b>Inputs</b> 9 core + 18 optional</span>
     <span class="badge"><b>Outputs</b> 8</span>
     <span class="badge"><b>Model</b> none (pipes to yours)</span>
   </div>
@@ -170,15 +170,14 @@
       <div class="ports">
         <div class="col">
           <div class="port lit"><span class="pd"></span>image</div>
-          <div class="port"><span class="pd"></span>bboxes&nbsp;<span style="display:inline-flex;width:15px;height:15px;border-radius:50%;background:var(--bad);color:#15171a;font-size:9px;font-weight:800;align-items:center;justify-content:center">7</span></div>
         </div>
         <div class="col out">
           <div class="port o"><span>prompt_json</span><span class="pd"></span></div>
           <div class="port o"><span>prompt_text</span><span class="pd"></span></div>
           <div class="port lit"><span>preview</span><span class="pd"></span></div>
           <div class="port o"><span>bboxes</span><span class="pd"></span></div>
-          <div class="port o"><span>width</span><span class="pd"></span></div>
-          <div class="port o"><span>height</span><span class="pd"></span></div>
+          <div class="port o"><span>out_width</span><span class="pd"></span></div>
+          <div class="port o"><span>out_height</span><span class="pd"></span></div>
           <div class="port o"><span>preset_name</span><span class="pd"></span></div>
           <div class="port o"><span>vlm_brief</span><span class="pd"></span></div>
         </div>
@@ -244,8 +243,8 @@
   <!-- ===== annotations ===== -->
   <div class="notes">
     <div class="note" style="border-left-color:var(--accent2)">
-      <h4><span class="b" style="background:var(--accent2)">1</span>Ports — 2 in, 8 out</h4>
-      <p>Left: an optional <code>image</code> reference for the preview and the <code>bboxes</code> socket (wire-only — see note 7). Right, the eight outputs: <code>prompt_json</code> (Ideogram caption), <code>prompt_text</code> (plain language), <code>preview</code> (the rendered layout), <code>bboxes</code>, <code>width</code>/<code>height</code>, <code>preset_name</code>, and <code>vlm_brief</code>. See <a href="#io">§04</a>.</p>
+      <h4><span class="b" style="background:var(--accent2)">1</span>Ports — 1 in, 8 out</h4>
+      <p>Left: an optional <code>image</code> reference for the preview. Right, the eight outputs: <code>prompt_json</code> (Ideogram caption), <code>prompt_text</code> (plain language), <code>preview</code> (the rendered layout), <code>bboxes</code>, <code>out_width</code>/<code>out_height</code>, <code>preset_name</code>, and <code>vlm_brief</code>. See <a href="#io">§04</a>.</p>
     </div>
     <div class="note" style="border-left-color:var(--accent)">
       <h4><span class="b" style="background:var(--accent)">2</span>Choose the layout</h4>
@@ -267,9 +266,9 @@
       <h4><span class="b" style="background:var(--good)">6</span>Pipe-in JSON</h4>
       <p>Three wire-able text inputs: <code>overrides_json</code> (per-region content — the main VLM target), <code>import_json</code> (a whole caption from KJ or a VLM), and <code>elements_json</code> (your own regions). Right-click → <em>Convert to input</em> to wire any of them.</p>
     </div>
-    <div class="note" style="border-left-color:var(--bad)">
-      <h4><span class="b" style="background:var(--bad)">7</span>The <code>bboxes</code> socket (wire-only)</h4>
-      <p>A connection-only input dot in the ports (top-left). Wire a detection / grounding node's <code>BOUNDING_BOX</code> output into it to place regions from an image — those boxes seed regions when the preset is empty, or reposition existing regions by index. <em>Earlier builds showed an inline "BoundingBox: Node 2.0 only" x/y/w/h widget here (whose width/height couldn't be zeroed); it's now a clean socket.</em> See <a href="#custom">§08</a>.</p>
+    <div class="note" style="border-left-color:var(--dim)">
+      <h4><span class="b" style="background:var(--dim)">+</span>No bboxes <em>input</em></h4>
+      <p>There's a <code>bboxes</code> <b>output</b> but no bboxes input. ComfyUI's <code>BOUNDING_BOX</code> input type is "Node 2.0 only" and breaks this legacy node's width/height widgets, so it was removed. Author region geometry via <code>elements_json</code> or <code>import_json</code> instead — see <a href="#custom">§08</a>.</p>
     </div>
   </div>
 </div>
@@ -329,7 +328,7 @@
       <li><b>Output shape</b> — <code>include_bboxes</code>, <code>width</code>, <code>height</code>, <code>json_mode</code>, <code>bg_brightness</code></li>
       <li><b>Role slots</b> — <code>title</code> · <code>subtitle</code> · <code>hero</code> · <code>body</code> · <code>brand</code> · <code>extra</code></li>
       <li><b>Style</b> — <code>high_level_description</code>, <code>background</code>, <code>style</code> + <code>style_detail</code>/<code>aesthetics</code>/<code>lighting</code>/<code>medium</code>/<code>style_palette</code></li>
-      <li><b>Pipe-in</b> — <code>overrides_json</code>, <code>import_json</code>, <code>elements_json</code>, <code>image</code>, <code>bboxes</code></li>
+      <li><b>Pipe-in</b> — <code>overrides_json</code>, <code>import_json</code>, <code>elements_json</code>, <code>image</code></li>
     </ul>
   </div>
   <div class="iocard out"><div class="hd">▸ Outputs</div>
@@ -338,7 +337,7 @@
       <li><code>prompt_text</code> — plain-language layout for any model</li>
       <li><code>preview</code> — rendered region diagram (numbered tags + preset banner)</li>
       <li><code>bboxes</code> — pixel boxes for SAM / crop (empty if the toggle is off)</li>
-      <li><code>width</code> / <code>height</code> — resolved canvas size</li>
+      <li><code>out_width</code> / <code>out_height</code> — resolved canvas size</li>
       <li><code>preset_name</code> — active preset (great on a Show-Text node)</li>
       <li><code>vlm_brief</code> — instruction to drive your VLM</li>
     </ul>
@@ -395,18 +394,18 @@
   <div class="fbox fill"><div class="h">🤠 (assemble)</div><div class="d">overrides_json ←</div></div>
   <div class="ffull">The brief names each region (by number + role) and hands the VLM a JSON skeleton to fill; wire its JSON back into <code>overrides_json</code>.</div>
 </div>
-<p>You can equally feed a <b>full caption</b> into <code>import_json</code>, or <b>bounding boxes</b> from a grounding/SAM node into the <code>bboxes</code> socket.</p>
+<p>You can equally feed a <b>full caption</b> into <code>import_json</code>, or author regions directly via <code>elements_json</code>.</p>
 </section>
 
 <section id="custom">
-<h2><span class="num">08</span>User Defined regions &amp; the bboxes socket</h2>
+<h2><span class="num">08</span>User Defined regions</h2>
 <p>Pick <b>Custom / User Defined</b> to start from an empty page, then author regions in <code>elements_json</code> (a JSON list, or a single object):</p>
 <pre><span class="p">[</span>
   <span class="p">{</span><span class="s">"type"</span>:<span class="s">"text"</span>,<span class="s">"x"</span>:<span class="n">0.10</span>,<span class="s">"y"</span>:<span class="n">0.05</span>,<span class="s">"w"</span>:<span class="n">0.80</span>,<span class="s">"h"</span>:<span class="n">0.12</span>,<span class="s">"text"</span>:<span class="s">"HELLO"</span>,<span class="s">"role"</span>:<span class="s">"title"</span><span class="p">}</span>,
   <span class="p">{</span><span class="s">"type"</span>:<span class="s">"obj"</span>,<span class="s">"bbox"</span>:[<span class="n">300</span>,<span class="n">100</span>,<span class="n">700</span>,<span class="n">900</span>],<span class="s">"desc"</span>:<span class="s">"a dragon"</span><span class="p">}</span>
 <span class="p">]</span></pre>
 <p>Each region takes <code>x/y/w/h</code> (0–1 fractions) <em>or</em> a KJ-style <code>bbox</code> <code>[ymin,xmin,ymax,xmax]</code> on the 0–1000 grid, plus optional <code>type</code>/<code>text</code>/<code>desc</code>/<code>palette</code>/<code>role</code>.</p>
-<div class="callout"><div class="t">The bboxes socket (wire-only)</div>The <code>bboxes</code> input is a <b>connection-only socket</b> — wire a <code>BOUNDING_BOX</code> from a detection/grounding node into it; those boxes seed regions when the preset is empty, or reposition existing regions by index. <em>Earlier builds rendered an inline "BoundingBox: Node 2.0 only" x/y/w/h widget whose width/height couldn't be set to zero — that's been replaced with a clean socket (<code>forceInput</code>).</em> Coordinates that are non-finite or unusable degrade gracefully (the region becomes "unplaced") instead of crashing.</div>
+<div class="callout"><div class="t">No bboxes input (output only)</div>The node has a <code>bboxes</code> <b>output</b> but no bboxes input. ComfyUI's <code>BOUNDING_BOX</code> input type is "Node 2.0 only" and doesn't render cleanly on this legacy node — it broke the <code>width</code>/<code>height</code> widgets — so it was removed. To bring in region geometry, use <code>elements_json</code> (which accepts a KJ-style <code>bbox [ymin,xmin,ymax,xmax]</code> or <code>x/y/w/h</code> per region) or <code>import_json</code>. Coordinates that are non-finite or unusable degrade gracefully (the region becomes "unplaced") instead of crashing.</div>
 </section>
 
 <section id="catalog">
