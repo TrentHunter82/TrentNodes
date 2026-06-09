@@ -112,6 +112,34 @@
   .iocard ul{margin:0;padding:8px 13px 12px 28px}.iocard li{margin:5px 0;font-size:13px}
   @media(max-width:980px){.anatomy{grid-template-columns:1fr}.node{position:static;max-width:360px;margin:0 auto}.maps{grid-template-columns:1fr}.flow{grid-template-columns:1fr;}.farr{transform:rotate(90deg)}}
   @media(max-width:880px){.wrap{grid-template-columns:1fr}nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}main{padding:24px 18px 80px}.iorow{grid-template-columns:1fr}}
+
+  /* ---------- interactive playground ---------- */
+  .pg{display:grid;grid-template-columns:290px 1fr;gap:24px;margin-top:16px;align-items:start}
+  .pg-controls{display:flex;flex-direction:column;gap:12px}
+  .pg-controls > div > label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);display:block;margin-bottom:4px}
+  .pg-controls select,.pg-controls input[type=text]{width:100%;background:#21252e;border:1px solid #353b48;border-radius:8px;color:var(--ink);padding:7px 9px;font:13px var(--sans)}
+  .pg-controls select:focus,.pg-controls input:focus{outline:none;border-color:var(--accent2)}
+  .pg-slots{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .pg-slots input{font-size:12px}
+  .pg-row{display:flex;align-items:center;gap:8px;font:13px var(--sans);color:var(--mut)}
+  .pg-row input{accent-color:var(--accent2);width:15px;height:15px}
+  .pg-canvaswrap{max-width:330px;margin:0 auto}
+  .pg-meta{font-size:12px;color:var(--mut);text-align:center;margin-top:9px}
+  .pg-meta b{color:var(--ink)}
+  .rgn .body{display:block;font-size:8px;opacity:.9;margin-top:1px;color:#eef1f7}
+  .pg-out{margin-top:18px}
+  .pg-tabs{display:flex;gap:5px}
+  .pg-tab{font:12px var(--mono);padding:6px 13px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;background:var(--panel2);color:var(--mut);cursor:pointer}
+  .pg-tab.active{background:var(--code);color:var(--accent)}
+  .pg-panel{position:relative}
+  .pg-panel pre{margin:0;border-top-left-radius:0;max-height:360px}
+  .copybtn{position:absolute;top:8px;right:8px;font:11px var(--mono);background:var(--panel2);border:1px solid var(--line2);color:var(--mut);border-radius:6px;padding:3px 9px;cursor:pointer;z-index:3}
+  .copybtn:hover{color:var(--ink);border-color:var(--accent2)}
+  .copybtn.ok{color:var(--good);border-color:var(--good)}
+  .reset{align-self:flex-start;font:12px var(--sans);background:transparent;border:1px solid var(--line2);color:var(--mut);border-radius:7px;padding:6px 12px;cursor:pointer}
+  .reset:hover{color:var(--ink);border-color:var(--accent)}
+  nav ol li a.nav-active{background:var(--panel);color:var(--accent)}
+  @media(max-width:980px){.pg{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -121,7 +149,7 @@
   <ol>
     <li><a href="#what">What it is</a></li>
     <li><a href="#anatomy">Anatomy of the node</a></li>
-    <li><a href="#maps">What the layouts look like</a></li>
+    <li><a href="#maps">Interactive playground</a></li>
     <li><a href="#io">Inputs &amp; outputs</a></li>
     <li><a href="#select">Presets &amp; auto-queue</a></li>
     <li><a href="#override">Overriding content</a></li>
@@ -276,46 +304,42 @@
 </section>
 
 <section id="maps">
-<h2><span class="num">03</span>What the layouts actually look like</h2>
-<p>Each preset is a set of regions positioned by design convention. These are the <em>real</em> coordinates the node ships — <span style="color:var(--accent)">◾ amber = object/image regions</span>, <span style="color:var(--accent2)">◾ blue = text regions</span>.</p>
-<div class="maps">
-  <figure class="map" style="margin:0">
-    <div class="canvas" style="aspect-ratio:1024/1344">
-      <div class="rgn text" style="left:6%;top:3%;width:88%;height:12%"><span class="tag">1 brand</span><br>masthead</div>
-      <div class="rgn text" style="left:6%;top:15.5%;width:55%;height:4.5%"><span class="tag">2 subtitle</span></div>
-      <div class="rgn obj"  style="left:12%;top:18%;width:76%;height:66%"><span class="tag">3 hero</span><br>cover subject</div>
-      <div class="rgn text" style="left:6%;top:40%;width:40%;height:18%"><span class="tag">4 title</span><br>cover line</div>
-      <div class="rgn text" style="left:60%;top:42%;width:34%;height:40%"><span class="tag">5 body</span><br>cover lines</div>
-      <div class="rgn text" style="left:78%;top:86%;width:16%;height:10%"><span class="tag">6 extra</span></div>
+<h2><span class="num">03</span>Interactive playground</h2>
+<p>Pick any of the 18 presets and the layout renders live; type into the role slots and watch the exact <code>prompt_json</code> / <code>prompt_text</code> / <code>vlm_brief</code> the node would produce update in real time. <span style="color:var(--accent)">&#9726; amber = object regions</span>, <span style="color:var(--accent2)">&#9726; blue = text regions</span>. <em>This runs the node's real assembly logic in your browser &mdash; nothing is uploaded.</em></p>
+<div class="pg">
+  <div class="pg-controls">
+    <div><label for="pgPreset">Preset</label><select id="pgPreset"></select></div>
+    <div><label>Role-slot content</label>
+      <div class="pg-slots">
+        <input type="text" data-role="title" placeholder="title">
+        <input type="text" data-role="subtitle" placeholder="subtitle">
+        <input type="text" data-role="hero" placeholder="hero">
+        <input type="text" data-role="body" placeholder="body">
+        <input type="text" data-role="brand" placeholder="brand">
+        <input type="text" data-role="extra" placeholder="extra">
+      </div>
     </div>
-    <figcaption><b>Magazine</b> · Classic Masthead</figcaption>
-  </figure>
-  <figure class="map" style="margin:0">
-    <div class="canvas" style="aspect-ratio:1024/1536">
-      <div class="rgn obj" style="left:5%;top:5%;width:43%;height:27.3%"><span class="tag">1 hero</span></div>
-      <div class="rgn obj" style="left:52%;top:5%;width:43%;height:27.3%"><span class="tag">2 hero</span></div>
-      <div class="rgn obj" style="left:5%;top:36.3%;width:43%;height:27.3%"><span class="tag">3 hero</span></div>
-      <div class="rgn obj" style="left:52%;top:36.3%;width:43%;height:27.3%"><span class="tag">4 hero</span></div>
-      <div class="rgn obj" style="left:5%;top:67.7%;width:43%;height:27.3%"><span class="tag">5 hero</span></div>
-      <div class="rgn obj" style="left:52%;top:67.7%;width:43%;height:27.3%"><span class="tag">6 hero</span></div>
+    <div><label for="pgStyle">style block</label><select id="pgStyle"><option value="none">none</option><option value="photo">photo</option><option value="art_style">art_style</option></select></div>
+    <label class="pg-row"><input type="checkbox" id="pgBbox" checked> include_bboxes</label>
+    <button class="reset" id="pgReset">Reset content</button>
+  </div>
+  <div class="pg-stage">
+    <div class="pg-canvaswrap"><div class="canvas" id="pgCanvas"></div></div>
+    <div class="pg-meta" id="pgMeta"></div>
+    <div class="pg-out">
+      <div class="pg-tabs">
+        <div class="pg-tab active" data-tab="json">prompt_json</div>
+        <div class="pg-tab" data-tab="text">prompt_text</div>
+        <div class="pg-tab" data-tab="brief">vlm_brief</div>
+      </div>
+      <div class="pg-panel"><button class="copybtn" id="pgCopy">copy</button><pre id="pgOut" style="white-space:pre-wrap;word-break:break-word"></pre></div>
     </div>
-    <figcaption><b>Comic</b> · 6-Panel 2×3 Grid</figcaption>
-  </figure>
-  <figure class="map" style="margin:0">
-    <div class="canvas" style="aspect-ratio:1024/1536">
-      <div class="rgn obj"  style="left:0;top:0;width:100%;height:100%"><span class="tag">1 hero</span><br>full-bleed key art</div>
-      <div class="rgn text" style="left:15%;top:61.5%;width:70%;height:5%"><span class="tag">2 subtitle</span></div>
-      <div class="rgn text" style="left:10%;top:67%;width:80%;height:13%"><span class="tag">3 title</span></div>
-      <div class="rgn text" style="left:30%;top:83.5%;width:40%;height:4%"><span class="tag">4 body</span></div>
-      <div class="rgn text" style="left:10%;top:90%;width:80%;height:8%"><span class="tag">5 extra</span><br>billing block</div>
-    </div>
-    <figcaption><b>Poster</b> · Movie One-Sheet</figcaption>
-  </figure>
+  </div>
 </div>
 <div class="maplegend">
   <span><span class="swatch obj"></span>object region (<code>hero</code>, art, panels)</span>
   <span><span class="swatch text"></span>text region (<code>title</code>, masthead, captions)</span>
-  <span>gutters &amp; safe margins are baked into the spacing</span>
+  <span>gutters &amp; safe margins are baked into the coordinates</span>
 </div>
 </section>
 
@@ -441,5 +465,138 @@
 </footer>
 </main>
 </div>
+<script>
+const CC_PRESETS = [{"id": "magazine_cover_classic", "category": "Magazine", "name": "Classic Masthead", "aspect": {"width": 1024, "height": 1344}, "image_kind": "photo", "background": "glossy magazine cover, studio portrait of the cover subject on a seamless backdrop, professional editorial lighting", "boxes": [{"role": "brand", "type": "text", "x": 0.06, "y": 0.03, "w": 0.88, "h": 0.12, "text": "MAGAZINE", "desc": "magazine masthead / logo, bold condensed sans-serif spanning the full top margin, slightly overlapped by the subject's head for depth", "palette": ["#FFFFFF"]}, {"role": "subtitle", "type": "text", "x": 0.06, "y": 0.155, "w": 0.55, "h": 0.045, "text": "Spring Issue", "desc": "issue date / dek strip set in small caps just beneath the masthead"}, {"role": "hero", "type": "obj", "x": 0.12, "y": 0.18, "w": 0.76, "h": 0.66, "desc": "cover subject (person or product), framed waist-up and centered, eyes on the upper third line, gaze toward camera"}, {"role": "title", "type": "text", "x": 0.06, "y": 0.4, "w": 0.4, "h": 0.18, "text": "Cover Story", "desc": "primary cover line, large display type stacked along the left margin, the most important headline on the cover"}, {"role": "body", "type": "text", "x": 0.6, "y": 0.42, "w": 0.34, "h": 0.4, "desc": "secondary cover lines, three or four smaller stacked headlines running down the right rail, each with a colored kicker"}, {"role": "extra", "type": "text", "x": 0.78, "y": 0.86, "w": 0.16, "h": 0.1, "desc": "barcode and price block tucked into the bottom-right safe corner", "palette": ["#000000"]}]}, {"id": "magazine_cover_fashion_fullbleed", "category": "Magazine", "name": "Fashion Full-Bleed", "aspect": {"width": 1024, "height": 1344}, "image_kind": "photo", "background": "full-bleed high-fashion editorial photograph filling the entire frame, dramatic single-source lighting, shallow depth of field", "boxes": [{"role": "hero", "type": "obj", "x": 0.0, "y": 0.04, "w": 1.0, "h": 0.96, "desc": "full-bleed fashion subject filling the frame edge to edge, confident pose, cropped close"}, {"role": "brand", "type": "text", "x": 0.05, "y": 0.03, "w": 0.9, "h": 0.13, "text": "VOGUE", "desc": "oversized thin-serif masthead spanning the top, partially occluded by the subject for an immersive feel", "palette": ["#FFFFFF"]}, {"role": "title", "type": "text", "x": 0.05, "y": 0.74, "w": 0.62, "h": 0.16, "text": "The Edit", "desc": "single bold cover line anchored in the lower-left, high contrast against the photo"}, {"role": "subtitle", "type": "text", "x": 0.05, "y": 0.9, "w": 0.5, "h": 0.05, "desc": "thin tagline / contributor credit under the cover line"}, {"role": "extra", "type": "text", "x": 0.82, "y": 0.905, "w": 0.13, "h": 0.07, "desc": "small barcode in the bottom-right safe corner", "palette": ["#FFFFFF"]}]}, {"id": "magazine_cover_minimalist", "category": "Magazine", "name": "Minimalist", "aspect": {"width": 1024, "height": 1344}, "image_kind": "photo", "background": "minimalist design magazine cover, generous negative space, muted solid background, single centered subject", "boxes": [{"role": "brand", "type": "text", "x": 0.06, "y": 0.04, "w": 0.4, "h": 0.07, "text": "KINFOLK", "desc": "small understated masthead in the top-left corner, light-weight type"}, {"role": "extra", "type": "text", "x": 0.8, "y": 0.04, "w": 0.14, "h": 0.05, "desc": "issue number set small in the top-right corner"}, {"role": "hero", "type": "obj", "x": 0.22, "y": 0.22, "w": 0.56, "h": 0.54, "desc": "single centered subject or still-life object surrounded by calm negative space"}, {"role": "title", "type": "text", "x": 0.2, "y": 0.84, "w": 0.6, "h": 0.08, "text": "Slow Living", "desc": "one quiet cover line centered along the bottom, plenty of letter-spacing"}]}, {"id": "magazine_cover_coverline_heavy", "category": "Magazine", "name": "Newsstand (Cover-Line Heavy)", "aspect": {"width": 1024, "height": 1344}, "image_kind": "photo", "background": "busy newsstand magazine cover, brightly lit subject, saturated colors designed to pop on a shelf", "boxes": [{"role": "brand", "type": "text", "x": 0.05, "y": 0.02, "w": 0.9, "h": 0.12, "text": "MAGAZINE", "desc": "loud bold masthead spanning the top edge, high-saturation color", "palette": ["#FFFFFF"]}, {"role": "hero", "type": "obj", "x": 0.18, "y": 0.15, "w": 0.64, "h": 0.71, "desc": "celebrity subject centered, energetic expression, lit to separate cleanly from the cover lines"}, {"role": "title", "type": "text", "x": 0.05, "y": 0.32, "w": 0.4, "h": 0.16, "text": "EXCLUSIVE", "desc": "biggest cover line, upper-left, with a bright highlight box behind it"}, {"role": "body", "type": "text", "x": 0.05, "y": 0.5, "w": 0.33, "h": 0.36, "desc": "stack of secondary cover lines down the left rail, mixed sizes, colored kickers"}, {"role": "body", "type": "text", "x": 0.62, "y": 0.18, "w": 0.33, "h": 0.5, "desc": "stack of teasers and pull-quotes down the right rail, page-number flags"}, {"role": "extra", "type": "text", "x": 0.05, "y": 0.9, "w": 0.18, "h": 0.07, "desc": "barcode, price and issue date in the bottom-left safe corner", "palette": ["#000000"]}]}, {"id": "comic_page_4panel_grid", "category": "Comic", "name": "4-Panel 2x2 Grid", "aspect": {"width": 1024, "height": 1536}, "image_kind": "art_style", "background": "inked comic book page, clean white gutters between panels, consistent rendering style across panels", "boxes": [{"role": "hero", "type": "obj", "x": 0.05, "y": 0.05, "w": 0.43, "h": 0.43, "desc": "panel 1 (top-left): establishing wide shot that sets the scene"}, {"role": "hero", "type": "obj", "x": 0.52, "y": 0.05, "w": 0.43, "h": 0.43, "desc": "panel 2 (top-right): medium shot introducing the main character"}, {"role": "hero", "type": "obj", "x": 0.05, "y": 0.52, "w": 0.43, "h": 0.43, "desc": "panel 3 (bottom-left): reaction close-up, strong emotion"}, {"role": "hero", "type": "obj", "x": 0.52, "y": 0.52, "w": 0.43, "h": 0.43, "desc": "panel 4 (bottom-right): action beat or cliffhanger"}]}, {"id": "comic_page_6panel_grid", "category": "Comic", "name": "6-Panel 2x3 Grid", "aspect": {"width": 1024, "height": 1536}, "image_kind": "art_style", "background": "classic six-panel comic page, even white gutters, dynamic camera variety between panels", "boxes": [{"role": "hero", "type": "obj", "x": 0.05, "y": 0.05, "w": 0.43, "h": 0.273, "desc": "panel 1: establishing shot"}, {"role": "hero", "type": "obj", "x": 0.52, "y": 0.05, "w": 0.43, "h": 0.273, "desc": "panel 2: reaction close-up"}, {"role": "hero", "type": "obj", "x": 0.05, "y": 0.363, "w": 0.43, "h": 0.273, "desc": "panel 3: action beat"}, {"role": "hero", "type": "obj", "x": 0.52, "y": 0.363, "w": 0.43, "h": 0.273, "desc": "panel 4: dialogue exchange, two-shot"}, {"role": "hero", "type": "obj", "x": 0.05, "y": 0.677, "w": 0.43, "h": 0.273, "desc": "panel 5: detail / insert shot"}, {"role": "hero", "type": "obj", "x": 0.52, "y": 0.677, "w": 0.43, "h": 0.273, "desc": "panel 6: closing wide shot or turn-the-page hook"}]}, {"id": "comic_page_splash", "category": "Comic", "name": "Splash Page", "aspect": {"width": 1024, "height": 1536}, "image_kind": "art_style", "background": "full-page comic splash, single dramatic illustration filling the page, cinematic composition", "boxes": [{"role": "hero", "type": "obj", "x": 0.04, "y": 0.04, "w": 0.92, "h": 0.92, "desc": "full-page splash illustration, the money shot: a single epic moment with deep staging and bold silhouettes"}, {"role": "title", "type": "text", "x": 0.07, "y": 0.07, "w": 0.5, "h": 0.1, "text": "CHAPTER ONE", "desc": "story title / logo treatment in the top-left, integrated into the art"}, {"role": "body", "type": "text", "x": 0.1, "y": 0.83, "w": 0.8, "h": 0.1, "desc": "narration caption box across the bottom, yellow box with hand-lettered caption text"}]}, {"id": "comic_page_3tier_widescreen", "category": "Comic", "name": "3-Tier Widescreen", "aspect": {"width": 1024, "height": 1536}, "image_kind": "art_style", "background": "widescreen comic page, three full-width letterboxed tiers, cinematic decompressed storytelling", "boxes": [{"role": "hero", "type": "obj", "x": 0.05, "y": 0.05, "w": 0.9, "h": 0.273, "desc": "tier 1 (full width): sweeping establishing panorama"}, {"role": "hero", "type": "obj", "x": 0.05, "y": 0.363, "w": 0.9, "h": 0.273, "desc": "tier 2 (full width): slow character beat, decompressed pacing"}, {"role": "hero", "type": "obj", "x": 0.05, "y": 0.677, "w": 0.9, "h": 0.273, "desc": "tier 3 (full width): payoff shot, strong horizontal motion"}]}, {"id": "comic_page_manga_rtl", "category": "Comic", "name": "Manga (Right-to-Left)", "aspect": {"width": 1024, "height": 1536}, "image_kind": "art_style", "background": "black-and-white manga page, screentones, varied panel sizes, read right-to-left", "boxes": [{"role": "hero", "type": "obj", "x": 0.05, "y": 0.05, "w": 0.9, "h": 0.28, "desc": "panel 1 (top, read first): wide establishing shot"}, {"role": "hero", "type": "obj", "x": 0.52, "y": 0.37, "w": 0.43, "h": 0.26, "desc": "panel 2 (middle-right, read second): close-up reaction (manga reads right-to-left)"}, {"role": "hero", "type": "obj", "x": 0.05, "y": 0.37, "w": 0.43, "h": 0.26, "desc": "panel 3 (middle-left, read third): cut to the other character"}, {"role": "hero", "type": "obj", "x": 0.05, "y": 0.67, "w": 0.9, "h": 0.28, "desc": "panel 4 (bottom, read last): dramatic full-width beat with speed lines"}]}, {"id": "book_cover_title_dominant", "category": "Book", "name": "Front — Title Dominant", "aspect": {"width": 1024, "height": 1536}, "image_kind": "art_style", "background": "book cover, full-bleed cover illustration behind the type, strong focal image", "boxes": [{"role": "hero", "type": "obj", "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0, "desc": "full-bleed cover artwork filling the trim, composed to leave breathing room for the title at the top and the author at the bottom"}, {"role": "title", "type": "text", "x": 0.1, "y": 0.07, "w": 0.8, "h": 0.18, "text": "THE TITLE", "desc": "dominant book title, large display type centered in the top third, the strongest element on the cover"}, {"role": "subtitle", "type": "text", "x": 0.15, "y": 0.27, "w": 0.7, "h": 0.06, "desc": "subtitle or tagline set smaller and centered beneath the title"}, {"role": "brand", "type": "text", "x": 0.1, "y": 0.85, "w": 0.8, "h": 0.08, "text": "AUTHOR NAME", "desc": "author byline centered along the bottom margin, smaller than the title"}]}, {"id": "book_cover_author_dominant", "category": "Book", "name": "Front — Author Dominant", "aspect": {"width": 1024, "height": 1536}, "image_kind": "art_style", "background": "bestseller book cover, bold graphic treatment, the author is a brand name", "boxes": [{"role": "hero", "type": "obj", "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0, "desc": "atmospheric full-bleed cover image, kept simple so the large author name reads clearly"}, {"role": "body", "type": "text", "x": 0.1, "y": 0.22, "w": 0.8, "h": 0.05, "desc": "endorsement / review pull-quote in small italics near the top"}, {"role": "brand", "type": "text", "x": 0.08, "y": 0.06, "w": 0.84, "h": 0.16, "text": "AUTHOR NAME", "desc": "huge author name across the top — the primary selling point for a brand-name author"}, {"role": "title", "type": "text", "x": 0.1, "y": 0.74, "w": 0.8, "h": 0.12, "text": "The New Novel", "desc": "book title set in the lower third, secondary to the author name"}]}, {"id": "book_cover_series_branded", "category": "Book", "name": "Front — Series Branded", "aspect": {"width": 1024, "height": 1536}, "image_kind": "art_style", "background": "genre series book cover with a consistent branded template, strong iconography", "boxes": [{"role": "extra", "type": "text", "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.12, "desc": "series branding band across the very top (series name / publisher imprint), consistent across the line", "palette": ["#FFFFFF"]}, {"role": "hero", "type": "obj", "x": 0.0, "y": 0.12, "w": 1.0, "h": 0.66, "desc": "central series icon or character key art inside the branded frame"}, {"role": "title", "type": "text", "x": 0.1, "y": 0.8, "w": 0.8, "h": 0.1, "text": "BOOK TITLE", "desc": "title in the series' signature display face, lower portion"}, {"role": "subtitle", "type": "text", "x": 0.1, "y": 0.905, "w": 0.8, "h": 0.04, "desc": "series entry line, e.g. 'Book Three of the Saga'"}, {"role": "brand", "type": "text", "x": 0.1, "y": 0.945, "w": 0.8, "h": 0.04, "text": "AUTHOR NAME", "desc": "author name in the bottom margin"}]}, {"id": "book_cover_full_wrap", "category": "Book", "name": "Full Wrap (Back + Spine + Front)", "aspect": {"width": 1600, "height": 1024}, "image_kind": "art_style", "background": "full paperback wrap laid flat: back cover on the left, thin spine in the center, front cover on the right", "boxes": [{"role": "hero", "type": "obj", "x": 0.52, "y": 0.0, "w": 0.48, "h": 1.0, "desc": "front cover artwork on the right panel, full bleed"}, {"role": "title", "type": "text", "x": 0.56, "y": 0.08, "w": 0.4, "h": 0.16, "text": "THE TITLE", "desc": "front-cover title, top of the right panel"}, {"role": "brand", "type": "text", "x": 0.56, "y": 0.84, "w": 0.4, "h": 0.08, "text": "AUTHOR NAME", "desc": "front-cover author byline at the bottom of the right panel"}, {"role": "subtitle", "type": "text", "x": 0.485, "y": 0.1, "w": 0.03, "h": 0.8, "desc": "spine text running vertically: title and author, sized to the spine width"}, {"role": "body", "type": "text", "x": 0.05, "y": 0.14, "w": 0.38, "h": 0.52, "desc": "back-cover blurb / jacket copy on the left panel, a short hook paragraph plus a review quote"}, {"role": "extra", "type": "text", "x": 0.28, "y": 0.86, "w": 0.16, "h": 0.1, "desc": "ISBN barcode block in the bottom-right of the back cover; small publisher logo bottom-left", "palette": ["#000000"]}]}, {"id": "poster_movie_one_sheet", "category": "Poster", "name": "Movie One-Sheet (Rule of Thirds)", "aspect": {"width": 1024, "height": 1536}, "image_kind": "photo", "background": "cinematic movie one-sheet poster, full-bleed key art, dramatic graded lighting, theatrical mood", "boxes": [{"role": "hero", "type": "obj", "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0, "desc": "full-bleed key art: the lead characters composed on the upper two-thirds, strong silhouette and depth"}, {"role": "subtitle", "type": "text", "x": 0.15, "y": 0.615, "w": 0.7, "h": 0.05, "desc": "tagline in small caps, centered just above the title"}, {"role": "title", "type": "text", "x": 0.1, "y": 0.67, "w": 0.8, "h": 0.13, "text": "THE TITLE", "desc": "film title, large condensed display type across the lower third"}, {"role": "body", "type": "text", "x": 0.3, "y": 0.835, "w": 0.4, "h": 0.04, "desc": "release line, e.g. 'IN THEATERS DECEMBER', centered under the title"}, {"role": "extra", "type": "text", "x": 0.1, "y": 0.9, "w": 0.8, "h": 0.08, "desc": "billing block: dense condensed credits and studio logos along the very bottom"}]}, {"id": "poster_teaser_centered", "category": "Poster", "name": "Teaser (Centered Title)", "aspect": {"width": 1024, "height": 1536}, "image_kind": "art_style", "background": "minimal teaser poster, vast negative space, single iconic symbol, restrained palette", "boxes": [{"role": "subtitle", "type": "text", "x": 0.2, "y": 0.14, "w": 0.6, "h": 0.05, "desc": "intrigue tagline centered near the top"}, {"role": "hero", "type": "obj", "x": 0.3, "y": 0.3, "w": 0.4, "h": 0.4, "desc": "single iconic object or logo centered in the negative space, the whole concept in one symbol"}, {"role": "title", "type": "text", "x": 0.15, "y": 0.72, "w": 0.7, "h": 0.1, "text": "THE TITLE", "desc": "title centered in the lower third, lots of tracking, understated"}, {"role": "extra", "type": "text", "x": 0.1, "y": 0.905, "w": 0.8, "h": 0.07, "desc": "minimal billing block and release date along the bottom"}]}, {"id": "poster_cast_billing", "category": "Poster", "name": "Cast-Heavy (Bottom Billing Block)", "aspect": {"width": 1024, "height": 1536}, "image_kind": "photo", "background": "ensemble cast movie poster, multiple faces composited in the upper area, dramatic key lighting", "boxes": [{"role": "hero", "type": "obj", "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.66, "desc": "ensemble key art filling the top two-thirds, the cast arranged in a balanced composite"}, {"role": "subtitle", "type": "text", "x": 0.15, "y": 0.625, "w": 0.7, "h": 0.04, "desc": "tagline above the title"}, {"role": "title", "type": "text", "x": 0.1, "y": 0.665, "w": 0.8, "h": 0.14, "text": "THE TITLE", "desc": "large title beneath the artwork"}, {"role": "extra", "type": "text", "x": 0.06, "y": 0.82, "w": 0.88, "h": 0.16, "desc": "dense billing block: a row of cast names in talent boxes above tiny condensed crew credits and studio logos"}]}, {"id": "poster_gig_event", "category": "Poster", "name": "Gig / Event (Date + Venue)", "aspect": {"width": 1024, "height": 1536}, "image_kind": "art_style", "background": "bold typographic gig poster, screen-print look, limited high-contrast palette, energetic", "boxes": [{"role": "title", "type": "text", "x": 0.06, "y": 0.07, "w": 0.88, "h": 0.3, "text": "HEADLINER", "desc": "the headliner name as huge type dominating the top third, the loudest element on the poster", "palette": ["#FFFFFF"]}, {"role": "hero", "type": "obj", "x": 0.1, "y": 0.39, "w": 0.8, "h": 0.4, "desc": "central screen-printed illustration or artist photo, halftone treatment"}, {"role": "subtitle", "type": "text", "x": 0.1, "y": 0.81, "w": 0.8, "h": 0.06, "desc": "support acts / lineup in a smaller secondary size"}, {"role": "body", "type": "text", "x": 0.1, "y": 0.875, "w": 0.8, "h": 0.06, "desc": "date and venue line, bold and unmissable"}, {"role": "extra", "type": "text", "x": 0.1, "y": 0.94, "w": 0.8, "h": 0.04, "desc": "ticket info, age policy and sponsor logos along the bottom"}]}, {"id": "user_defined", "category": "Custom", "name": "User Defined", "aspect": {"width": 1024, "height": 1024}, "image_kind": "photo", "background": "", "boxes": []}];
+(function(){
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const c1000 = v => Math.max(0, Math.min(1000, Math.round(v*1000)));
+  function normBbox(b){
+    let ymin=c1000(b.y||0), xmin=c1000(b.x||0), ymax=c1000((b.y||0)+(b.h||0)), xmax=c1000((b.x||0)+(b.w||0));
+    if(ymin>ymax){const t=ymin;ymin=ymax;ymax=t;} if(xmin>xmax){const t=xmin;xmin=xmax;xmax=t;}
+    return [ymin,xmin,ymax,xmax];
+  }
+  const pal = a => (a||[]).filter(Boolean).map(x=>String(x).toUpperCase());
+  function posWords(b){
+    const cx=(b.x||0)+(b.w||0)/2, cy=(b.y||0)+(b.h||0)/2;
+    const v=cy<0.34?'top':(cy>0.66?'bottom':'middle'), h=cx<0.34?'left':(cx>0.66?'right':'center');
+    if(v==='middle'&&h==='center')return 'center'; if(v==='middle')return h; if(h==='center')return v; return v+'-'+h;
+  }
+  function styleDesc(kind){
+    if(!kind||kind==='none')return null;
+    const sd={aesthetics:'',lighting:''};
+    if(kind==='photo'){sd.photo='';sd.medium='';}else{sd.medium='';sd.art_style='';}
+    return sd;
+  }
+  function resolve(p,slots){
+    const boxes=JSON.parse(JSON.stringify(p.boxes||[]));
+    boxes.forEach(b=>{const v=slots[b.role]; if(v&&v.trim()){ if(b.type==='text') b.text=v; else b.desc=v; }});
+    return boxes;
+  }
+  function caption(p,boxes,inc,kind){
+    const cap={high_level_description:`${p.category} layout — ${p.name} (${p.image_kind||'image'})`};
+    const sd=styleDesc(kind); if(sd) cap.style_description=sd;
+    cap.compositional_deconstruction={background:p.background||'',elements:boxes.map(b=>{
+      const t=b.type==='text'?'text':'obj', e={type:t};
+      if(inc&&!b.nobbox) e.bbox=normBbox(b);
+      if(t==='text') e.text=b.text||'';
+      e.desc=b.desc||'';
+      const cp=pal(b.palette); if(cp.length) e.color_palette=cp.slice(0,5);
+      return e;
+    })};
+    return cap;
+  }
+  function text(p,boxes,inc,kind){
+    const w=p.aspect&&p.aspect.width, h=p.aspect&&p.aspect.height;
+    const out=[`${p.category} layout — ${p.name} (${p.image_kind||'image'})`+(w&&h?` (${w}x${h})`:'')];
+    if(p.background) out.push('Background: '+p.background+'.');
+    const sd=styleDesc(kind);
+    if(sd){const parts=Object.keys(sd).filter(k=>sd[k]).map(k=>k+': '+sd[k]); if(parts.length) out.push('Style — '+parts.join('; ')+'.');}
+    boxes.forEach(b=>{
+      const role=b.role||b.type||'region', Role=role.charAt(0).toUpperCase()+role.slice(1);
+      const pos=(!inc||b.nobbox)?'':' ('+posWords(b)+')';
+      let content;
+      if(b.type==='text'){const tx=b.text||'',d=b.desc||''; content=(tx?'"'+tx+'"':'')+(tx&&d?' — '+d:(tx?'':d));}
+      else content=b.desc||'';
+      out.push('- '+Role+pos+': '+content.trim());
+    });
+    return out.join('\n');
+  }
+  function brief(p,boxes,inc){
+    const head=`You are filling in a ${p.category} layout (${p.name}). For each region below write a concise, vivid description for an image generator. For TEXT regions return the exact words to display; for OBJECT regions describe the subject. Return ONLY a JSON object mapping each region number (as a string) to its description.\n\nRegions:`;
+    const rl=[],skel={};
+    boxes.forEach((b,i)=>{const n=String(i+1),t=b.type==='text'?'text':'object',role=b.role||t;
+      const pos=(!inc||b.nobbox)?'':' at '+posWords(b);
+      rl.push(`  "${n}": ${role} region (${t})${pos} — ${b.desc||''}`); skel[n]='';});
+    return head+'\n'+rl.join('\n')+'\n\nReturn JSON like:\n'+JSON.stringify(skel);
+  }
+
+  const sel=$('#pgPreset'),canvas=$('#pgCanvas'),meta=$('#pgMeta'),outEl=$('#pgOut');
+  const slotEls=[].slice.call(document.querySelectorAll('.pg-slots input'));
+  const styleSel=$('#pgStyle'),bboxChk=$('#pgBbox');
+  let tab='json';
+
+  const order=['Magazine','Comic','Book','Poster','Custom'],groups={};
+  CC_PRESETS.forEach((p,idx)=>{(groups[p.category]=groups[p.category]||[]).push(idx);});
+  order.concat(Object.keys(groups).filter(c=>order.indexOf(c)<0)).forEach(cat=>{
+    if(!groups[cat])return;
+    const og=document.createElement('optgroup'); og.label=cat;
+    groups[cat].forEach(i=>{const o=document.createElement('option'); o.value=i; o.textContent=CC_PRESETS[i].name; og.appendChild(o);});
+    sel.appendChild(og);
+  });
+
+  function slots(){const o={}; slotEls.forEach(el=>o[el.dataset.role]=el.value); return o;}
+  function copy(btn,txt){if(navigator.clipboard)navigator.clipboard.writeText(txt).then(function(){const o=btn.textContent;btn.textContent='copied';btn.classList.add('ok');setTimeout(function(){btn.textContent=o;btn.classList.remove('ok');},1200);});}
+  function render(){
+    const p=CC_PRESETS[+sel.value]; if(!p)return;
+    const inc=bboxChk.checked, kind=styleSel.value, boxes=resolve(p,slots());
+    const w=(p.aspect&&p.aspect.width)||1024, h=(p.aspect&&p.aspect.height)||1024;
+    canvas.style.aspectRatio=w+'/'+h; canvas.innerHTML='';
+    const placed=boxes.filter(b=>!b.nobbox);
+    if(!placed.length){
+      canvas.innerHTML='<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim);font:12px var(--mono);text-align:center;padding:18px">empty preset &mdash; author regions via elements_json / import_json</div>';
+    } else {
+      boxes.forEach((b,i)=>{
+        if(b.nobbox)return;
+        const d=document.createElement('div');
+        d.className='rgn '+(b.type==='text'?'text':'obj');
+        d.style.left=((b.x||0)*100)+'%'; d.style.top=((b.y||0)*100)+'%';
+        d.style.width=((b.w||0)*100)+'%'; d.style.height=((b.h||0)*100)+'%';
+        const lab=b.type==='text'?(b.text||b.desc||''):(b.desc||'');
+        d.innerHTML='<span class="tag">'+(i+1)+' '+esc(b.role||b.type)+'</span><span class="body">'+esc(lab).slice(0,90)+'</span>';
+        canvas.appendChild(d);
+      });
+    }
+    meta.innerHTML='<b>'+esc(p.category)+' / '+esc(p.name)+'</b> &middot; '+w+'&times;'+h+' &middot; '+placed.length+' regions';
+    if(tab==='json') outEl.textContent=JSON.stringify(caption(p,boxes,inc,kind),null,2);
+    else if(tab==='text') outEl.textContent=text(p,boxes,inc,kind);
+    else outEl.textContent=brief(p,boxes,inc);
+  }
+
+  sel.onchange=render; styleSel.onchange=render; bboxChk.onchange=render;
+  slotEls.forEach(el=>el.oninput=render);
+  document.querySelectorAll('.pg-tab').forEach(t=>t.onclick=function(){
+    document.querySelectorAll('.pg-tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active'); tab=t.dataset.tab; render();
+  });
+  $('#pgReset').onclick=function(){slotEls.forEach(el=>el.value=''); styleSel.value='none'; bboxChk.checked=true; render();};
+  $('#pgCopy').onclick=function(){copy(this,outEl.textContent);};
+  sel.value='0'; render();
+
+  document.querySelectorAll('pre').forEach(pre=>{
+    if(pre.closest('.pg-panel'))return;
+    const wrap=document.createElement('div'); wrap.style.position='relative';
+    pre.parentNode.insertBefore(wrap,pre); wrap.appendChild(pre);
+    const b=document.createElement('button'); b.className='copybtn'; b.textContent='copy';
+    b.onclick=function(){copy(b,pre.innerText);};
+    wrap.appendChild(b);
+  });
+
+  const links={}; document.querySelectorAll('nav ol li a').forEach(a=>links[a.getAttribute('href').slice(1)]=a);
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){Object.keys(links).forEach(k=>links[k].classList.remove('nav-active')); const a=links[e.target.id]; if(a)a.classList.add('nav-active');}});},{rootMargin:'-15% 0px -75% 0px'});
+  document.querySelectorAll('main section').forEach(s=>io.observe(s));
+})();
+</script>
+
 </body>
 </html>
