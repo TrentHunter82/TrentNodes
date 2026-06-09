@@ -157,7 +157,7 @@
 <!-- Optional: drop your real screenshot at docs/assets/composition_cowboy_node.png and it appears here -->
 <figure class="shot" style="margin:0 0 20px;max-width:360px">
   <img src="assets/composition_cowboy_node.png" alt="Composition Cowboy node" style="width:100%;border:1px solid var(--line);border-radius:12px;display:block" onerror="this.parentElement.style.display='none'">
-  <figcaption style="font-size:12px;color:var(--dim);text-align:center;margin-top:6px">Your screenshot of the live node</figcaption>
+  <figcaption style="font-size:12px;color:var(--dim);text-align:center;margin-top:6px">Your live node — captured before the bboxes fix; that bottom "BoundingBox" widget is now a wire-only socket on the left.</figcaption>
 </figure>
 
 <div class="anatomy">
@@ -170,6 +170,7 @@
       <div class="ports">
         <div class="col">
           <div class="port lit"><span class="pd"></span>image</div>
+          <div class="port"><span class="pd"></span>bboxes&nbsp;<span style="display:inline-flex;width:15px;height:15px;border-radius:50%;background:var(--bad);color:#15171a;font-size:9px;font-weight:800;align-items:center;justify-content:center">7</span></div>
         </div>
         <div class="col out">
           <div class="port o"><span>prompt_json</span><span class="pd"></span></div>
@@ -238,24 +239,13 @@
       <div class="tf"><span class="l">elements_json</span></div>
     </div>
 
-    <div class="zone">
-      <span class="pin" style="background:var(--bad)">7</span>
-      <span class="lab">bboxes socket</span>
-      <div class="bbh">BoundingBox: Node 2.0 only</div>
-      <div class="grp2">
-        <div class="w"><span class="nm">◀ x</span><span class="v">0 ▶</span></div>
-        <div class="w"><span class="nm">◀ y</span><span class="v">0 ▶</span></div>
-        <div class="w"><span class="nm">◀ width</span><span class="v">512 ▶</span></div>
-        <div class="w"><span class="nm">◀ height</span><span class="v">512 ▶</span></div>
-      </div>
-    </div>
   </div>
 
   <!-- ===== annotations ===== -->
   <div class="notes">
     <div class="note" style="border-left-color:var(--accent2)">
-      <h4><span class="b" style="background:var(--accent2)">1</span>Ports — 1 image in, 8 out</h4>
-      <p>Left: an optional <code>image</code> reference for the preview. Right, the eight outputs: <code>prompt_json</code> (Ideogram caption), <code>prompt_text</code> (plain language), <code>preview</code> (the rendered layout), <code>bboxes</code>, <code>width</code>/<code>height</code>, <code>preset_name</code>, and <code>vlm_brief</code>. See <a href="#io">§04</a>.</p>
+      <h4><span class="b" style="background:var(--accent2)">1</span>Ports — 2 in, 8 out</h4>
+      <p>Left: an optional <code>image</code> reference for the preview and the <code>bboxes</code> socket (wire-only — see note 7). Right, the eight outputs: <code>prompt_json</code> (Ideogram caption), <code>prompt_text</code> (plain language), <code>preview</code> (the rendered layout), <code>bboxes</code>, <code>width</code>/<code>height</code>, <code>preset_name</code>, and <code>vlm_brief</code>. See <a href="#io">§04</a>.</p>
     </div>
     <div class="note" style="border-left-color:var(--accent)">
       <h4><span class="b" style="background:var(--accent)">2</span>Choose the layout</h4>
@@ -278,8 +268,8 @@
       <p>Three wire-able text inputs: <code>overrides_json</code> (per-region content — the main VLM target), <code>import_json</code> (a whole caption from KJ or a VLM), and <code>elements_json</code> (your own regions). Right-click → <em>Convert to input</em> to wire any of them.</p>
     </div>
     <div class="note" style="border-left-color:var(--bad)">
-      <h4><span class="b" style="background:var(--bad)">7</span>The <code>bboxes</code> socket</h4>
-      <p>This is the <code>BOUNDING_BOX</code> input. The <b>"Node 2.0 only"</b> banner + x/y/w/h fields are just the frontend's default editor for that type — the real use is to <b>wire a detection / grounding node's <code>BOUNDING_BOX</code> output</b> into the socket to place regions from an image. See <a href="#custom">§08</a>.</p>
+      <h4><span class="b" style="background:var(--bad)">7</span>The <code>bboxes</code> socket (wire-only)</h4>
+      <p>A connection-only input dot in the ports (top-left). Wire a detection / grounding node's <code>BOUNDING_BOX</code> output into it to place regions from an image — those boxes seed regions when the preset is empty, or reposition existing regions by index. <em>Earlier builds showed an inline "BoundingBox: Node 2.0 only" x/y/w/h widget here (whose width/height couldn't be zeroed); it's now a clean socket.</em> See <a href="#custom">§08</a>.</p>
     </div>
   </div>
 </div>
@@ -416,7 +406,7 @@
   <span class="p">{</span><span class="s">"type"</span>:<span class="s">"obj"</span>,<span class="s">"bbox"</span>:[<span class="n">300</span>,<span class="n">100</span>,<span class="n">700</span>,<span class="n">900</span>],<span class="s">"desc"</span>:<span class="s">"a dragon"</span><span class="p">}</span>
 <span class="p">]</span></pre>
 <p>Each region takes <code>x/y/w/h</code> (0–1 fractions) <em>or</em> a KJ-style <code>bbox</code> <code>[ymin,xmin,ymax,xmax]</code> on the 0–1000 grid, plus optional <code>type</code>/<code>text</code>/<code>desc</code>/<code>palette</code>/<code>role</code>.</p>
-<div class="callout"><div class="t">The "BoundingBox: Node 2.0 only" widget</div>That block is the <code>bboxes</code> <code>BOUNDING_BOX</code> input. The inline x/y/w/h fields are the frontend's fallback editor for that socket type. Its real purpose is to accept a <code>BOUNDING_BOX</code> wired from a detection/grounding node — those boxes seed regions when the preset is empty, or reposition existing regions by index. Coordinates that are non-finite or unusable degrade gracefully (the region becomes "unplaced") instead of crashing.</div>
+<div class="callout"><div class="t">The bboxes socket (wire-only)</div>The <code>bboxes</code> input is a <b>connection-only socket</b> — wire a <code>BOUNDING_BOX</code> from a detection/grounding node into it; those boxes seed regions when the preset is empty, or reposition existing regions by index. <em>Earlier builds rendered an inline "BoundingBox: Node 2.0 only" x/y/w/h widget whose width/height couldn't be set to zero — that's been replaced with a clean socket (<code>forceInput</code>).</em> Coordinates that are non-finite or unusable degrade gracefully (the region becomes "unplaced") instead of crashing.</div>
 </section>
 
 <section id="catalog">

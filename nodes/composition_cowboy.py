@@ -455,8 +455,9 @@ class CompositionCowboy:
                                              "fractions, or a KJ-style bbox [ymin,xmin,ymax,xmax] on a 0-1000 grid; "
                                              "plus optional type/text/desc/palette/role."}),
                 "image": ("IMAGE", {"tooltip": "Optional reference image shown behind the preview."}),
-                "bboxes": ("BOUNDING_BOX", {"tooltip": "Optional pixel-space boxes from a detection/grounding "
-                                            "node; seeds regions when the preset has none, else repositions by index."}),
+                "bboxes": ("BOUNDING_BOX", {"forceInput": True,
+                            "tooltip": "Optional pixel-space boxes from a detection/grounding node (wire-only "
+                                       "socket); seeds regions when the preset has none, else repositions by index."}),
             },
         }
 
