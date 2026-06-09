@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "book_cover_title_dominant",
+      "category": "Book",
+      "name": "Front — Title Dominant",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "art_style",
+      "background": "book cover, full-bleed cover illustration behind the type, strong focal image",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0,
+          "desc": "full-bleed cover artwork filling the trim, composed to leave breathing room for the title at the top and the author at the bottom" },
+        { "role": "title", "type": "text", "x": 0.10, "y": 0.07, "w": 0.80, "h": 0.18,
+          "text": "THE TITLE",
+          "desc": "dominant book title, large display type centered in the top third, the strongest element on the cover" },
+        { "role": "subtitle", "type": "text", "x": 0.15, "y": 0.27, "w": 0.70, "h": 0.06,
+          "desc": "subtitle or tagline set smaller and centered beneath the title" },
+        { "role": "brand", "type": "text", "x": 0.10, "y": 0.85, "w": 0.80, "h": 0.08,
+          "text": "AUTHOR NAME",
+          "desc": "author byline centered along the bottom margin, smaller than the title" }
+      ]
+    },
+    {
+      "id": "book_cover_author_dominant",
+      "category": "Book",
+      "name": "Front — Author Dominant",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "art_style",
+      "background": "bestseller book cover, bold graphic treatment, the author is a brand name",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0,
+          "desc": "atmospheric full-bleed cover image, kept simple so the large author name reads clearly" },
+        { "role": "body", "type": "text", "x": 0.10, "y": 0.22, "w": 0.80, "h": 0.05,
+          "desc": "endorsement / review pull-quote in small italics near the top" },
+        { "role": "brand", "type": "text", "x": 0.08, "y": 0.06, "w": 0.84, "h": 0.16,
+          "text": "AUTHOR NAME",
+          "desc": "huge author name across the top — the primary selling point for a brand-name author" },
+        { "role": "title", "type": "text", "x": 0.10, "y": 0.74, "w": 0.80, "h": 0.12,
+          "text": "The New Novel",
+          "desc": "book title set in the lower third, secondary to the author name" }
+      ]
+    },
+    {
+      "id": "book_cover_series_branded",
+      "category": "Book",
+      "name": "Front — Series Branded",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "art_style",
+      "background": "genre series book cover with a consistent branded template, strong iconography",
+      "boxes": [
+        { "role": "extra", "type": "text", "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.12,
+          "desc": "series branding band across the very top (series name / publisher imprint), consistent across the line",
+          "palette": ["#FFFFFF"] },
+        { "role": "hero", "type": "obj", "x": 0.0, "y": 0.12, "w": 1.0, "h": 0.66,
+          "desc": "central series icon or character key art inside the branded frame" },
+        { "role": "title", "type": "text", "x": 0.10, "y": 0.80, "w": 0.80, "h": 0.10,
+          "text": "BOOK TITLE",
+          "desc": "title in the series' signature display face, lower portion" },
+        { "role": "subtitle", "type": "text", "x": 0.10, "y": 0.905, "w": 0.80, "h": 0.04,
+          "desc": "series entry line, e.g. 'Book Three of the Saga'" },
+        { "role": "brand", "type": "text", "x": 0.10, "y": 0.945, "w": 0.80, "h": 0.04,
+          "text": "AUTHOR NAME",
+          "desc": "author name in the bottom margin" }
+      ]
+    },
+    {
+      "id": "book_cover_full_wrap",
+      "category": "Book",
+      "name": "Full Wrap (Back + Spine + Front)",
+      "aspect": { "width": 1600, "height": 1024 },
+      "image_kind": "art_style",
+      "background": "full paperback wrap laid flat: back cover on the left, thin spine in the center, front cover on the right",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.52, "y": 0.0, "w": 0.48, "h": 1.0,
+          "desc": "front cover artwork on the right panel, full bleed" },
+        { "role": "title", "type": "text", "x": 0.56, "y": 0.08, "w": 0.40, "h": 0.16,
+          "text": "THE TITLE",
+          "desc": "front-cover title, top of the right panel" },
+        { "role": "brand", "type": "text", "x": 0.56, "y": 0.84, "w": 0.40, "h": 0.08,
+          "text": "AUTHOR NAME",
+          "desc": "front-cover author byline at the bottom of the right panel" },
+        { "role": "subtitle", "type": "text", "x": 0.485, "y": 0.10, "w": 0.03, "h": 0.80,
+          "desc": "spine text running vertically: title and author, sized to the spine width" },
+        { "role": "body", "type": "text", "x": 0.05, "y": 0.14, "w": 0.38, "h": 0.52,
+          "desc": "back-cover blurb / jacket copy on the left panel, a short hook paragraph plus a review quote" },
+        { "role": "extra", "type": "text", "x": 0.28, "y": 0.86, "w": 0.16, "h": 0.10,
+          "desc": "ISBN barcode block in the bottom-right of the back cover; small publisher logo bottom-left",
+          "palette": ["#000000"] }
+      ]
+    }
+  ]
+}

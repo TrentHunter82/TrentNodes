@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "poster_movie_one_sheet",
+      "category": "Poster",
+      "name": "Movie One-Sheet (Rule of Thirds)",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "photo",
+      "background": "cinematic movie one-sheet poster, full-bleed key art, dramatic graded lighting, theatrical mood",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0,
+          "desc": "full-bleed key art: the lead characters composed on the upper two-thirds, strong silhouette and depth" },
+        { "role": "subtitle", "type": "text", "x": 0.15, "y": 0.615, "w": 0.70, "h": 0.05,
+          "desc": "tagline in small caps, centered just above the title" },
+        { "role": "title", "type": "text", "x": 0.10, "y": 0.67, "w": 0.80, "h": 0.13,
+          "text": "THE TITLE",
+          "desc": "film title, large condensed display type across the lower third" },
+        { "role": "body", "type": "text", "x": 0.30, "y": 0.835, "w": 0.40, "h": 0.04,
+          "desc": "release line, e.g. 'IN THEATERS DECEMBER', centered under the title" },
+        { "role": "extra", "type": "text", "x": 0.10, "y": 0.90, "w": 0.80, "h": 0.08,
+          "desc": "billing block: dense condensed credits and studio logos along the very bottom" }
+      ]
+    },
+    {
+      "id": "poster_teaser_centered",
+      "category": "Poster",
+      "name": "Teaser (Centered Title)",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "art_style",
+      "background": "minimal teaser poster, vast negative space, single iconic symbol, restrained palette",
+      "boxes": [
+        { "role": "subtitle", "type": "text", "x": 0.20, "y": 0.14, "w": 0.60, "h": 0.05,
+          "desc": "intrigue tagline centered near the top" },
+        { "role": "hero", "type": "obj", "x": 0.30, "y": 0.30, "w": 0.40, "h": 0.40,
+          "desc": "single iconic object or logo centered in the negative space, the whole concept in one symbol" },
+        { "role": "title", "type": "text", "x": 0.15, "y": 0.72, "w": 0.70, "h": 0.10,
+          "text": "THE TITLE",
+          "desc": "title centered in the lower third, lots of tracking, understated" },
+        { "role": "extra", "type": "text", "x": 0.10, "y": 0.905, "w": 0.80, "h": 0.07,
+          "desc": "minimal billing block and release date along the bottom" }
+      ]
+    },
+    {
+      "id": "poster_cast_billing",
+      "category": "Poster",
+      "name": "Cast-Heavy (Bottom Billing Block)",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "photo",
+      "background": "ensemble cast movie poster, multiple faces composited in the upper area, dramatic key lighting",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.66,
+          "desc": "ensemble key art filling the top two-thirds, the cast arranged in a balanced composite" },
+        { "role": "subtitle", "type": "text", "x": 0.15, "y": 0.625, "w": 0.70, "h": 0.04,
+          "desc": "tagline above the title" },
+        { "role": "title", "type": "text", "x": 0.10, "y": 0.665, "w": 0.80, "h": 0.14,
+          "text": "THE TITLE",
+          "desc": "large title beneath the artwork" },
+        { "role": "extra", "type": "text", "x": 0.06, "y": 0.82, "w": 0.88, "h": 0.16,
+          "desc": "dense billing block: a row of cast names in talent boxes above tiny condensed crew credits and studio logos" }
+      ]
+    },
+    {
+      "id": "poster_gig_event",
+      "category": "Poster",
+      "name": "Gig / Event (Date + Venue)",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "art_style",
+      "background": "bold typographic gig poster, screen-print look, limited high-contrast palette, energetic",
+      "boxes": [
+        { "role": "title", "type": "text", "x": 0.06, "y": 0.07, "w": 0.88, "h": 0.30,
+          "text": "HEADLINER",
+          "desc": "the headliner name as huge type dominating the top third, the loudest element on the poster",
+          "palette": ["#FFFFFF"] },
+        { "role": "hero", "type": "obj", "x": 0.10, "y": 0.39, "w": 0.80, "h": 0.40,
+          "desc": "central screen-printed illustration or artist photo, halftone treatment" },
+        { "role": "subtitle", "type": "text", "x": 0.10, "y": 0.81, "w": 0.80, "h": 0.06,
+          "desc": "support acts / lineup in a smaller secondary size" },
+        { "role": "body", "type": "text", "x": 0.10, "y": 0.875, "w": 0.80, "h": 0.06,
+          "desc": "date and venue line, bold and unmissable" },
+        { "role": "extra", "type": "text", "x": 0.10, "y": 0.94, "w": 0.80, "h": 0.04,
+          "desc": "ticket info, age policy and sponsor logos along the bottom" }
+      ]
+    }
+  ]
+}

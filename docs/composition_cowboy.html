@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🤠 Composition Cowboy — Visual Guide</title>
+<style>
+  :root{
+    --bg:#13151a; --panel:#1c1f26; --panel2:#23262f; --line:#2e323d; --line2:#3a3f4b;
+    --ink:#e7e9ee; --mut:#9aa3b2; --dim:#6f7785;
+    --accent:#e0a34a; --accent2:#7fb2ff; --good:#5fcf8e; --warn:#e0c080; --bad:#ef6b6b; --purp:#c98fd6;
+    --code:#0f1115;
+    --mono:'SFMono-Regular',ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:
+    radial-gradient(1200px 500px at 80% -10%, #1d2230 0, transparent 60%),
+    var(--bg);color:var(--ink);font:15px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
+  a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
+  code{font-family:var(--mono);font-size:.85em;background:#000a;color:#e9c891;padding:.1em .42em;border-radius:5px;border:1px solid #0006}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:15px 17px;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.55;color:#cdd3df}
+  .k{color:#7fb2ff}.s{color:#9fd68a}.n{color:#e0a34a}.c{color:#6f7785;font-style:italic}.p{color:#c98fd6}
+  .wrap{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+  nav{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:24px 16px 40px;border-right:1px solid var(--line);background:#11131800}
+  nav .brand{font-size:18px;font-weight:700;margin:0 0 2px}
+  nav .brand small{display:block;color:var(--dim);font-weight:500;font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+  nav ol{list-style:none;margin:16px 0 0;padding:0;counter-reset:s}
+  nav ol li{counter-increment:s}
+  nav ol li a{display:block;color:var(--mut);padding:5px 10px;border-radius:7px;font-size:13.5px}
+  nav ol li a::before{content:counter(s)".";color:var(--dim);margin-right:8px;font-variant-numeric:tabular-nums}
+  nav ol li a:hover{background:var(--panel);color:var(--ink);text-decoration:none}
+  main{padding:38px 46px 120px;min-width:0}
+  header.hero{border:1px solid var(--line);background:linear-gradient(160deg,#262a34,#181b21);border-radius:16px;padding:30px 32px;margin-bottom:30px;position:relative;overflow:hidden}
+  header.hero::after{content:"🤠";position:absolute;right:-10px;top:-30px;font-size:150px;opacity:.05}
+  header.hero h1{margin:0 0 6px;font-size:30px;letter-spacing:-.4px}
+  header.hero p.tag{margin:0;color:var(--mut);font-size:16px;max-width:72ch}
+  .badges{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+  .badge{font-size:12px;font-family:var(--mono);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:4px 11px}
+  .badge b{color:var(--accent)}
+  section{margin:0 0 44px;scroll-margin-top:18px}
+  h2{font-size:21px;margin:40px 0 16px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+  h2 .num{color:var(--accent);font-family:var(--mono);font-size:15px;margin-right:10px}
+  h3{font-size:16px;margin:22px 0 8px;color:#fff}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--accent);font-weight:600;background:#ffffff05}
+  td code{white-space:nowrap}
+  tbody tr:hover{background:#ffffff04}
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--mut)}
+  .pill.req{color:var(--warn);border-color:#5a4d2a}.pill.opt{color:var(--accent2);border-color:#33507a}.pill.sock{color:var(--good);border-color:#2f5e44}
+  .callout{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--panel);border-radius:10px;padding:12px 16px;margin:16px 0}
+  .callout.tip{border-left-color:var(--good)}.callout.warn{border-left-color:var(--warn)}
+  .callout .t{font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin-bottom:4px}
+  .callout.tip .t{color:var(--good)}.callout.warn .t{color:var(--warn)}
+  kbd{font-family:var(--mono);font-size:11px;background:#000a;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px}
+  footer{color:var(--dim);font-size:13px;border-top:1px solid var(--line);padding-top:18px;margin-top:30px}
+
+  /* ---------- node replica ---------- */
+  .anatomy{display:grid;grid-template-columns:340px 1fr;gap:30px;align-items:start;margin-top:18px}
+  .node{background:#1a1d24;border:1px solid #333845;border-radius:14px;overflow:hidden;font-size:12px;box-shadow:0 14px 40px #0007;position:sticky;top:18px}
+  .node .nh{display:flex;align-items:center;gap:8px;padding:11px 13px;background:linear-gradient(#262b34,#20242c);border-bottom:1px solid #333845;font-weight:600;font-size:13px}
+  .node .nh .dot{width:9px;height:9px;border-radius:50%;background:#556070;box-shadow:0 0 0 1px #0004}
+  .ports{display:flex;justify-content:space-between;gap:10px;padding:10px 13px;font-family:var(--mono);font-size:10.5px}
+  .ports .col{display:flex;flex-direction:column;gap:6px}
+  .ports .out{align-items:flex-end}
+  .port{display:flex;align-items:center;gap:6px;color:var(--mut)}
+  .port .pd{width:8px;height:8px;border-radius:50%;background:#46506a;box-shadow:0 0 0 1px #0005}
+  .port.lit .pd{background:var(--accent2);box-shadow:0 0 6px var(--accent2)}
+  .port.o .pd{background:#4f5b73}
+  .zone{position:relative;border-top:1px solid #23262f;padding:9px 12px 11px}
+  .zone>.lab{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 0 6px}
+  .pin{position:absolute;top:-9px;right:10px;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;color:#15171a;border:2px solid #1a1d24;z-index:2}
+  .w{display:flex;justify-content:space-between;align-items:center;background:#262b34;border:1px solid #353b48;border-radius:9px;padding:5px 10px;margin:4px 0}
+  .w .nm{color:#aeb6c4}.w .v{color:#fff;font-weight:600}.w .ar{color:#5b6478;font-size:10px}
+  .w.tog .v{display:flex;align-items:center;gap:6px}.w.tog .knob{width:13px;height:13px;border-radius:50%;background:var(--accent2);box-shadow:0 0 6px var(--accent2)}
+  .tf{background:#21252e;border:1px solid #313643;border-radius:9px;padding:6px 10px;margin:4px 0;height:34px;color:#5d6678}
+  .tf .l{font-family:var(--mono);font-size:10px;color:#697283}
+  .grp2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .bbh{background:#1f232b;border:1px dashed #3a4150;border-radius:8px;text-align:center;font-family:var(--mono);font-size:10.5px;color:var(--warn);padding:6px;margin:4px 0}
+  .notes{display:flex;flex-direction:column;gap:12px}
+  .note{border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--panel);border-radius:10px;padding:12px 15px}
+  .note h4{margin:0 0 4px;font-size:14px;display:flex;align-items:center;gap:9px}
+  .note h4 .b{width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:800;color:#15171a;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .note p{margin:4px 0 0;font-size:13px;color:var(--mut)}
+
+  /* ---------- layout maps ---------- */
+  .maps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:14px}
+  .map figcaption{font-size:12.5px;color:var(--mut);text-align:center;margin-top:8px}
+  .map figcaption b{color:var(--ink)}
+  .canvas{position:relative;width:100%;background:repeating-linear-gradient(0deg,#15171b,#15171b 11px,#171a1f 11px,#171a1f 12px),repeating-linear-gradient(90deg,#15171b,#15171b 11px,#171a1f 11px,#171a1f 12px);border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+  .rgn{position:absolute;border:1.5px solid;border-radius:3px;font-family:var(--mono);font-size:9px;line-height:1.1;padding:2px 3px;overflow:hidden;color:#fff}
+  .rgn.obj{border-color:var(--accent);background:#e0a34a22}
+  .rgn.text{border-color:var(--accent2);background:#7fb2ff22}
+  .rgn .tag{font-size:8px;opacity:.85}
+  .maplegend{display:flex;gap:16px;font-size:12px;color:var(--mut);margin:10px 0 0;flex-wrap:wrap}
+  .swatch{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px;border:1.5px solid}
+  .swatch.obj{border-color:var(--accent);background:#e0a34a33}.swatch.text{border-color:var(--accent2);background:#7fb2ff33}
+
+  /* ---------- flow ---------- */
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:10px;margin:16px 0}
+  .fbox{border:1px solid var(--line2);background:var(--panel2);border-radius:11px;padding:13px 14px;text-align:center}
+  .fbox.cc{border-color:#5a4d2a;background:#241f15}.fbox.vlm{border-color:#33507a;background:#16202e}.fbox.fill{border-color:#2f5e44;background:#142319}
+  .fbox .h{font-weight:700;font-size:13px}.fbox .d{font-size:11.5px;color:var(--mut);margin-top:3px;font-family:var(--mono)}
+  .farr{color:var(--accent);font-size:22px;text-align:center}
+  .ffull{grid-column:1/-1;text-align:center;color:var(--dim);font-size:12px;margin-top:4px}
+  .iorow{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:6px}
+  .iocard{border:1px solid var(--line);border-radius:11px;background:var(--panel);overflow:hidden}
+  .iocard .hd{padding:8px 13px;font-weight:700;font-size:13px;border-bottom:1px solid var(--line)}
+  .iocard.in .hd{color:var(--accent2);background:#16202e}.iocard.out .hd{color:var(--good);background:#142319}
+  .iocard ul{margin:0;padding:8px 13px 12px 28px}.iocard li{margin:5px 0;font-size:13px}
+  @media(max-width:980px){.anatomy{grid-template-columns:1fr}.node{position:static;max-width:360px;margin:0 auto}.maps{grid-template-columns:1fr}.flow{grid-template-columns:1fr;}.farr{transform:rotate(90deg)}}
+  @media(max-width:880px){.wrap{grid-template-columns:1fr}nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}main{padding:24px 18px 80px}.iorow{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <div class="brand">🤠 Composition Cowboy<small>TrentNodes / Prompt</small></div>
+  <ol>
+    <li><a href="#what">What it is</a></li>
+    <li><a href="#anatomy">Anatomy of the node</a></li>
+    <li><a href="#maps">What the layouts look like</a></li>
+    <li><a href="#io">Inputs &amp; outputs</a></li>
+    <li><a href="#select">Presets &amp; auto-queue</a></li>
+    <li><a href="#override">Overriding content</a></li>
+    <li><a href="#vlm">VLM piping</a></li>
+    <li><a href="#custom">User Defined regions</a></li>
+    <li><a href="#catalog">Preset catalog</a></li>
+    <li><a href="#tips">Tips &amp; gotchas</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <h1>🤠 Composition Cowboy</h1>
+  <p class="tag">Pick a best-practice design layout — magazine cover, comic page, book cover, poster — fill in the content (by hand or from a VLM), and out comes an Ideogram-4 caption JSON, a plain-language layout prompt, and a live preview.</p>
+  <div class="badges">
+    <span class="badge"><b>Category</b> TrentNodes/Prompt</span>
+    <span class="badge"><b>Presets</b> 18</span>
+    <span class="badge"><b>Inputs</b> 9 core + 17 optional</span>
+    <span class="badge"><b>Outputs</b> 8</span>
+    <span class="badge"><b>Model</b> none (pipes to yours)</span>
+  </div>
+</header>
+
+<section id="what">
+<h2><span class="num">01</span>What it is</h2>
+<p>A layout-aware prompt builder. Instead of describing placement in prose, you choose a <b>preset</b> whose region geometry already follows graphic-design conventions (masthead placement, rule-of-thirds focal points, comic gutters, billing blocks, barcode safe-zones…), then supply the content. It outputs the same caption schema as Kijai's <b>Ideogram&nbsp;4 Prompt Builder</b> — so it chains right into that node's visual editor — plus a natural-language version for any other model. It loads no AI model itself; it <a href="#vlm">pipes to your VLM node</a> over sockets.</p>
+</section>
+
+<section id="anatomy">
+<h2><span class="num">02</span>Anatomy of the node</h2>
+<p>Here's the node, zone by zone. The numbered pins match the notes on the right.</p>
+
+<!-- Optional: drop your real screenshot at docs/assets/composition_cowboy_node.png and it appears here -->
+<figure class="shot" style="margin:0 0 20px;max-width:360px">
+  <img src="assets/composition_cowboy_node.png" alt="Composition Cowboy node" style="width:100%;border:1px solid var(--line);border-radius:12px;display:block" onerror="this.parentElement.style.display='none'">
+  <figcaption style="font-size:12px;color:var(--dim);text-align:center;margin-top:6px">Your screenshot of the live node</figcaption>
+</figure>
+
+<div class="anatomy">
+  <!-- ===== node replica ===== -->
+  <div class="node">
+    <div class="nh"><span class="dot"></span>🤠 Composition Cowboy</div>
+
+    <div class="zone">
+      <span class="pin" style="background:var(--accent2)">1</span>
+      <div class="ports">
+        <div class="col">
+          <div class="port lit"><span class="pd"></span>image</div>
+        </div>
+        <div class="col out">
+          <div class="port o"><span>prompt_json</span><span class="pd"></span></div>
+          <div class="port o"><span>prompt_text</span><span class="pd"></span></div>
+          <div class="port lit"><span>preview</span><span class="pd"></span></div>
+          <div class="port o"><span>bboxes</span><span class="pd"></span></div>
+          <div class="port o"><span>width</span><span class="pd"></span></div>
+          <div class="port o"><span>height</span><span class="pd"></span></div>
+          <div class="port o"><span>preset_name</span><span class="pd"></span></div>
+          <div class="port o"><span>vlm_brief</span><span class="pd"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="zone">
+      <span class="pin" style="background:var(--accent)">2</span>
+      <span class="lab">choose the layout</span>
+      <div class="w"><span class="nm">◀ preset</span><span class="v">Magazine / Classic Masthead ▶</span></div>
+      <div class="w"><span class="nm">◀ select_by</span><span class="v">name ▶</span></div>
+      <div class="w"><span class="nm">◀ pool</span><span class="v">All ▶</span></div>
+      <div class="w"><span class="nm">◀ preset_index</span><span class="v">0 ▶</span></div>
+      <div class="w"><span class="nm">◀ control after generate</span><span class="v">randomize ▶</span></div>
+    </div>
+
+    <div class="zone">
+      <span class="pin" style="background:var(--purp)">3</span>
+      <span class="lab">output shape</span>
+      <div class="w tog"><span class="nm">include_bboxes</span><span class="v">true <span class="knob"></span></span></div>
+      <div class="grp2">
+        <div class="w"><span class="nm">◀ width</span><span class="v">0 ▶</span></div>
+        <div class="w"><span class="nm">◀ height</span><span class="v">0 ▶</span></div>
+      </div>
+      <div class="w"><span class="nm">◀ json_mode</span><span class="v">replace ▶</span></div>
+      <div class="w"><span class="nm">◀ bg_brightness</span><span class="v">25 ▶</span></div>
+    </div>
+
+    <div class="zone">
+      <span class="pin" style="background:var(--accent2)">4</span>
+      <span class="lab">content — role slots</span>
+      <div class="tf"><span class="l">title</span></div>
+      <div class="tf"><span class="l">subtitle</span></div>
+      <div class="tf"><span class="l">hero</span></div>
+      <div class="tf"><span class="l">body</span></div>
+      <div class="tf"><span class="l">brand</span></div>
+      <div class="tf"><span class="l">extra</span></div>
+    </div>
+
+    <div class="zone">
+      <span class="pin" style="background:var(--warn)">5</span>
+      <span class="lab">KJ-parity style fields</span>
+      <div class="tf"><span class="l">high_level_description</span></div>
+      <div class="tf"><span class="l">background</span></div>
+      <div class="w"><span class="nm">◀ style</span><span class="v">none ▶</span></div>
+      <div class="tf"><span class="l">style_detail</span></div>
+      <div class="tf"><span class="l">aesthetics</span></div>
+      <div class="tf"><span class="l">lighting</span></div>
+      <div class="tf"><span class="l">medium</span></div>
+      <div class="tf"><span class="l">style_palette</span></div>
+    </div>
+
+    <div class="zone">
+      <span class="pin" style="background:var(--good)">6</span>
+      <span class="lab">pipe-in JSON (wire-able)</span>
+      <div class="tf"><span class="l">overrides_json</span></div>
+      <div class="tf"><span class="l">import_json</span></div>
+      <div class="tf"><span class="l">elements_json</span></div>
+    </div>
+
+    <div class="zone">
+      <span class="pin" style="background:var(--bad)">7</span>
+      <span class="lab">bboxes socket</span>
+      <div class="bbh">BoundingBox: Node 2.0 only</div>
+      <div class="grp2">
+        <div class="w"><span class="nm">◀ x</span><span class="v">0 ▶</span></div>
+        <div class="w"><span class="nm">◀ y</span><span class="v">0 ▶</span></div>
+        <div class="w"><span class="nm">◀ width</span><span class="v">512 ▶</span></div>
+        <div class="w"><span class="nm">◀ height</span><span class="v">512 ▶</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== annotations ===== -->
+  <div class="notes">
+    <div class="note" style="border-left-color:var(--accent2)">
+      <h4><span class="b" style="background:var(--accent2)">1</span>Ports — 1 image in, 8 out</h4>
+      <p>Left: an optional <code>image</code> reference for the preview. Right, the eight outputs: <code>prompt_json</code> (Ideogram caption), <code>prompt_text</code> (plain language), <code>preview</code> (the rendered layout), <code>bboxes</code>, <code>width</code>/<code>height</code>, <code>preset_name</code>, and <code>vlm_brief</code>. See <a href="#io">§04</a>.</p>
+    </div>
+    <div class="note" style="border-left-color:var(--accent)">
+      <h4><span class="b" style="background:var(--accent)">2</span>Choose the layout</h4>
+      <p>Pick by name from <code>preset</code>, or set <code>select_by = index</code> and let <code>preset_index</code> (with its <kbd>control after generate</kbd> dropdown on <b>increment</b>) sweep through the <code>pool</code> on auto-queue. <em>In your screenshot it's on <b>randomize</b> — that jumps to a random preset each run.</em> See <a href="#select">§05</a>.</p>
+    </div>
+    <div class="note" style="border-left-color:var(--purp)">
+      <h4><span class="b" style="background:var(--purp)">3</span>Output shape</h4>
+      <p><code>include_bboxes</code> on = region coordinates in the JSON; off = a clean coordinate-free prompt. <code>width</code>/<code>height</code> at <code>0</code> use the preset's aspect. <code>json_mode</code> controls how a wired <code>import_json</code> merges. <code>bg_brightness</code> dims the preview's reference image.</p>
+    </div>
+    <div class="note" style="border-left-color:var(--accent2)">
+      <h4><span class="b" style="background:var(--accent2)">4</span>Content — role slots</h4>
+      <p>The fast way to fill content. Type into <code>title</code>, <code>hero</code>, etc.; each fills <b>every</b> region of that role. Text regions take the literal words; object regions take a subject description. Blank = keep the preset's built-in. See <a href="#override">§06</a>.</p>
+    </div>
+    <div class="note" style="border-left-color:var(--warn)">
+      <h4><span class="b" style="background:var(--warn)">5</span>KJ-parity style fields</h4>
+      <p>The same global fields KJ's node exposes, available on <em>every</em> preset. Set <code>style</code> to <code>photo</code> or <code>art_style</code> to emit a full Ideogram <code>style_description</code> block. <code>high_level_description</code> / <code>background</code> override the preset's defaults when filled.</p>
+    </div>
+    <div class="note" style="border-left-color:var(--good)">
+      <h4><span class="b" style="background:var(--good)">6</span>Pipe-in JSON</h4>
+      <p>Three wire-able text inputs: <code>overrides_json</code> (per-region content — the main VLM target), <code>import_json</code> (a whole caption from KJ or a VLM), and <code>elements_json</code> (your own regions). Right-click → <em>Convert to input</em> to wire any of them.</p>
+    </div>
+    <div class="note" style="border-left-color:var(--bad)">
+      <h4><span class="b" style="background:var(--bad)">7</span>The <code>bboxes</code> socket</h4>
+      <p>This is the <code>BOUNDING_BOX</code> input. The <b>"Node 2.0 only"</b> banner + x/y/w/h fields are just the frontend's default editor for that type — the real use is to <b>wire a detection / grounding node's <code>BOUNDING_BOX</code> output</b> into the socket to place regions from an image. See <a href="#custom">§08</a>.</p>
+    </div>
+  </div>
+</div>
+<div class="callout tip"><div class="t">Want your actual screenshot here?</div>Save it to <code>docs/assets/composition_cowboy_node.png</code> and it appears at the top of this section automatically (the annotated replica above always renders regardless).</div>
+</section>
+
+<section id="maps">
+<h2><span class="num">03</span>What the layouts actually look like</h2>
+<p>Each preset is a set of regions positioned by design convention. These are the <em>real</em> coordinates the node ships — <span style="color:var(--accent)">◾ amber = object/image regions</span>, <span style="color:var(--accent2)">◾ blue = text regions</span>.</p>
+<div class="maps">
+  <figure class="map" style="margin:0">
+    <div class="canvas" style="aspect-ratio:1024/1344">
+      <div class="rgn text" style="left:6%;top:3%;width:88%;height:12%"><span class="tag">1 brand</span><br>masthead</div>
+      <div class="rgn text" style="left:6%;top:15.5%;width:55%;height:4.5%"><span class="tag">2 subtitle</span></div>
+      <div class="rgn obj"  style="left:12%;top:18%;width:76%;height:66%"><span class="tag">3 hero</span><br>cover subject</div>
+      <div class="rgn text" style="left:6%;top:40%;width:40%;height:18%"><span class="tag">4 title</span><br>cover line</div>
+      <div class="rgn text" style="left:60%;top:42%;width:34%;height:40%"><span class="tag">5 body</span><br>cover lines</div>
+      <div class="rgn text" style="left:78%;top:86%;width:16%;height:10%"><span class="tag">6 extra</span></div>
+    </div>
+    <figcaption><b>Magazine</b> · Classic Masthead</figcaption>
+  </figure>
+  <figure class="map" style="margin:0">
+    <div class="canvas" style="aspect-ratio:1024/1536">
+      <div class="rgn obj" style="left:5%;top:5%;width:43%;height:27.3%"><span class="tag">1 hero</span></div>
+      <div class="rgn obj" style="left:52%;top:5%;width:43%;height:27.3%"><span class="tag">2 hero</span></div>
+      <div class="rgn obj" style="left:5%;top:36.3%;width:43%;height:27.3%"><span class="tag">3 hero</span></div>
+      <div class="rgn obj" style="left:52%;top:36.3%;width:43%;height:27.3%"><span class="tag">4 hero</span></div>
+      <div class="rgn obj" style="left:5%;top:67.7%;width:43%;height:27.3%"><span class="tag">5 hero</span></div>
+      <div class="rgn obj" style="left:52%;top:67.7%;width:43%;height:27.3%"><span class="tag">6 hero</span></div>
+    </div>
+    <figcaption><b>Comic</b> · 6-Panel 2×3 Grid</figcaption>
+  </figure>
+  <figure class="map" style="margin:0">
+    <div class="canvas" style="aspect-ratio:1024/1536">
+      <div class="rgn obj"  style="left:0;top:0;width:100%;height:100%"><span class="tag">1 hero</span><br>full-bleed key art</div>
+      <div class="rgn text" style="left:15%;top:61.5%;width:70%;height:5%"><span class="tag">2 subtitle</span></div>
+      <div class="rgn text" style="left:10%;top:67%;width:80%;height:13%"><span class="tag">3 title</span></div>
+      <div class="rgn text" style="left:30%;top:83.5%;width:40%;height:4%"><span class="tag">4 body</span></div>
+      <div class="rgn text" style="left:10%;top:90%;width:80%;height:8%"><span class="tag">5 extra</span><br>billing block</div>
+    </div>
+    <figcaption><b>Poster</b> · Movie One-Sheet</figcaption>
+  </figure>
+</div>
+<div class="maplegend">
+  <span><span class="swatch obj"></span>object region (<code>hero</code>, art, panels)</span>
+  <span><span class="swatch text"></span>text region (<code>title</code>, masthead, captions)</span>
+  <span>gutters &amp; safe margins are baked into the spacing</span>
+</div>
+</section>
+
+<section id="io">
+<h2><span class="num">04</span>Inputs &amp; outputs at a glance</h2>
+<div class="iorow">
+  <div class="iocard in"><div class="hd">▸ Inputs</div>
+    <ul>
+      <li><b>Selection</b> — <code>preset</code>, <code>select_by</code>, <code>pool</code>, <code>preset_index</code></li>
+      <li><b>Output shape</b> — <code>include_bboxes</code>, <code>width</code>, <code>height</code>, <code>json_mode</code>, <code>bg_brightness</code></li>
+      <li><b>Role slots</b> — <code>title</code> · <code>subtitle</code> · <code>hero</code> · <code>body</code> · <code>brand</code> · <code>extra</code></li>
+      <li><b>Style</b> — <code>high_level_description</code>, <code>background</code>, <code>style</code> + <code>style_detail</code>/<code>aesthetics</code>/<code>lighting</code>/<code>medium</code>/<code>style_palette</code></li>
+      <li><b>Pipe-in</b> — <code>overrides_json</code>, <code>import_json</code>, <code>elements_json</code>, <code>image</code>, <code>bboxes</code></li>
+    </ul>
+  </div>
+  <div class="iocard out"><div class="hd">▸ Outputs</div>
+    <ul>
+      <li><code>prompt_json</code> — Ideogram-4 caption → KJ's <code>import_json</code> or an Ideogram API node</li>
+      <li><code>prompt_text</code> — plain-language layout for any model</li>
+      <li><code>preview</code> — rendered region diagram (numbered tags + preset banner)</li>
+      <li><code>bboxes</code> — pixel boxes for SAM / crop (empty if the toggle is off)</li>
+      <li><code>width</code> / <code>height</code> — resolved canvas size</li>
+      <li><code>preset_name</code> — active preset (great on a Show-Text node)</li>
+      <li><code>vlm_brief</code> — instruction to drive your VLM</li>
+    </ul>
+  </div>
+</div>
+</section>
+
+<section id="select">
+<h2><span class="num">05</span>Presets &amp; auto-queue iteration</h2>
+<div class="iorow">
+  <div class="card" style="border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:14px 16px">
+    <h3 style="margin-top:0">Manual pick</h3>
+    <p style="color:var(--mut)">Leave <code>select_by = name</code> and choose from the <code>preset</code> dropdown.</p>
+  </div>
+  <div class="card" style="border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:14px 16px">
+    <h3 style="margin-top:0">Iterate styles</h3>
+    <ol style="margin:6px 0 0;padding-left:20px;color:var(--mut)">
+      <li><code>select_by = index</code></li>
+      <li><code>pool</code> → scope (e.g. <code>Comic</code>, or <code>All</code>)</li>
+      <li><code>preset_index</code> control → <b>increment</b></li>
+      <li>turn on <b>Auto Queue</b></li>
+    </ol>
+  </div>
+</div>
+<div class="callout"><div class="t">control after generate</div>This dropdown rides on <code>preset_index</code> because ComfyUI only auto-advances numeric widgets. <b>increment</b> walks the pool in order; <b>randomize</b> (as in your screenshot) jumps to a random preset each run; <b>fixed</b> stays put. It advances on auto-queue, not on a single manual run.</div>
+</section>
+
+<section id="override">
+<h2><span class="num">06</span>Overriding content</h2>
+<table>
+  <thead><tr><th>Region type</th><th>Your text becomes…</th><th>Example</th></tr></thead>
+  <tbody>
+    <tr><td><code>text</code></td><td>the <b>literal words shown</b></td><td><code>title</code> → "The Future of AI"</td></tr>
+    <tr><td><code>obj</code></td><td>the <b>subject description</b></td><td><code>hero</code> → "a woman in a red gown"</td></tr>
+  </tbody>
+</table>
+<p>Use the <b>role slots</b> for the common case; use <b>overrides_json</b> for precision — keyed by role (all matching regions) or by 1-based region number (one region, shown in the preview tags):</p>
+<pre><span class="p">{</span> <span class="s">"brand"</span>:<span class="s">"TRENTLY"</span>, <span class="s">"title"</span>:<span class="s">"Cover Story"</span>, <span class="s">"3"</span>:<span class="s">"a lone astronaut on a red dune"</span> <span class="p">}</span></pre>
+<p><b>Precedence</b> (last wins): preset built-in → <code>import_json</code> → <code>elements_json</code> → role slot → <code>overrides_json</code> [role] → <code>overrides_json</code> [index] → <code>bboxes</code> socket → global <code>high_level_description</code>/<code>background</code>.</p>
+<h3>Style block (KJ parity)</h3>
+<p>With <code>style = photo</code> the node emits, in KJ's exact key order:</p>
+<pre><span class="s">"style_description"</span>: <span class="p">{</span> <span class="s">"aesthetics"</span>:<span class="s">"moody"</span>, <span class="s">"lighting"</span>:<span class="s">"rim light"</span>,
+  <span class="s">"photo"</span>:<span class="s">"35mm, shallow DOF"</span>, <span class="s">"medium"</span>:<span class="s">"photograph"</span>, <span class="s">"color_palette"</span>:[<span class="s">"#1A1A1A"</span>,<span class="s">"#E0C080"</span>] <span class="p">}</span></pre>
+</section>
+
+<section id="vlm">
+<h2><span class="num">07</span>VLM piping</h2>
+<p>The node loads no model — it pipes to <em>your</em> VLM (MiniCPM, Florence-2, Qwen-VL, JoyCaption…). The round-trip:</p>
+<div class="flow">
+  <div class="fbox cc"><div class="h">🤠 Composition Cowboy</div><div class="d">→ vlm_brief</div></div>
+  <div class="farr">→</div>
+  <div class="fbox vlm"><div class="h">Your VLM node</div><div class="d">brief + reference image</div></div>
+  <div class="farr">→</div>
+  <div class="fbox fill"><div class="h">🤠 (assemble)</div><div class="d">overrides_json ←</div></div>
+  <div class="ffull">The brief names each region (by number + role) and hands the VLM a JSON skeleton to fill; wire its JSON back into <code>overrides_json</code>.</div>
+</div>
+<p>You can equally feed a <b>full caption</b> into <code>import_json</code>, or <b>bounding boxes</b> from a grounding/SAM node into the <code>bboxes</code> socket.</p>
+</section>
+
+<section id="custom">
+<h2><span class="num">08</span>User Defined regions &amp; the bboxes socket</h2>
+<p>Pick <b>Custom / User Defined</b> to start from an empty page, then author regions in <code>elements_json</code> (a JSON list, or a single object):</p>
+<pre><span class="p">[</span>
+  <span class="p">{</span><span class="s">"type"</span>:<span class="s">"text"</span>,<span class="s">"x"</span>:<span class="n">0.10</span>,<span class="s">"y"</span>:<span class="n">0.05</span>,<span class="s">"w"</span>:<span class="n">0.80</span>,<span class="s">"h"</span>:<span class="n">0.12</span>,<span class="s">"text"</span>:<span class="s">"HELLO"</span>,<span class="s">"role"</span>:<span class="s">"title"</span><span class="p">}</span>,
+  <span class="p">{</span><span class="s">"type"</span>:<span class="s">"obj"</span>,<span class="s">"bbox"</span>:[<span class="n">300</span>,<span class="n">100</span>,<span class="n">700</span>,<span class="n">900</span>],<span class="s">"desc"</span>:<span class="s">"a dragon"</span><span class="p">}</span>
+<span class="p">]</span></pre>
+<p>Each region takes <code>x/y/w/h</code> (0–1 fractions) <em>or</em> a KJ-style <code>bbox</code> <code>[ymin,xmin,ymax,xmax]</code> on the 0–1000 grid, plus optional <code>type</code>/<code>text</code>/<code>desc</code>/<code>palette</code>/<code>role</code>.</p>
+<div class="callout"><div class="t">The "BoundingBox: Node 2.0 only" widget</div>That block is the <code>bboxes</code> <code>BOUNDING_BOX</code> input. The inline x/y/w/h fields are the frontend's fallback editor for that socket type. Its real purpose is to accept a <code>BOUNDING_BOX</code> wired from a detection/grounding node — those boxes seed regions when the preset is empty, or reposition existing regions by index. Coordinates that are non-finite or unusable degrade gracefully (the region becomes "unplaced") instead of crashing.</div>
+</section>
+
+<section id="catalog">
+<h2><span class="num">09</span>Preset catalog</h2>
+<table>
+  <thead><tr><th>Pool</th><th>Presets</th></tr></thead>
+  <tbody>
+    <tr><td><b>Magazine</b></td><td>Classic Masthead · Fashion Full-Bleed · Minimalist · Newsstand (Cover-Line Heavy)</td></tr>
+    <tr><td><b>Comic</b></td><td>4-Panel 2×2 · 6-Panel 2×3 · Splash Page · 3-Tier Widescreen · Manga (R-to-L)</td></tr>
+    <tr><td><b>Book</b></td><td>Title Dominant · Author Dominant · Series Branded · Full Wrap (Back+Spine+Front)</td></tr>
+    <tr><td><b>Poster</b></td><td>Movie One-Sheet · Teaser (Centered Title) · Cast-Heavy (Billing Block) · Gig / Event</td></tr>
+    <tr><td><b>Custom</b></td><td>User Defined (empty — author via <code>elements_json</code> / sockets)</td></tr>
+  </tbody>
+</table>
+<p style="color:var(--mut)">Add your own by dropping a JSON file into <code>presets/layout/</code> (restart ComfyUI to refresh the dropdown).</p>
+</section>
+
+<section id="tips">
+<h2><span class="num">10</span>Tips &amp; gotchas</h2>
+<ul>
+  <li><b>New preset files need a restart</b> to appear in the dropdown; index iteration picks them up immediately.</li>
+  <li><b>control after generate advances on auto-queue</b>, not a single manual run.</li>
+  <li><b>width/height 0 = use the preset's aspect.</b></li>
+  <li><b>Role slots hit every matching region</b> — use numbered <code>overrides_json</code> keys for per-region control (e.g. each comic panel).</li>
+  <li><b>Bad input is safe</b> — malformed JSON / coordinates degrade gracefully; empty imported fields don't clobber preset values.</li>
+  <li><b>Chain to KJ</b> — wire <code>prompt_json</code> → Ideogram 4 Prompt Builder <code>import_json</code> (set <code>import_mode = always</code>) to hand-tweak on its canvas.</li>
+</ul>
+</section>
+
+<footer>
+  🤠 Composition Cowboy &mdash; part of the <b>TrentNodes</b> pack · class <code>CompositionCowboy</code> · presets in <code>presets/layout/*.json</code> · source <code>nodes/composition_cowboy.py</code>.<br>
+  The node replica above is a CSS recreation for documentation; behavior described matches the implementation.
+</footer>
+</main>
+</div>
+</body>
+</html>

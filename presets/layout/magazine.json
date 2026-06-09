@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "magazine_cover_classic",
+      "category": "Magazine",
+      "name": "Classic Masthead",
+      "aspect": { "width": 1024, "height": 1344 },
+      "image_kind": "photo",
+      "background": "glossy magazine cover, studio portrait of the cover subject on a seamless backdrop, professional editorial lighting",
+      "boxes": [
+        { "role": "brand", "type": "text", "x": 0.06, "y": 0.03, "w": 0.88, "h": 0.12,
+          "text": "MAGAZINE",
+          "desc": "magazine masthead / logo, bold condensed sans-serif spanning the full top margin, slightly overlapped by the subject's head for depth",
+          "palette": ["#FFFFFF"] },
+        { "role": "subtitle", "type": "text", "x": 0.06, "y": 0.155, "w": 0.55, "h": 0.045,
+          "text": "Spring Issue",
+          "desc": "issue date / dek strip set in small caps just beneath the masthead" },
+        { "role": "hero", "type": "obj", "x": 0.12, "y": 0.18, "w": 0.76, "h": 0.66,
+          "desc": "cover subject (person or product), framed waist-up and centered, eyes on the upper third line, gaze toward camera" },
+        { "role": "title", "type": "text", "x": 0.06, "y": 0.40, "w": 0.40, "h": 0.18,
+          "text": "Cover Story",
+          "desc": "primary cover line, large display type stacked along the left margin, the most important headline on the cover" },
+        { "role": "body", "type": "text", "x": 0.60, "y": 0.42, "w": 0.34, "h": 0.40,
+          "desc": "secondary cover lines, three or four smaller stacked headlines running down the right rail, each with a colored kicker" },
+        { "role": "extra", "type": "text", "x": 0.78, "y": 0.86, "w": 0.16, "h": 0.10,
+          "desc": "barcode and price block tucked into the bottom-right safe corner",
+          "palette": ["#000000"] }
+      ]
+    },
+    {
+      "id": "magazine_cover_fashion_fullbleed",
+      "category": "Magazine",
+      "name": "Fashion Full-Bleed",
+      "aspect": { "width": 1024, "height": 1344 },
+      "image_kind": "photo",
+      "background": "full-bleed high-fashion editorial photograph filling the entire frame, dramatic single-source lighting, shallow depth of field",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.0, "y": 0.04, "w": 1.0, "h": 0.96,
+          "desc": "full-bleed fashion subject filling the frame edge to edge, confident pose, cropped close" },
+        { "role": "brand", "type": "text", "x": 0.05, "y": 0.03, "w": 0.90, "h": 0.13,
+          "text": "VOGUE",
+          "desc": "oversized thin-serif masthead spanning the top, partially occluded by the subject for an immersive feel",
+          "palette": ["#FFFFFF"] },
+        { "role": "title", "type": "text", "x": 0.05, "y": 0.74, "w": 0.62, "h": 0.16,
+          "text": "The Edit",
+          "desc": "single bold cover line anchored in the lower-left, high contrast against the photo" },
+        { "role": "subtitle", "type": "text", "x": 0.05, "y": 0.90, "w": 0.50, "h": 0.05,
+          "desc": "thin tagline / contributor credit under the cover line" },
+        { "role": "extra", "type": "text", "x": 0.82, "y": 0.905, "w": 0.13, "h": 0.07,
+          "desc": "small barcode in the bottom-right safe corner", "palette": ["#FFFFFF"] }
+      ]
+    },
+    {
+      "id": "magazine_cover_minimalist",
+      "category": "Magazine",
+      "name": "Minimalist",
+      "aspect": { "width": 1024, "height": 1344 },
+      "image_kind": "photo",
+      "background": "minimalist design magazine cover, generous negative space, muted solid background, single centered subject",
+      "boxes": [
+        { "role": "brand", "type": "text", "x": 0.06, "y": 0.04, "w": 0.40, "h": 0.07,
+          "text": "KINFOLK",
+          "desc": "small understated masthead in the top-left corner, light-weight type" },
+        { "role": "extra", "type": "text", "x": 0.80, "y": 0.04, "w": 0.14, "h": 0.05,
+          "desc": "issue number set small in the top-right corner" },
+        { "role": "hero", "type": "obj", "x": 0.22, "y": 0.22, "w": 0.56, "h": 0.54,
+          "desc": "single centered subject or still-life object surrounded by calm negative space" },
+        { "role": "title", "type": "text", "x": 0.20, "y": 0.84, "w": 0.60, "h": 0.08,
+          "text": "Slow Living",
+          "desc": "one quiet cover line centered along the bottom, plenty of letter-spacing" }
+      ]
+    },
+    {
+      "id": "magazine_cover_coverline_heavy",
+      "category": "Magazine",
+      "name": "Newsstand (Cover-Line Heavy)",
+      "aspect": { "width": 1024, "height": 1344 },
+      "image_kind": "photo",
+      "background": "busy newsstand magazine cover, brightly lit subject, saturated colors designed to pop on a shelf",
+      "boxes": [
+        { "role": "brand", "type": "text", "x": 0.05, "y": 0.02, "w": 0.90, "h": 0.12,
+          "text": "MAGAZINE",
+          "desc": "loud bold masthead spanning the top edge, high-saturation color",
+          "palette": ["#FFFFFF"] },
+        { "role": "hero", "type": "obj", "x": 0.18, "y": 0.15, "w": 0.64, "h": 0.71,
+          "desc": "celebrity subject centered, energetic expression, lit to separate cleanly from the cover lines" },
+        { "role": "title", "type": "text", "x": 0.05, "y": 0.32, "w": 0.40, "h": 0.16,
+          "text": "EXCLUSIVE",
+          "desc": "biggest cover line, upper-left, with a bright highlight box behind it" },
+        { "role": "body", "type": "text", "x": 0.05, "y": 0.50, "w": 0.33, "h": 0.36,
+          "desc": "stack of secondary cover lines down the left rail, mixed sizes, colored kickers" },
+        { "role": "body", "type": "text", "x": 0.62, "y": 0.18, "w": 0.33, "h": 0.50,
+          "desc": "stack of teasers and pull-quotes down the right rail, page-number flags" },
+        { "role": "extra", "type": "text", "x": 0.05, "y": 0.90, "w": 0.18, "h": 0.07,
+          "desc": "barcode, price and issue date in the bottom-left safe corner",
+          "palette": ["#000000"] }
+      ]
+    }
+  ]
+}

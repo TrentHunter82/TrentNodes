@@ -1,0 +1,823 @@
+{
+  "id": "composition-cowboy-wildcards",
+  "revision": 0,
+  "last_node_id": 14,
+  "last_link_id": 13,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "CompositionCowboy",
+      "pos": [
+        620,
+        40
+      ],
+      "size": [
+        460,
+        1040
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "title",
+          "name": "title",
+          "type": "STRING",
+          "widget": {
+            "name": "title"
+          },
+          "link": 1
+        },
+        {
+          "localized_name": "subtitle",
+          "name": "subtitle",
+          "type": "STRING",
+          "widget": {
+            "name": "subtitle"
+          },
+          "link": 2
+        },
+        {
+          "localized_name": "hero",
+          "name": "hero",
+          "type": "STRING",
+          "widget": {
+            "name": "hero"
+          },
+          "link": 3
+        },
+        {
+          "localized_name": "body",
+          "name": "body",
+          "type": "STRING",
+          "widget": {
+            "name": "body"
+          },
+          "link": 4
+        },
+        {
+          "localized_name": "brand",
+          "name": "brand",
+          "type": "STRING",
+          "widget": {
+            "name": "brand"
+          },
+          "link": 5
+        },
+        {
+          "localized_name": "extra",
+          "name": "extra",
+          "type": "STRING",
+          "widget": {
+            "name": "extra"
+          },
+          "link": 6
+        },
+        {
+          "localized_name": "high_level_description",
+          "name": "high_level_description",
+          "type": "STRING",
+          "widget": {
+            "name": "high_level_description"
+          },
+          "link": 7
+        },
+        {
+          "localized_name": "background",
+          "name": "background",
+          "type": "STRING",
+          "widget": {
+            "name": "background"
+          },
+          "link": 8
+        },
+        {
+          "localized_name": "style_detail",
+          "name": "style_detail",
+          "type": "STRING",
+          "widget": {
+            "name": "style_detail"
+          },
+          "link": 9
+        },
+        {
+          "localized_name": "aesthetics",
+          "name": "aesthetics",
+          "type": "STRING",
+          "widget": {
+            "name": "aesthetics"
+          },
+          "link": 10
+        },
+        {
+          "localized_name": "lighting",
+          "name": "lighting",
+          "type": "STRING",
+          "widget": {
+            "name": "lighting"
+          },
+          "link": 11
+        },
+        {
+          "localized_name": "medium",
+          "name": "medium",
+          "type": "STRING",
+          "widget": {
+            "name": "medium"
+          },
+          "link": 12
+        },
+        {
+          "localized_name": "style_palette",
+          "name": "style_palette",
+          "type": "STRING",
+          "widget": {
+            "name": "style_palette"
+          },
+          "link": 13
+        },
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "bboxes",
+          "name": "bboxes",
+          "type": "BOUNDING_BOX",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "prompt_json",
+          "name": "prompt_json",
+          "type": "STRING",
+          "links": null,
+          "slot_index": 0
+        },
+        {
+          "localized_name": "prompt_text",
+          "name": "prompt_text",
+          "type": "STRING",
+          "links": null,
+          "slot_index": 1
+        },
+        {
+          "localized_name": "preview",
+          "name": "preview",
+          "type": "IMAGE",
+          "links": null,
+          "slot_index": 2
+        },
+        {
+          "localized_name": "bboxes",
+          "name": "bboxes",
+          "type": "BOUNDING_BOX",
+          "links": null,
+          "slot_index": 3
+        },
+        {
+          "localized_name": "width",
+          "name": "width",
+          "type": "INT",
+          "links": null,
+          "slot_index": 4
+        },
+        {
+          "localized_name": "height",
+          "name": "height",
+          "type": "INT",
+          "links": null,
+          "slot_index": 5
+        },
+        {
+          "localized_name": "preset_name",
+          "name": "preset_name",
+          "type": "STRING",
+          "links": null,
+          "slot_index": 6
+        },
+        {
+          "localized_name": "vlm_brief",
+          "name": "vlm_brief",
+          "type": "STRING",
+          "links": null,
+          "slot_index": 7
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CompositionCowboy"
+      },
+      "widgets_values": [
+        "Magazine / Classic Masthead",
+        "name",
+        "All",
+        0,
+        "fixed",
+        true,
+        0,
+        0,
+        "replace",
+        25,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "none",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 2,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            1
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/title__",
+        100000,
+        "randomize"
+      ],
+      "title": "WC → title"
+    },
+    {
+      "id": 3,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        224
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            2
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/subtitle__",
+        100777,
+        "randomize"
+      ],
+      "title": "WC → subtitle"
+    },
+    {
+      "id": 4,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        408
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            3
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/hero__",
+        101554,
+        "randomize"
+      ],
+      "title": "WC → hero"
+    },
+    {
+      "id": 5,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        592
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            4
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/body__",
+        102331,
+        "randomize"
+      ],
+      "title": "WC → body"
+    },
+    {
+      "id": 6,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        776
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            5
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/brand__",
+        103108,
+        "randomize"
+      ],
+      "title": "WC → brand"
+    },
+    {
+      "id": 7,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        960
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            6
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/extra__",
+        103885,
+        "randomize"
+      ],
+      "title": "WC → extra"
+    },
+    {
+      "id": 8,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        1144
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            7
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/high_level_description__",
+        104662,
+        "randomize"
+      ],
+      "title": "WC → high_level_description"
+    },
+    {
+      "id": 9,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        1328
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            8
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/background__",
+        105439,
+        "randomize"
+      ],
+      "title": "WC → background"
+    },
+    {
+      "id": 10,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        1512
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            9
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/style_detail__",
+        106216,
+        "randomize"
+      ],
+      "title": "WC → style_detail"
+    },
+    {
+      "id": 11,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        1696
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            10
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/aesthetics__",
+        106993,
+        "randomize"
+      ],
+      "title": "WC → aesthetics"
+    },
+    {
+      "id": 12,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        1880
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            11
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/lighting__",
+        107770,
+        "randomize"
+      ],
+      "title": "WC → lighting"
+    },
+    {
+      "id": 13,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        2064
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            12
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/medium__",
+        108547,
+        "randomize"
+      ],
+      "title": "WC → medium"
+    },
+    {
+      "id": 14,
+      "type": "Wildcard Processor",
+      "pos": [
+        40,
+        2248
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            13
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Wildcard Processor"
+      },
+      "widgets_values": [
+        "__composition_cowboy/style_palette__",
+        109324,
+        "randomize"
+      ],
+      "title": "WC → style_palette"
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      1,
+      0,
+      "STRING"
+    ],
+    [
+      2,
+      3,
+      0,
+      1,
+      1,
+      "STRING"
+    ],
+    [
+      3,
+      4,
+      0,
+      1,
+      2,
+      "STRING"
+    ],
+    [
+      4,
+      5,
+      0,
+      1,
+      3,
+      "STRING"
+    ],
+    [
+      5,
+      6,
+      0,
+      1,
+      4,
+      "STRING"
+    ],
+    [
+      6,
+      7,
+      0,
+      1,
+      5,
+      "STRING"
+    ],
+    [
+      7,
+      8,
+      0,
+      1,
+      6,
+      "STRING"
+    ],
+    [
+      8,
+      9,
+      0,
+      1,
+      7,
+      "STRING"
+    ],
+    [
+      9,
+      10,
+      0,
+      1,
+      8,
+      "STRING"
+    ],
+    [
+      10,
+      11,
+      0,
+      1,
+      9,
+      "STRING"
+    ],
+    [
+      11,
+      12,
+      0,
+      1,
+      10,
+      "STRING"
+    ],
+    [
+      12,
+      13,
+      0,
+      1,
+      11,
+      "STRING"
+    ],
+    [
+      13,
+      14,
+      0,
+      1,
+      12,
+      "STRING"
+    ]
+  ],
+  "groups": [],
+  "definitions": {},
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

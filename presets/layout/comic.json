@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "comic_page_4panel_grid",
+      "category": "Comic",
+      "name": "4-Panel 2x2 Grid",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "art_style",
+      "background": "inked comic book page, clean white gutters between panels, consistent rendering style across panels",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.05, "w": 0.43, "h": 0.43,
+          "desc": "panel 1 (top-left): establishing wide shot that sets the scene" },
+        { "role": "hero", "type": "obj", "x": 0.52, "y": 0.05, "w": 0.43, "h": 0.43,
+          "desc": "panel 2 (top-right): medium shot introducing the main character" },
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.52, "w": 0.43, "h": 0.43,
+          "desc": "panel 3 (bottom-left): reaction close-up, strong emotion" },
+        { "role": "hero", "type": "obj", "x": 0.52, "y": 0.52, "w": 0.43, "h": 0.43,
+          "desc": "panel 4 (bottom-right): action beat or cliffhanger" }
+      ]
+    },
+    {
+      "id": "comic_page_6panel_grid",
+      "category": "Comic",
+      "name": "6-Panel 2x3 Grid",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "art_style",
+      "background": "classic six-panel comic page, even white gutters, dynamic camera variety between panels",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.05, "w": 0.43, "h": 0.273,
+          "desc": "panel 1: establishing shot" },
+        { "role": "hero", "type": "obj", "x": 0.52, "y": 0.05, "w": 0.43, "h": 0.273,
+          "desc": "panel 2: reaction close-up" },
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.363, "w": 0.43, "h": 0.273,
+          "desc": "panel 3: action beat" },
+        { "role": "hero", "type": "obj", "x": 0.52, "y": 0.363, "w": 0.43, "h": 0.273,
+          "desc": "panel 4: dialogue exchange, two-shot" },
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.677, "w": 0.43, "h": 0.273,
+          "desc": "panel 5: detail / insert shot" },
+        { "role": "hero", "type": "obj", "x": 0.52, "y": 0.677, "w": 0.43, "h": 0.273,
+          "desc": "panel 6: closing wide shot or turn-the-page hook" }
+      ]
+    },
+    {
+      "id": "comic_page_splash",
+      "category": "Comic",
+      "name": "Splash Page",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "art_style",
+      "background": "full-page comic splash, single dramatic illustration filling the page, cinematic composition",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.04, "y": 0.04, "w": 0.92, "h": 0.92,
+          "desc": "full-page splash illustration, the money shot: a single epic moment with deep staging and bold silhouettes" },
+        { "role": "title", "type": "text", "x": 0.07, "y": 0.07, "w": 0.50, "h": 0.10,
+          "text": "CHAPTER ONE",
+          "desc": "story title / logo treatment in the top-left, integrated into the art" },
+        { "role": "body", "type": "text", "x": 0.10, "y": 0.83, "w": 0.80, "h": 0.10,
+          "desc": "narration caption box across the bottom, yellow box with hand-lettered caption text" }
+      ]
+    },
+    {
+      "id": "comic_page_3tier_widescreen",
+      "category": "Comic",
+      "name": "3-Tier Widescreen",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "art_style",
+      "background": "widescreen comic page, three full-width letterboxed tiers, cinematic decompressed storytelling",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.05, "w": 0.90, "h": 0.273,
+          "desc": "tier 1 (full width): sweeping establishing panorama" },
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.363, "w": 0.90, "h": 0.273,
+          "desc": "tier 2 (full width): slow character beat, decompressed pacing" },
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.677, "w": 0.90, "h": 0.273,
+          "desc": "tier 3 (full width): payoff shot, strong horizontal motion" }
+      ]
+    },
+    {
+      "id": "comic_page_manga_rtl",
+      "category": "Comic",
+      "name": "Manga (Right-to-Left)",
+      "aspect": { "width": 1024, "height": 1536 },
+      "image_kind": "art_style",
+      "background": "black-and-white manga page, screentones, varied panel sizes, read right-to-left",
+      "boxes": [
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.05, "w": 0.90, "h": 0.28,
+          "desc": "panel 1 (top, read first): wide establishing shot" },
+        { "role": "hero", "type": "obj", "x": 0.52, "y": 0.37, "w": 0.43, "h": 0.26,
+          "desc": "panel 2 (middle-right, read second): close-up reaction (manga reads right-to-left)" },
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.37, "w": 0.43, "h": 0.26,
+          "desc": "panel 3 (middle-left, read third): cut to the other character" },
+        { "role": "hero", "type": "obj", "x": 0.05, "y": 0.67, "w": 0.90, "h": 0.28,
+          "desc": "panel 4 (bottom, read last): dramatic full-width beat with speed lines" }
+      ]
+    }
+  ]
+}
