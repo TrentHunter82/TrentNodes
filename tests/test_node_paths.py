@@ -182,6 +182,50 @@ def test_subject_path():
     )
 
 
+def test_segmentation_mismatch_guard():
+    print("\n[node-4] implausible centroid move -> correction skipped")
+    node = node_mod.AlignStylizedFrame()
+    H = W = 256
+    bg = make_image(H, W, seed=5)
+    styl = bg.clone()
+    # Segmentations "disagree": styl subject top-left, orig far bottom-right
+    styl_mask = circle_mask(H, W, 50, 50, 22)
+    styl = styl * (1 - styl_mask.unsqueeze(-1)) + (
+        styl_mask.unsqueeze(-1) * torch.tensor([0.2, 0.9, 0.3])
+    )
+    orig_mask = circle_mask(H, W, 210, 210, 22)
+
+    result, info, inpaint_mask = node.preserve_subject_inpaint_background(
+        styl, styl.clone(), bg.clone(),
+        orig_mask, styl_mask, styl_mask.clone(),
+        conform_to_original=1.0,
+        inpaint_method="blur", mask_expand=10,
+        inpaint_steps=5, inpaint_denoise=0.9,
+        device=DEVICE,
+    )
+    check(
+        "mismatch-guard-skips",
+        "skipped" in info and (result - styl).abs().max().item() < 1e-6,
+        f"info: {info[:90]}",
+    )
+    # Small plausible move (~127px diag) must still be corrected
+    styl_mask2 = circle_mask(H, W, 80, 80, 22)
+    orig_mask2 = circle_mask(H, W, 170, 170, 22)
+    _, info2, _ = node.preserve_subject_inpaint_background(
+        styl, styl.clone(), bg.clone(),
+        orig_mask2, styl_mask2, styl_mask2.clone(),
+        conform_to_original=1.0,
+        inpaint_method="blur", mask_expand=10,
+        inpaint_steps=5, inpaint_denoise=0.9,
+        device=DEVICE,
+    )
+    check(
+        "plausible-move-still-corrects",
+        "skipped" not in info2 and "Centroid-aligned" in info2,
+        f"info: {info2[:90]}",
+    )
+
+
 def test_none_mode_mask_safety():
     print("\n[node-3] inpaint_method='none': mask safe, ghost kept")
     node = node_mod.AlignStylizedFrame()
@@ -224,6 +268,7 @@ if __name__ == "__main__":
     torch.manual_seed(0)
     test_align_frames_global()
     test_subject_path()
+    test_segmentation_mismatch_guard()
     test_none_mode_mask_safety()
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     if FAIL:

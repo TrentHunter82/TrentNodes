@@ -131,6 +131,18 @@ class AlignStylizedFrame:
                         "(0=keep stylized, 1=match original)"
                     )
                 }),
+                "max_subject_shift": ("INT", {
+                    "default": 150,
+                    "min": 0,
+                    "max": 2048,
+                    "step": 10,
+                    "tooltip": (
+                        "Skip subject correction when the detected move "
+                        "exceeds this many pixels - guards against "
+                        "segmentation mismatch flinging content across "
+                        "the frame (0 = no limit)"
+                    )
+                }),
                 "fill_transform_edges": ("BOOLEAN", {
                     "default": True,
                     "tooltip": (
@@ -340,7 +352,8 @@ class AlignStylizedFrame:
                                              conform_to_original,
                                              inpaint_method, mask_expand,
                                              inpaint_steps, inpaint_denoise, device,
-                                             extra_edge_mask=None):
+                                             extra_edge_mask=None,
+                                             max_subject_shift=150):
         """
         CORRECT APPROACH with THREE masks for proper ghost elimination.
 
@@ -365,6 +378,9 @@ class AlignStylizedFrame:
             device: torch device
             extra_edge_mask: optional (B, H, W) transform-edge gap mask to
                 merge into the single inpaint pass
+            max_subject_shift: skip the centroid-based correction when the
+                implied move exceeds this many pixels (0 = no limit);
+                guards against original/stylized segmentation mismatch
 
         Returns:
             Tuple of (result, info, inpaint_mask):
@@ -376,24 +392,11 @@ class AlignStylizedFrame:
         """
         B, H, W, C = aligned_bg.shape
 
-        # Get bounding boxes for extraction
-        orig_bbox = get_mask_bbox(orig_mask)  # (y_min, y_max, x_min, x_max)
-        styl_bbox = get_mask_bbox(styl_mask)
-
-        # Calculate bbox dimensions (for extraction bounds)
-        orig_h = orig_bbox[1] - orig_bbox[0]
-        orig_w = orig_bbox[3] - orig_bbox[2]
-        styl_h = styl_bbox[1] - styl_bbox[0]
-        styl_w = styl_bbox[3] - styl_bbox[2]
-
-        if styl_h <= 0 or styl_w <= 0 or orig_h <= 0 or orig_w <= 0:
+        def bail(reason):
+            """Skip subject correction, still honoring deferred edge fill."""
+            print(f"[AlignStylizedFrame] {reason}")
             if extra_edge_mask is None:
-                return (
-                    aligned_bg,
-                    "Subject detection failed",
-                    None
-                )
-            # Edge-gap fill was deferred to this pass; still honor it.
+                return aligned_bg, reason, None
             fill = torch.clamp(extra_edge_mask.to(device), 0, 1)
             result = aligned_bg.clone()
             if inpaint_method == "sd_inpaint":
@@ -410,9 +413,29 @@ class AlignStylizedFrame:
                 result = blur_inpaint(result, fill, device, iterations=5)
             return (
                 result,
-                "Subject detection failed (transform-edge gaps filled)",
+                reason + " (transform-edge gaps filled)",
                 fill
             )
+
+        # Get bounding boxes for extraction
+        orig_bbox = get_mask_bbox(orig_mask)  # (y_min, y_max, x_min, x_max)
+        styl_bbox = get_mask_bbox(styl_mask)
+
+        # Calculate bbox dimensions (for extraction bounds)
+        orig_h = orig_bbox[1] - orig_bbox[0]
+        orig_w = orig_bbox[3] - orig_bbox[2]
+        styl_h = styl_bbox[1] - styl_bbox[0]
+        styl_w = styl_bbox[3] - styl_bbox[2]
+
+        if styl_h <= 0 or styl_w <= 0 or orig_h <= 0 or orig_w <= 0:
+            return bail("Subject detection failed")
+
+        # Mask agreement after global alignment, for diagnostics: low IoU
+        # means original/stylized segmentation picked different things.
+        ob = orig_mask[0] > 0.5
+        ab = aligned_styl_mask[0] > 0.5
+        union = (ob | ab).float().sum().item()
+        mask_iou = (ob & ab).float().sum().item() / union if union > 0 else 0.0
 
         # Use CENTROID for positioning (center of mass) - needed as fallback
         orig_cy, orig_cx = get_mask_centroid(orig_mask)
@@ -457,19 +480,35 @@ class AlignStylizedFrame:
             else:
                 area_scale = 1.0
 
-            # Also compute bbox-based scale for comparison
-            bbox_scale_h = orig_h / styl_h
-            bbox_scale_w = orig_w / styl_w
-            bbox_scale = (bbox_scale_h + bbox_scale_w) / 2
+            # Plausibility guards: without pose correspondence, a huge
+            # implied move or scale means the original/stylized
+            # segmentations picked DIFFERENT things (common on non-person
+            # scenes) - "correcting" would fling content across the frame.
+            move_dist = (
+                (orig_cy - styl_cy) ** 2 + (orig_cx - styl_cx) ** 2
+            ) ** 0.5
+            if max_subject_shift > 0 and move_dist > max_subject_shift:
+                return bail(
+                    f"Subject correction skipped: centroid move "
+                    f"{move_dist:.0f}px exceeds max_subject_shift="
+                    f"{max_subject_shift}px (mask IoU {mask_iou:.2f}; "
+                    f"original/stylized segmentation likely disagree - "
+                    f"try subject_mode=disabled or provide a mask)"
+                )
+            if not (0.67 <= area_scale <= 1.5):
+                return bail(
+                    f"Subject correction skipped: implied subject scale "
+                    f"{area_scale:.2f} is implausible (mask IoU "
+                    f"{mask_iou:.2f}; segmentation likely disagrees)"
+                )
 
-            # Use area-based scaling (more robust to shape differences)
-            ideal_scale = area_scale
-            scale_ratio = 1.0 + (ideal_scale - 1.0) * conform_to_original
+            scale_ratio = 1.0 + (area_scale - 1.0) * conform_to_original
 
             # Debug output
             print(
-                f"[AlignStylizedFrame] Centroid alignment (no face detected): "
-                f"scale={scale_ratio:.3f}"
+                f"[AlignStylizedFrame] Centroid alignment (no pose): "
+                f"scale={scale_ratio:.3f}, move={move_dist:.0f}px, "
+                f"mask IoU={mask_iou:.2f}"
             )
             print(
                 f"[AlignStylizedFrame] Centroids: "
@@ -481,7 +520,9 @@ class AlignStylizedFrame:
             dy = (orig_cy - styl_cy) * conform_to_original
             dx = (orig_cx - styl_cx) * conform_to_original
 
-            info_parts.append("Centroid-aligned (no pose)")
+            info_parts.append(
+                f"Centroid-aligned (no pose, mask IoU {mask_iou:.2f})"
+            )
 
         # STEP 1-3: Transform subject based on alignment method
         if use_shoulder_alignment:
@@ -873,6 +914,7 @@ class AlignStylizedFrame:
                      allow_anisotropic_scale=False,
                      visualization_mode="overlay", subject_mode="birefnet",
                      subject_mask=None, conform_to_original=1.0,
+                     max_subject_shift=150,
                      fill_transform_edges=True, inpaint_method="sd_inpaint",
                      mask_expand=10, inpaint_steps=20, inpaint_denoise=0.9):
         """
@@ -1075,6 +1117,7 @@ class AlignStylizedFrame:
                 inpaint_denoise,
                 device,
                 extra_edge_mask=deferred_edge_mask,
+                max_subject_shift=max_subject_shift,
             )
 
             subject_info += correction_info + "\n"
