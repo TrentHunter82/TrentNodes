@@ -44,7 +44,7 @@ class WanVaceKeyframeBuilder:
                 "background_images": ("IMAGE", {
                     "tooltip": (
                         "Optional batch of images to use instead"
-                        " of gray for filler frames (e.g. a video"
+                        " of the filler color (e.g. a video"
                         " or control sequence). Wraps if shorter"
                         " than frame_count."
                     ),
@@ -73,6 +73,11 @@ class WanVaceKeyframeBuilder:
                     "step": 1,
                     "tooltip": "Frame position for this image (1 = first frame)"
                 }),
+                # Kept last so saved workflows from before this option load correctly
+                "filler_color": (["gray", "green"], {
+                    "default": "gray",
+                    "tooltip": "Color for filler frames: gray (0.5, Wan VACE default) or pure green (chroma-key style)"
+                }),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -83,7 +88,7 @@ class WanVaceKeyframeBuilder:
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("images", "masks")
     OUTPUT_TOOLTIPS = (
-        "Batch of frames: keyframes at specified positions, background or gray filler elsewhere",
+        "Batch of frames: keyframes at specified positions, background or solid filler elsewhere",
         "Batch of masks: 0 for keyframes (preserve), 1 for filler frames (generate)"
     )
     
@@ -102,6 +107,7 @@ class WanVaceKeyframeBuilder:
         default_width: int = 832,
         default_height: int = 480,
         background_images: torch.Tensor = None,
+        filler_color: str = "gray",
         unique_id: str = None,
         prompt: dict = None,
         **kwargs
@@ -182,12 +188,20 @@ class WanVaceKeyframeBuilder:
         dtype = torch.float32
         
         # Create templates with exact values
-        # Filler frames: Use empty_frame_level (0.5 = gray, matching Kijai's default)
+        # Filler frames: gray 0.5 matches Kijai's empty_frame_level default;
+        # green is a chroma-key style alternative
         # VACE mask convention (from Kijai's code):
         #   mask = 0 for keyframes (preserve these)
         #   mask = 1 for filler frames (generate these)
-        FILLER_VALUE = 0.5  # Gray filler frames (matches Kijai's empty_frame_level default)
-        filler_frame = torch.full((1, h, w, c), FILLER_VALUE, dtype=dtype, device=device)
+        FILLER_COLORS = {
+            "gray": (0.5, 0.5, 0.5),
+            "green": (0.0, 1.0, 0.0),
+        }
+        # .get() so a stale value from an old saved workflow falls back to gray
+        filler_rgb = FILLER_COLORS.get(filler_color, FILLER_COLORS["gray"])
+        filler_frame = torch.zeros((1, h, w, c), dtype=dtype, device=device)
+        for ch in range(c):
+            filler_frame[..., ch] = filler_rgb[ch] if ch < 3 else 1.0
         keyframe_mask = torch.zeros((1, h, w), dtype=dtype, device=device)  # 0 = preserve keyframe
         filler_mask = torch.ones((1, h, w), dtype=dtype, device=device)     # 1 = generate this frame
         
@@ -244,7 +258,7 @@ class WanVaceKeyframeBuilder:
         masks_out = torch.cat(mask_list, dim=0)
         
         print(f"[WanVaceKeyframeBuilder] Output shapes: images={images_out.shape}, masks={masks_out.shape}, dtype={images_out.dtype}")
-        filler_src = f"background batch ({bg_count} frames)" if bg_count > 0 else f"gray ({FILLER_VALUE})"
+        filler_src = f"background batch ({bg_count} frames)" if bg_count > 0 else f"{filler_color} {filler_rgb}"
         print(f"[WanVaceKeyframeBuilder] Filler: {filler_src}, Keyframes: {len(keyframes)} (mask=0), Fillers: {frame_count - len(keyframes)} (mask=1)")
         
         return (images_out, masks_out)
