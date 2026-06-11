@@ -63,7 +63,12 @@ def phase_correlation(
 
     cross = fa * fb.conj()
     eps = 1e-8
-    cross = cross / (cross.abs() + eps)
+    # Magnitude via real arithmetic: complex .abs() on CUDA is JIT-compiled
+    # through NVRTC, which fails on installs where libnvrtc-builtins is not
+    # discoverable (seen on torch 2.11+cu130/WSL2). All ops below are
+    # native kernels.
+    mag = torch.sqrt(cross.real ** 2 + cross.imag ** 2)
+    cross = cross / (mag + eps)
 
     correlation = torch.fft.irfft2(cross, s=(H, W))
 
