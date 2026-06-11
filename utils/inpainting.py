@@ -48,33 +48,46 @@ def sd_inpaint(
     B, H, W, C = image.shape
     print(f"[TrentNodes] Running SD inpainting ({steps} steps)...")
 
-    # Load inpainting model (cached)
-    model, clip, vae = load_sd_inpaint_model(checkpoint, device)
+    # Load inpainting model (cached); fall back gracefully when the
+    # checkpoint can't be loaded (e.g. first-run download failure) instead
+    # of aborting the whole node mid-execution.
+    try:
+        model, clip, vae = load_sd_inpaint_model(checkpoint, device)
+    except Exception as e:
+        print(
+            f"[TrentNodes] SD inpaint checkpoint unavailable ({e}); "
+            f"falling back to clone_stamp inpainting"
+        )
+        return clone_stamp_inpaint(
+            image, mask, device, iterations=25, sample_radius=12
+        )
 
     # Encode empty prompts
     tokens = clip.tokenize("")
     positive = clip.encode_from_tokens_scheduled(tokens)
     negative = clip.encode_from_tokens_scheduled(tokens)
 
-    # Ensure image is properly sized for VAE (divisible by 8)
-    downscale = getattr(vae, 'downscale_ratio', 8)
-    new_h = (H // downscale) * downscale
-    new_w = (W // downscale) * downscale
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(0)
 
-    # Crop if needed
-    if H != new_h or W != new_w:
-        h_offset = (H - new_h) // 2
-        w_offset = (W - new_w) // 2
-        pixels = image[:, h_offset:h_offset + new_h, w_offset:w_offset + new_w, :].clone()
-        inpaint_mask = mask[:, h_offset:h_offset + new_h, w_offset:w_offset + new_w].clone()
+    # Pad to the VAE downscale multiple with replicate padding (the old
+    # center-crop left a 0-7 px un-inpainted strip around the border).
+    downscale = getattr(vae, 'downscale_ratio', 8)
+    pad_h = (downscale - H % downscale) % downscale
+    pad_w = (downscale - W % downscale) % downscale
+
+    if pad_h or pad_w:
+        pixels = F.pad(
+            image.permute(0, 3, 1, 2), (0, pad_w, 0, pad_h),
+            mode='replicate'
+        ).permute(0, 2, 3, 1)
+        inpaint_mask = F.pad(
+            mask.unsqueeze(1), (0, pad_w, 0, pad_h),
+            mode='constant', value=0
+        ).squeeze(1)
     else:
         pixels = image.clone()
         inpaint_mask = mask.clone()
-        h_offset, w_offset = 0, 0
-
-    # Prepare mask
-    if inpaint_mask.dim() == 2:
-        inpaint_mask = inpaint_mask.unsqueeze(0)
 
     # Grow mask for seamless blending
     grow_mask_by = 8
@@ -113,17 +126,10 @@ def sd_inpaint(
         seed=seed
     )
 
-    # VAE decode
+    # VAE decode, then crop any padding back off
     samples = samples.to(mm.intermediate_device())
     result = vae.decode(samples)
-
-    # Handle size differences
-    if H != new_h or W != new_w:
-        full_result = image.clone().cpu()
-        full_result[:, h_offset:h_offset + new_h, w_offset:w_offset + new_w, :] = result.cpu()
-        result = full_result
-    else:
-        result = result.cpu()
+    result = result[:, :H, :W, :].cpu()
 
     print("[TrentNodes] SD inpainting complete.")
     return result
@@ -238,15 +244,18 @@ def blur_inpaint(
     iterations: int = 3
 ) -> torch.Tensor:
     """
-    Simple inpainting using iterative blurring from edges.
+    Simple inpainting that fills the masked region inward from valid
+    pixels using normalized convolution, then smooths the fill.
 
-    Fast fallback method that fills masked regions with blurred content.
+    Fast fallback method. (The previous implementation blurred the masked
+    region with its own content, so large regions kept their original
+    color and were never actually replaced.)
 
     Args:
         image: (B, H, W, C) image tensor
         mask: (B, H, W) or (H, W) mask where 1 = inpaint region
         device: torch device
-        iterations: Number of blur/fill passes
+        iterations: Number of final smoothing passes
 
     Returns:
         Inpainted image tensor
@@ -255,22 +264,39 @@ def blur_inpaint(
 
     if mask.dim() == 2:
         mask = mask.unsqueeze(0)
-    mask_3d = mask.unsqueeze(-1).expand(-1, -1, -1, C)
 
+    hard_mask = (mask > 0.5).float()
+    remaining = hard_mask.clone()
     result = image.clone()
 
+    # Each pass fills a ~7px ring from currently-valid pixels; loop until
+    # the region closes (capped well above any realistic mask size).
+    for _ in range(64):
+        if remaining.sum() < 1:
+            break
+        valid = (1.0 - remaining).unsqueeze(1)
+        rem_3d = remaining.unsqueeze(-1)
+        num = F.avg_pool2d(
+            (result * (1 - rem_3d)).permute(0, 3, 1, 2),
+            kernel_size=15, stride=1, padding=7
+        )
+        den = F.avg_pool2d(valid, kernel_size=15, stride=1, padding=7)
+        filled = (num / den.clamp(min=1e-6)).permute(0, 2, 3, 1)
+
+        has_source = (den.squeeze(1) > 1e-4).float()
+        update = remaining * has_source
+        update_3d = update.unsqueeze(-1)
+        result = result * (1 - update_3d) + filled * update_3d
+        remaining = remaining * (1 - update)
+
+    # Smooth the filled region for seamless blending
+    mask_3d = hard_mask.unsqueeze(-1)
     for _ in range(iterations):
         blurred = F.avg_pool2d(
             result.permute(0, 3, 1, 2),
             kernel_size=15, stride=1, padding=7
         ).permute(0, 2, 3, 1)
-
         result = result * (1 - mask_3d) + blurred * mask_3d
-
-        mask = erode_mask(mask, radius=3, device=device)
-        if mask.dim() == 2:
-            mask = mask.unsqueeze(0)
-        mask_3d = mask.unsqueeze(-1).expand(-1, -1, -1, C)
 
     return result
 

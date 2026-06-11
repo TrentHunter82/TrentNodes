@@ -251,18 +251,25 @@ def rotate_image(
     device: torch.device
 ) -> torch.Tensor:
     """
-    Rotate image by angle around its center.
+    Rotate image content by +angle around its center, in y-down image
+    coordinates — matching compute_shoulder_affine_transform's
+    "rotation = dst_angle - src_angle" convention, so rotating by that
+    value turns content from the source toward the destination
+    orientation.
 
     Args:
         image: (B, H, W, C) tensor
-        angle_degrees: Rotation angle in degrees (positive = counter-clockwise)
+        angle_degrees: Rotation angle in degrees (y-down convention)
         device: torch device
 
     Returns:
         Rotated image tensor (B, H, W, C)
     """
     B, H, W, C = image.shape
-    angle_rad = np.radians(angle_degrees)
+    # grid_sample inverse-maps (theta transforms output coords to input
+    # coords), so content rotates by the NEGATIVE of theta's angle.
+    # Negate here so content rotates by +angle_degrees.
+    angle_rad = np.radians(-angle_degrees)
     cos_a = np.cos(angle_rad)
     sin_a = np.sin(angle_rad)
 
@@ -287,18 +294,20 @@ def rotate_mask(
     device: torch.device
 ) -> torch.Tensor:
     """
-    Rotate mask by angle around its center.
+    Rotate mask content by +angle around its center (y-down image
+    coordinates, same convention as rotate_image).
 
     Args:
         mask: (B, H, W) tensor
-        angle_degrees: Rotation angle in degrees (positive = counter-clockwise)
+        angle_degrees: Rotation angle in degrees (y-down convention)
         device: torch device
 
     Returns:
         Rotated mask tensor (B, H, W)
     """
     B, H, W = mask.shape
-    angle_rad = np.radians(angle_degrees)
+    # See rotate_image: negate so content rotates by +angle_degrees.
+    angle_rad = np.radians(-angle_degrees)
     cos_a = np.cos(angle_rad)
     sin_a = np.sin(angle_rad)
 

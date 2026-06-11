@@ -87,10 +87,12 @@ def extract_edges(image: torch.Tensor, device: torch.device) -> torch.Tensor:
     # Get Sobel kernels
     sobel_x, sobel_y = get_sobel_kernels(device)
 
-    # Apply Sobel filters
-    gray_4d = gray.unsqueeze(1)
-    edges_x = F.conv2d(gray_4d, sobel_x, padding=1)
-    edges_y = F.conv2d(gray_4d, sobel_y, padding=1)
+    # Apply Sobel filters. Replicate-pad instead of zero-pad: zero padding
+    # fabricates a strong false edge ring at the image border (magnitude ~2
+    # on a uniform image) that biases alignment scores.
+    gray_4d = F.pad(gray.unsqueeze(1), (1, 1, 1, 1), mode='replicate')
+    edges_x = F.conv2d(gray_4d, sobel_x)
+    edges_y = F.conv2d(gray_4d, sobel_y)
     edges = torch.sqrt(edges_x ** 2 + edges_y ** 2)
 
     return edges.squeeze(1)

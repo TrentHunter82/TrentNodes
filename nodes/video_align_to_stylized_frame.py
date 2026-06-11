@@ -14,46 +14,12 @@ import torch.nn.functional as F
 
 import comfy.model_management as mm
 
+from ..utils.alignment import phase_correlation
 from ..utils.image_ops import extract_edges, to_grayscale
 
-
-def _phase_correlation(
-    img_a: torch.Tensor,
-    img_b: torch.Tensor,
-) -> tuple[int, int]:
-    """
-    Compute translation offset from img_a to img_b via phase correlation.
-
-    Args:
-        img_a: Tensor (H, W) float32, reference (stylized frame)
-        img_b: Tensor (H, W) float32, source (first video frame)
-
-    Returns:
-        (offset_x, offset_y) in pixels. Applying this offset to img_b
-        aligns it to img_a.
-    """
-    H, W = img_a.shape
-
-    fa = torch.fft.rfft2(img_a)
-    fb = torch.fft.rfft2(img_b)
-
-    cross = fa * fb.conj()
-    eps = 1e-8
-    cross = cross / (cross.abs() + eps)
-
-    correlation = torch.fft.irfft2(cross, s=(H, W))
-
-    peak_flat = correlation.argmax()
-    peak_y = (peak_flat // W).item()
-    peak_x = (peak_flat % W).item()
-
-    # Wrap negative offsets (phase correlation folds at half-size)
-    if peak_y > H // 2:
-        peak_y -= H
-    if peak_x > W // 2:
-        peak_x -= W
-
-    return int(peak_x), int(peak_y)
+# Kept as a module-level alias for any external importers; the math now
+# lives in utils/alignment.py and is shared with AlignStylizedFrame.
+_phase_correlation = phase_correlation
 
 
 def _apply_translation(

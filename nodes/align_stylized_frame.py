@@ -14,7 +14,9 @@ Workflow:
 4. Warp background to fill gaps around the preserved subject
 5. Composite: warped background + untouched subject
 
-Uses edge-based alignment (Sobel) with multi-scale pyramid search.
+Global alignment uses differentiable affine estimation (phase-correlation
+seed + Adam on edge-NCC, see utils/alignment.py) with sub-pixel precision
+and optional rotation / anisotropic scale.
 """
 
 import numpy as np
@@ -23,9 +25,8 @@ import torch.nn.functional as F
 
 import comfy.model_management as mm
 
-from ..utils.image_ops import (
-    extract_edges, apply_affine_transform, apply_affine_transform_with_mask
-)
+from ..utils.alignment import estimate_affine, warp_image
+from ..utils.image_ops import extract_edges
 from ..utils.mask_ops import (
     dilate_mask, erode_mask, feather_mask,
     get_mask_bbox, get_mask_centroid, get_mask_area
@@ -78,10 +79,38 @@ class AlignStylizedFrame:
                     "default": "balanced",
                     "tooltip": "Search quality vs speed tradeoff"
                 }),
-                "visualization_mode": (["heatmap", "difference", "overlay", "subject_mask"], {
-                    "default": "overlay",
-                    "tooltip": "Visualization type for difference map output"
+                "enable_rotation": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": (
+                        "Estimate small global rotation during alignment"
+                    )
                 }),
+                "max_rotation_deg": ("FLOAT", {
+                    "default": 3.0,
+                    "min": 0.0,
+                    "max": 15.0,
+                    "step": 0.5,
+                    "tooltip": "Maximum rotation to search (degrees)"
+                }),
+                "allow_anisotropic_scale": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Separate X/Y scale - fixes aspect-ratio drift, "
+                        "slight risk of absorbing content differences"
+                    )
+                }),
+                "visualization_mode": (
+                    ["heatmap", "difference", "overlay", "subject_mask",
+                     "score_map"],
+                    {
+                        "default": "overlay",
+                        "tooltip": (
+                            "Visualization type for difference map output. "
+                            "score_map shows the alignment residual "
+                            "before/after."
+                        )
+                    }
+                ),
                 "subject_mode": (["disabled", "auto", "birefnet", "mask"], {
                     "default": "birefnet",
                     "tooltip": (
@@ -180,206 +209,6 @@ class AlignStylizedFrame:
 
         return auto_detect_subject(image, image, device)
 
-
-    def compute_edge_difference_masked(self, edges1, edges2, mask=None):
-        """Compute difference between edge maps, optionally weighted by mask."""
-        if edges1.shape != edges2.shape:
-            edges2 = F.interpolate(
-                edges2.unsqueeze(1),
-                size=edges1.shape[-2:],
-                mode='bilinear',
-                align_corners=False
-            ).squeeze(1)
-
-        diff = torch.abs(edges1 - edges2)
-
-        if mask is not None:
-            # Weight by inverse mask (background only)
-            bg_mask = 1.0 - mask
-            if bg_mask.shape != diff.shape:
-                bg_mask = F.interpolate(
-                    bg_mask.unsqueeze(1),
-                    size=diff.shape[-2:],
-                    mode='bilinear',
-                    align_corners=False
-                ).squeeze(1)
-
-            weighted_diff = diff * bg_mask
-            score = weighted_diff.sum() / (bg_mask.sum() + 1.0)
-            return score.item()
-
-        return torch.mean(diff).item()
-
-    def pyramid_search(self, original_edges, stylized_image, scale_range, trans_range,
-                       precision, device, bg_mask=None):
-        """Multi-scale coarse-to-fine search for optimal alignment."""
-        # Precision settings
-        if precision == "fast":
-            pyramid_levels = 2
-            scale_steps = 5
-            trans_steps = 5
-        elif precision == "balanced":
-            pyramid_levels = 3
-            scale_steps = 7
-            trans_steps = 7
-        else:  # precise
-            pyramid_levels = 4
-            scale_steps = 11
-            trans_steps = 9
-
-        best_params = {'scale': 1.0, 'tx': 0.0, 'ty': 0.0}
-        best_score = float('inf')
-
-        for level in range(pyramid_levels - 1, -1, -1):
-            factor = 2 ** level
-
-            # Downsample edges
-            if level > 0:
-                orig_level = F.avg_pool2d(
-                    original_edges.unsqueeze(1), kernel_size=factor, stride=factor
-                ).squeeze(1)
-                if bg_mask is not None:
-                    mask_level = F.avg_pool2d(
-                        bg_mask.unsqueeze(1), kernel_size=factor, stride=factor
-                    ).squeeze(1)
-                else:
-                    mask_level = None
-            else:
-                orig_level = original_edges
-                mask_level = bg_mask
-
-            # Search range
-            if level == pyramid_levels - 1:
-                s_min, s_max = 1.0 - scale_range, 1.0 + scale_range
-                t_range = trans_range // factor
-            else:
-                s_min = best_params['scale'] - scale_range / (2 ** (pyramid_levels - 1 - level))
-                s_max = best_params['scale'] + scale_range / (2 ** (pyramid_levels - 1 - level))
-                t_range = max(4, trans_range // (2 ** (pyramid_levels - 1 - level))) // factor
-
-            scales = torch.linspace(
-                s_min, s_max, scale_steps,
-                device=device
-            )
-            tx_vals = torch.linspace(
-                -t_range * factor, t_range * factor,
-                trans_steps, device=device
-            )
-            ty_vals = torch.linspace(
-                -t_range * factor, t_range * factor,
-                trans_steps, device=device
-            )
-
-            # Pre-downsample stylized for coarse levels
-            if level > 0:
-                styl_level = F.avg_pool2d(
-                    stylized_image.permute(0, 3, 1, 2),
-                    kernel_size=factor,
-                    stride=factor
-                ).permute(0, 2, 3, 1)
-            else:
-                styl_level = stylized_image
-
-            for scale in scales:
-                for tx in tx_vals:
-                    for ty in ty_vals:
-                        # Scale translation for
-                        # downsampled coords
-                        level_tx = tx.item() / factor
-                        level_ty = ty.item() / factor
-                        transformed = (
-                            apply_affine_transform(
-                                styl_level,
-                                scale.item(),
-                                level_tx,
-                                level_ty,
-                                device
-                            )
-                        )
-                        trans_edges = extract_edges(
-                            transformed, device
-                        )
-
-                        score = (
-                            self
-                            .compute_edge_difference_masked(
-                                orig_level,
-                                trans_edges,
-                                mask_level
-                            )
-                        )
-
-                        if score < best_score:
-                            best_score = score
-                            best_params = {
-                                'scale': scale.item(),
-                                'tx': tx.item(),
-                                'ty': ty.item()
-                            }
-
-        return best_params, best_score
-
-    def fine_align_subject(self, original, stylized, orig_mask, device, search_range=15):
-        """
-        Fine-grained edge-based alignment within the subject region.
-        Searches for the best sub-pixel offset to align eyes/head/body.
-
-        Args:
-            original: Original image (B, H, W, C)
-            stylized: Stylized subject region to align (B, H, W, C)
-            orig_mask: Subject mask
-            device: torch device
-            search_range: Max pixels to search in each direction
-
-        Returns:
-            best_dy, best_dx: Optimal offset in pixels
-        """
-        # Extract edges within masked region
-        orig_edges = extract_edges(original, device)
-        styl_edges = extract_edges(stylized, device)
-
-        # Weight by mask (only care about subject region)
-        if orig_mask.dim() == 2:
-            mask = orig_mask.unsqueeze(0)
-        else:
-            mask = orig_mask
-
-        orig_edges_masked = orig_edges * mask
-        styl_edges_masked = styl_edges * mask
-
-        best_score = float('inf')
-        best_dy, best_dx = 0, 0
-
-        # Coarse search first
-        for dy in range(-search_range, search_range + 1, 3):
-            for dx in range(-search_range, search_range + 1, 3):
-                # Shift stylized edges
-                shifted = torch.roll(styl_edges_masked, shifts=(dy, dx), dims=(1, 2))
-
-                # Compute masked difference
-                diff = torch.abs(orig_edges_masked - shifted) * mask
-                score = diff.sum() / (mask.sum() + 1)
-
-                if score < best_score:
-                    best_score = score
-                    best_dy, best_dx = dy, dx
-
-        # Fine search around best coarse result
-        coarse_dy, coarse_dx = best_dy, best_dx
-        for dy in range(coarse_dy - 3, coarse_dy + 4):
-            for dx in range(coarse_dx - 3, coarse_dx + 4):
-                if abs(dy) > search_range or abs(dx) > search_range:
-                    continue
-
-                shifted = torch.roll(styl_edges_masked, shifts=(dy, dx), dims=(1, 2))
-                diff = torch.abs(orig_edges_masked - shifted) * mask
-                score = diff.sum() / (mask.sum() + 1)
-
-                if score < best_score:
-                    best_score = score
-                    best_dy, best_dx = dy, dx
-
-        return best_dy, best_dx
 
     def _get_shoulder_alignment(self, original_image, stylized_image, orig_mask,
                                   styl_mask, device):
@@ -510,7 +339,8 @@ class AlignStylizedFrame:
                                              aligned_styl_mask,
                                              conform_to_original,
                                              inpaint_method, mask_expand,
-                                             inpaint_steps, inpaint_denoise, device):
+                                             inpaint_steps, inpaint_denoise, device,
+                                             extra_edge_mask=None):
         """
         CORRECT APPROACH with THREE masks for proper ghost elimination.
 
@@ -533,13 +363,16 @@ class AlignStylizedFrame:
             inpaint_steps: diffusion steps for SD inpainting
             inpaint_denoise: denoise strength for SD inpainting
             device: torch device
+            extra_edge_mask: optional (B, H, W) transform-edge gap mask to
+                merge into the single inpaint pass
 
         Returns:
             Tuple of (result, info, inpaint_mask):
             - result: Final composited image
             - info: String describing what was done
-            - inpaint_mask: Mask of inpainted region,
-              or None if detection failed
+            - inpaint_mask: Mask of the inpainted region (final pasted
+              subject footprint excluded, so it is safe for external
+              inpainting), or None if detection failed
         """
         B, H, W, C = aligned_bg.shape
 
@@ -554,10 +387,31 @@ class AlignStylizedFrame:
         styl_w = styl_bbox[3] - styl_bbox[2]
 
         if styl_h <= 0 or styl_w <= 0 or orig_h <= 0 or orig_w <= 0:
+            if extra_edge_mask is None:
+                return (
+                    aligned_bg,
+                    "Subject detection failed",
+                    None
+                )
+            # Edge-gap fill was deferred to this pass; still honor it.
+            fill = torch.clamp(extra_edge_mask.to(device), 0, 1)
+            result = aligned_bg.clone()
+            if inpaint_method == "sd_inpaint":
+                result = sd_inpaint(
+                    result, fill, device,
+                    steps=inpaint_steps, denoise=inpaint_denoise
+                ).to(device)
+            elif inpaint_method == "clone_stamp":
+                result = clone_stamp_inpaint(
+                    result, fill, device,
+                    iterations=20, sample_radius=10
+                )
+            elif inpaint_method == "blur":
+                result = blur_inpaint(result, fill, device, iterations=5)
             return (
-                aligned_bg,
-                "Subject detection failed",
-                None
+                result,
+                "Subject detection failed (transform-edge gaps filled)",
+                fill
             )
 
         # Use CENTROID for positioning (center of mass) - needed as fallback
@@ -702,10 +556,22 @@ class AlignStylizedFrame:
                     f"{scaled_shoulder_in_crop_y:.0f}) in crop"
                 )
 
-            # 6. Position so scaled shoulder aligns with original shoulder
-            # paste_origin + scaled_shoulder_in_crop = orig_shoulder_center
-            paste_y_min = int(orig_shoulder_center_y - scaled_shoulder_in_crop_y)
-            paste_x_min = int(orig_shoulder_center_x - scaled_shoulder_in_crop_x)
+            # 6. Position so the scaled shoulder lands at the
+            # conform-blended target (stylized -> original shoulder
+            # center), matching the centroid branch's conform_to_original
+            # semantics: scale, rotation AND translation all blend.
+            target_shoulder_y = (
+                styl_shoulder_center_y
+                + (orig_shoulder_center_y - styl_shoulder_center_y)
+                * conform_to_original
+            )
+            target_shoulder_x = (
+                styl_shoulder_center_x
+                + (orig_shoulder_center_x - styl_shoulder_center_x)
+                * conform_to_original
+            )
+            paste_y_min = int(target_shoulder_y - scaled_shoulder_in_crop_y)
+            paste_x_min = int(target_shoulder_x - scaled_shoulder_in_crop_x)
             paste_y_max = paste_y_min + new_h
             paste_x_max = paste_x_min + new_w
 
@@ -766,29 +632,83 @@ class AlignStylizedFrame:
             if abs(dy) > 1 or abs(dx) > 1:
                 info_parts.append(f"Move: ({int(dx):+d}, {int(dy):+d})px")
 
-        # STEP 4: Create inpainted background
-        # Start with the aligned background
-        result = aligned_bg.clone()
+        # STEP 4a: Compute paste bounds first (pure arithmetic) so the
+        # final subject footprint can be excluded from the inpaint mask.
+        src_y_start = max(0, -paste_y_min)
+        src_x_start = max(0, -paste_x_min)
+        src_y_end = new_h - max(0, paste_y_max - H)
+        src_x_end = new_w - max(0, paste_x_max - W)
 
-        # Inpaint using aligned_styl_mask (where ghost IS
-        # in aligned_bg), NOT styl_mask (pre-alignment)
+        dst_y_start = max(0, paste_y_min)
+        dst_x_start = max(0, paste_x_min)
+        dst_y_end = min(H, paste_y_max)
+        dst_x_end = min(W, paste_x_max)
+
+        paste_h = dst_y_end - dst_y_start
+        paste_w = dst_x_end - dst_x_start
+
+        valid_paste = (
+            paste_h > 0 and paste_w > 0 and
+            src_y_end > src_y_start and src_x_end > src_x_start
+        )
+
+        subject_paste = None
+        mask_paste = None
+        actual_h = actual_w = 0
+        if valid_paste:
+            subject_paste = subject_scaled[
+                :, src_y_start:src_y_end, src_x_start:src_x_end, :
+            ]
+            mask_paste = mask_scaled[
+                :, src_y_start:src_y_end, src_x_start:src_x_end
+            ]
+            actual_h = min(paste_h, subject_paste.shape[1])
+            actual_w = min(paste_w, subject_paste.shape[2])
+
+        # STEP 4b: Final subject footprint, eroded by the paste feather
+        # radius so inpainted pixels never bleed a halo through the
+        # feathered blend edge.
+        footprint = torch.zeros(B, H, W, device=device)
+        if valid_paste and actual_h > 0 and actual_w > 0:
+            footprint[
+                :,
+                dst_y_start:dst_y_start + actual_h,
+                dst_x_start:dst_x_start + actual_w,
+            ] = (mask_paste[:, :actual_h, :actual_w] > 0.5).float()
+        eroded_footprint = erode_mask(footprint, radius=5, device=device)
+        if eroded_footprint.dim() == 2:
+            eroded_footprint = eroded_footprint.unsqueeze(0)
+
+        # STEP 4c: Inpaint mask = ghost (subject at its globally-aligned
+        # position) + deferred transform-edge gaps, minus the area the
+        # pasted subject will cover anyway.
         inpaint_radius = max(8, mask_expand)
-        inpaint_mask = dilate_mask(
+        ghost_mask = dilate_mask(
             aligned_styl_mask,
             radius=inpaint_radius,
             device=device
         )
-        if inpaint_mask.dim() == 2:
-            inpaint_mask = inpaint_mask.unsqueeze(0)
+        if ghost_mask.dim() == 2:
+            ghost_mask = ghost_mask.unsqueeze(0)
+        if extra_edge_mask is not None:
+            ghost_mask = torch.clamp(
+                ghost_mask + extra_edge_mask.to(device), 0, 1
+            )
+        inpaint_mask = torch.clamp(ghost_mask - eroded_footprint, 0, 1)
 
         # Store mask for output before inpainting
         inpaint_mask_out = inpaint_mask.clone()
 
-        # Use selected inpainting method
+        # STEP 4d: Create inpainted background
+        result = aligned_bg.clone()
+
         if inpaint_method == "none":
-            # Skip -- user will handle externally
+            # Ghost is NOT removed in this mode; the exported mask already
+            # excludes the pasted subject, so external inpainting with it
+            # is safe.
             info_parts.append(
-                "Inpaint: none (mask output)"
+                "Inpaint: none (ghost left in image; "
+                "use inpaint_mask externally)"
             )
         elif inpaint_method == "sd_inpaint":
             result = sd_inpaint(
@@ -812,53 +732,24 @@ class AlignStylizedFrame:
             )
 
         # STEP 5: Paste the scaled subject at target position
-        # Handle bounds clipping
-        src_y_start = max(0, -paste_y_min)
-        src_x_start = max(0, -paste_x_min)
-        src_y_end = new_h - max(0, paste_y_max - H)
-        src_x_end = new_w - max(0, paste_x_max - W)
+        if valid_paste and actual_h > 0 and actual_w > 0:
+            # Feather mask edges for smooth blending
+            mask_region = mask_paste[:, :actual_h, :actual_w]
+            mask_feathered = feather_mask(
+                mask_region, radius=5, device=device
+            )
+            if mask_feathered.dim() == 3:
+                mask_feathered = mask_feathered.unsqueeze(-1)
 
-        dst_y_start = max(0, paste_y_min)
-        dst_x_start = max(0, paste_x_min)
-        dst_y_end = min(H, paste_y_max)
-        dst_x_end = min(W, paste_x_max)
-
-        paste_h = dst_y_end - dst_y_start
-        paste_w = dst_x_end - dst_x_start
-
-        valid_paste = (
-            paste_h > 0 and paste_w > 0 and
-            src_y_end > src_y_start and src_x_end > src_x_start
-        )
-        if valid_paste:
-            subject_paste = subject_scaled[
-                :, src_y_start:src_y_end, src_x_start:src_x_end, :
-            ]
-            mask_paste = mask_scaled[
-                :, src_y_start:src_y_end, src_x_start:src_x_end
-            ]
-
-            actual_h = min(paste_h, subject_paste.shape[1])
-            actual_w = min(paste_w, subject_paste.shape[2])
-
-            if actual_h > 0 and actual_w > 0:
-                # Feather mask edges for smooth blending
-                mask_region = mask_paste[:, :actual_h, :actual_w]
-                mask_feathered = feather_mask(
-                    mask_region, radius=5, device=device
-                )
-                if mask_feathered.dim() == 3:
-                    mask_feathered = mask_feathered.unsqueeze(-1)
-
-                # Composite
-                y1, y2 = dst_y_start, dst_y_start + actual_h
-                x1, x2 = dst_x_start, dst_x_start + actual_w
-                bg_region = result[:, y1:y2, x1:x2, :]
-                fg_region = subject_paste[:, :actual_h, :actual_w, :]
-                result[:, y1:y2, x1:x2, :] = (
-                    bg_region * (1 - mask_feathered) +
-                    fg_region * mask_feathered
-                )
+            # Composite
+            y1, y2 = dst_y_start, dst_y_start + actual_h
+            x1, x2 = dst_x_start, dst_x_start + actual_w
+            bg_region = result[:, y1:y2, x1:x2, :]
+            fg_region = subject_paste[:, :actual_h, :actual_w, :]
+            result[:, y1:y2, x1:x2, :] = (
+                bg_region * (1 - mask_feathered) +
+                fg_region * mask_feathered
+            )
 
         if info_parts:
             info = (
@@ -871,7 +762,8 @@ class AlignStylizedFrame:
 
     def create_difference_visualization(
         self, original, aligned, before_stylized, device,
-        mode="heatmap", subject_mask=None
+        mode="heatmap", subject_mask=None,
+        score_map_before=None, score_map_after=None,
     ):
         """Create a before/after difference visualization."""
         # Ensure all images are 3-channel RGB
@@ -885,7 +777,33 @@ class AlignStylizedFrame:
         B, H, W, C = original.shape
         label_height = max(20, H // 30)
 
-        if mode == "subject_mask" and subject_mask is not None:
+        def to_heatmap(diff):
+            r = torch.clamp(diff * 3.0, 0, 1)
+            g = torch.clamp((diff - 0.33) * 3.0, 0, 1)
+            b = torch.clamp((diff - 0.66) * 3.0, 0, 1)
+            return torch.stack([r, g, b], dim=-1)
+
+        if mode == "score_map" and score_map_after is not None:
+            # Per-pixel global-alignment residual from estimate_affine,
+            # before (identity) vs after (final transform).
+            sm_before = (
+                score_map_before if score_map_before is not None
+                else score_map_after
+            ).to(device)
+            sm_after = score_map_after.to(device)
+            max_r = max(
+                sm_before.max().item(), sm_after.max().item(), 0.001
+            )
+            sm_before = torch.pow((sm_before / max_r).clamp(0, 1), 0.5)
+            sm_after = torch.pow((sm_after / max_r).clamp(0, 1), 0.5)
+            vis_before = to_heatmap(
+                sm_before.unsqueeze(0).expand(B, -1, -1)
+            )
+            vis_after = to_heatmap(
+                sm_after.unsqueeze(0).expand(B, -1, -1)
+            )
+
+        elif mode == "subject_mask" and subject_mask is not None:
             # Show subject mask overlay
             mask_rgb = subject_mask.unsqueeze(-1).expand(-1, -1, -1, 3)
             red_tint = torch.tensor([1.0, 0.3, 0.3], device=device)
@@ -904,12 +822,6 @@ class AlignStylizedFrame:
             max_diff = max(diff_before.max().item(), diff_after.max().item(), 0.001)
             diff_before = torch.pow(diff_before / max_diff, 0.5)
             diff_after = torch.pow(diff_after / max_diff, 0.5)
-
-            def to_heatmap(diff):
-                r = torch.clamp(diff * 3.0, 0, 1)
-                g = torch.clamp((diff - 0.33) * 3.0, 0, 1)
-                b = torch.clamp((diff - 0.66) * 3.0, 0, 1)
-                return torch.stack([r, g, b], dim=-1)
 
             vis_before = to_heatmap(diff_before)
             vis_after = to_heatmap(diff_after)
@@ -957,7 +869,9 @@ class AlignStylizedFrame:
     @torch.no_grad()
     def align_frames(self, original_image, stylized_image, scale_range=0.05,
                      translation_range=32, search_precision="balanced",
-                     visualization_mode="overlay", subject_mode="disabled",
+                     enable_rotation=True, max_rotation_deg=3.0,
+                     allow_anisotropic_scale=False,
+                     visualization_mode="overlay", subject_mode="birefnet",
                      subject_mask=None, conform_to_original=1.0,
                      fill_transform_edges=True, inpaint_method="sd_inpaint",
                      mask_expand=10, inpaint_steps=20, inpaint_denoise=0.9):
@@ -986,6 +900,27 @@ class AlignStylizedFrame:
 
         B, H_orig, W_orig, C = original_image.shape
         B_styl, H_styl, W_styl, C_styl = stylized_image.shape
+
+        size_warning = ""
+        orig_aspect = W_orig / H_orig
+        styl_aspect = W_styl / H_styl
+        if abs(styl_aspect - orig_aspect) / orig_aspect > 0.01:
+            size_warning = (
+                f"WARNING: aspect ratio mismatch "
+                f"({W_styl}x{H_styl} vs {W_orig}x{H_orig}) - resize "
+                f"stretches anisotropically; consider "
+                f"allow_anisotropic_scale\n"
+            )
+            print(f"[AlignStylizedFrame] {size_warning.strip()}")
+        if B > 1:
+            size_warning += (
+                "WARNING: batch > 1 - alignment and subject geometry are "
+                "estimated from frame 0 and applied to all frames\n"
+            )
+            print(
+                "[AlignStylizedFrame] WARNING: B>1 uses frame-0 geometry "
+                "for all frames; split batches for per-frame alignment"
+            )
 
         # Resize stylized to match original if needed
         if H_styl != H_orig or W_styl != W_orig:
@@ -1039,24 +974,23 @@ class AlignStylizedFrame:
                 "Subject: from provided mask (orig) + detected (stylized)\n"
             )
 
-        # Extract edges for background alignment
-        original_edges = extract_edges(original_image, device)
-
-        # PHASE 1: Global background alignment (excluding subject if detected)
-        # Use orig_mask for background weighting during alignment
-        bg_mask = orig_mask if orig_mask is not None else None
-        best_params, best_score = self.pyramid_search(
-            original_edges, stylized_image, scale_range, translation_range,
-            search_precision, device, bg_mask
+        # PHASE 1: Global background alignment (excluding subject if
+        # detected). Differentiable affine estimation with phase-correlation
+        # seeding; sub-pixel, optional rotation / anisotropic scale.
+        est = estimate_affine(
+            original_image, stylized_image, device,
+            max_translation=float(translation_range),
+            max_scale_dev=float(scale_range),
+            max_rotation_deg=(
+                float(max_rotation_deg) if enable_rotation else 0.0
+            ),
+            allow_anisotropic=allow_anisotropic_scale,
+            precision=search_precision,
+            bg_mask=orig_mask,
         )
 
-        # Apply global alignment with validity mask for edge detection
-        aligned_image, validity_mask = apply_affine_transform_with_mask(
-            stylized_image,
-            best_params['scale'],
-            best_params['tx'],
-            best_params['ty'],
-            device
+        aligned_image, validity_mask = warp_image(
+            stylized_image, est.params, device, padding_mode='border'
         )
 
         # Inpaint mask output (regions needing inpainting)
@@ -1064,28 +998,39 @@ class AlignStylizedFrame:
             B, H_orig, W_orig, device=device
         )
 
+        # Subject correction runs in PHASE 2; decide now so the edge-gap
+        # fill can be merged into its single inpaint pass.
+        needs_correction = (
+            orig_mask is not None
+            and styl_mask is not None
+            and conform_to_original > 0
+        )
+
         # PHASE 1.5: Fill transform edges if enabled
         edge_info = ""
+        deferred_edge_mask = None
         if fill_transform_edges:
-            edge_mask = (
-                validity_mask < 0.99
-            ).float()
-            if edge_mask.dim() == 2:
-                edge_mask = edge_mask.unsqueeze(0)
+            edge_mask = (validity_mask < 0.99).float()
             edge_pixel_count = edge_mask.sum().item()
 
-            if inpaint_method == "none":
-                # Add edge mask to output for external use
-                if edge_pixel_count > 10:
-                    output_inpaint_mask = torch.clamp(
-                        output_inpaint_mask
-                        + edge_mask,
-                        0, 1
-                    )
-                    edge_info = (
-                        "Edge fill: none (mask output)\n"
-                    )
-            elif edge_pixel_count > 10:
+            if edge_pixel_count <= 10:
+                pass
+            elif needs_correction:
+                # Defer to PHASE 2: one combined inpaint for edge gaps and
+                # the subject ghost (mirrors inpaint_transform_edges'
+                # dilate_radius=4 expansion).
+                deferred_edge_mask = dilate_mask(
+                    edge_mask, radius=4, device=device
+                )
+                if deferred_edge_mask.dim() == 2:
+                    deferred_edge_mask = deferred_edge_mask.unsqueeze(0)
+                edge_info = "Edge fill: merged with subject inpaint\n"
+            elif inpaint_method == "none":
+                output_inpaint_mask = torch.clamp(
+                    output_inpaint_mask + edge_mask, 0, 1
+                )
+                edge_info = "Edge fill: none (mask output)\n"
+            else:
                 aligned_image = inpaint_transform_edges(
                     aligned_image,
                     validity_mask,
@@ -1098,23 +1043,15 @@ class AlignStylizedFrame:
                 edge_info = "Edge fill: enabled\n"
 
         # PHASE 2: Subject-preserving correction
-        needs_correction = (
-            orig_mask is not None
-            and conform_to_original > 0
-        )
         if needs_correction:
-            # Detect where subject is in ALIGNED image
-            # (the transform moved the subject!)
-            if subject_mode == "birefnet":
-                aligned_styl_mask = (
-                    self._segment_subject(
-                        aligned_image, device, "birefnet"
-                    )
-                )
-            else:
-                aligned_styl_mask = auto_detect_subject(
-                    aligned_image, original_image, device
-                )
+            # The global transform moved the subject; warping the stylized
+            # subject mask by the same transform gives the ghost position
+            # deterministically (re-segmenting the aligned image can
+            # disagree with the actual pixels and leave ghost slivers).
+            aligned_styl_mask = warp_image(
+                styl_mask.unsqueeze(-1), est.params, device,
+                padding_mode='zeros'
+            )[0].squeeze(-1).clamp(0.0, 1.0)
 
             # THREE masks for ghost elimination:
             # orig_mask: target position
@@ -1136,7 +1073,8 @@ class AlignStylizedFrame:
                 mask_expand,
                 inpaint_steps,
                 inpaint_denoise,
-                device
+                device,
+                extra_edge_mask=deferred_edge_mask,
             )
 
             subject_info += correction_info + "\n"
@@ -1152,35 +1090,45 @@ class AlignStylizedFrame:
             self.create_difference_visualization(
                 original_image, aligned_image,
                 stylized_before, device,
-                visualization_mode, orig_mask
+                visualization_mode, orig_mask,
+                score_map_before=est.score_map_before,
+                score_map_after=est.score_map_after,
             )
         )
 
         # Format info
-        scale_pct = (best_params['scale'] - 1.0) * 100
+        if allow_anisotropic_scale:
+            scale_str = (
+                f"{est.scale_x:.4f} x / {est.scale_y:.4f} y"
+            )
+        else:
+            scale_str = f"{est.scale_x:.4f} ({(est.scale_x - 1) * 100:+.2f}%)"
+        method_str = est.method
+        if not est.converged:
+            method_str += (
+                " - no improving transform found, image left unwarped"
+            )
         alignment_info = (
-            f"Background scale: "
-            f"{best_params['scale']:.4f} "
-            f"({scale_pct:+.2f}%)\n"
-            f"Background translation: "
-            f"({best_params['tx']:.1f}, "
-            f"{best_params['ty']:.1f}) px\n"
-            f"Alignment score: {best_score:.6f}\n"
-            f"{edge_info}{subject_info}"
+            f"Global align: {method_str}\n"
+            f"Scale: {scale_str}"
+            f", rotation: {est.rotation_deg:+.2f} deg\n"
+            f"Translation: ({est.tx:.2f}, {est.ty:.2f}) px\n"
+            f"Edge NCC: {est.ncc_identity:.4f} -> {est.ncc_final:.4f}\n"
+            f"{size_warning}{edge_info}{subject_info}"
         )
 
         # Prepare mask outputs
         if orig_mask is not None:
-            output_mask = orig_mask.cpu()
+            output_mask = orig_mask.to(torch.float32).cpu()
         else:
             output_mask = torch.zeros(B, H_orig, W_orig)
 
         return (
-            aligned_image.cpu(),
-            difference_map.cpu(),
+            aligned_image.to(torch.float32).cpu(),
+            difference_map.to(torch.float32).cpu(),
             alignment_info,
             output_mask,
-            output_inpaint_mask.cpu()
+            output_inpaint_mask.to(torch.float32).cpu()
         )
 
 
