@@ -437,10 +437,6 @@ def estimate_affine(
         math.log(1.0 + max_scale_dev),
     )
     max_rot = math.radians(max(max_rotation_deg, 0.0))
-    scale_vec = torch.tensor(
-        [max_translation, max_translation, max_ls, max_ls, max_rot],
-        device=device, dtype=torch.float32,
-    )
 
     def effective(z):
         p = z * scale_vec
@@ -450,25 +446,36 @@ def estimate_affine(
     factors = [f for f in (4, 2, 1) if min(H, W) // f >= 32] or [1]
     iters_all = PRECISION_ITERS.get(precision, PRECISION_ITERS["balanced"])
 
-    # The caller (align_frames) runs under @torch.no_grad(); optimization
-    # must re-enable autograd, and cloning inside the block also defuses
-    # potential inference-mode tensors.
-    with torch.enable_grad():
+    # ComfyUI executes nodes under torch.inference_mode(), which
+    # torch.enable_grad() alone cannot escape (backward() then sees no
+    # graph: "element 0 of tensors does not require grad"). Explicitly
+    # exit inference mode for the optimization. Every tensor that enters
+    # the autograd graph must be (re)created INSIDE this block —
+    # inference tensors cannot be saved for backward even with grad on.
+    with torch.inference_mode(False), torch.enable_grad():
+        scale_vec = torch.tensor(
+            [max_translation, max_translation, max_ls, max_ls, max_rot],
+            device=device, dtype=torch.float32,
+        )
+        # Clone the inference-mode inputs into normal tensors FIRST, then
+        # derive everything else from the clones.
+        gray_o_n = gray_o.clone()
+        gray_s_n = gray_s.clone()
+        weight_n = weight_full.clone()
+
         levels = {}
         for f in factors:
             if f > 1:
-                g_o = F.avg_pool2d(gray_o, f, f).clone()
-                g_s = F.avg_pool2d(gray_s, f, f).clone()
-                w_l = F.avg_pool2d(weight_full, f, f).clone()
+                g_o = F.avg_pool2d(gray_o_n, f, f)
+                g_s = F.avg_pool2d(gray_s_n, f, f)
+                w_l = F.avg_pool2d(weight_n, f, f)
             else:
-                g_o, g_s, w_l = (
-                    gray_o.clone(), gray_s.clone(), weight_full.clone()
-                )
+                g_o, g_s, w_l = gray_o_n, gray_s_n, weight_n
             levels[f] = (extract_edges_soft(g_o).detach(), g_s, w_l)
 
         # Translation seed from phase correlation on full-res edge maps
-        e_o_full = levels[1][0] if 1 in levels else extract_edges_soft(gray_o)
-        e_s_full = extract_edges_soft(gray_s)
+        e_o_full = levels[1][0]
+        e_s_full = extract_edges_soft(gray_s_n).detach()
         px, py = phase_correlation(e_o_full[0, 0], e_s_full[0, 0])
         px = max(-max_translation, min(max_translation, float(px)))
         py = max(-max_translation, min(max_translation, float(py)))

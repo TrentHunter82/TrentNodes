@@ -185,6 +185,28 @@ def test_estimate_hard():
     )
 
 
+def test_estimate_under_inference_mode():
+    print("\n[4b] estimate_affine under torch.inference_mode (ComfyUI runs "
+          "nodes this way)")
+    p_gt = (7.3, -4.6, math.log(1.032), math.log(1.032), math.radians(1.7))
+    img = make_test_image()
+    distorted, _ = alignment.warp_image(img, p_gt, DEVICE)
+    stylized = style_gap(distorted)
+    with torch.inference_mode():
+        est = alignment.estimate_affine(
+            img.clone(), stylized.clone(), DEVICE,
+            max_translation=32, max_scale_dev=0.05, max_rotation_deg=3.0,
+        )
+        # Outputs must be usable inside inference mode (e.g. warp_image)
+        aligned, _ = alignment.warp_image(stylized.clone(), est.params, DEVICE)
+    err = composed_residual_px(est.params, p_gt, 256, 256)
+    check(
+        "inference-mode-roundtrip",
+        est.converged and err < 0.75,
+        f"method={est.method} conv={est.converged} err={err:.3f}px",
+    )
+
+
 def test_estimate_identical():
     print("\n[6] identical images -> ~identity params")
     img = make_test_image()
@@ -290,6 +312,7 @@ if __name__ == "__main__":
     test_warp_conventions()
     test_phase_correlation()
     test_estimate_easy()
+    test_estimate_under_inference_mode()
     test_estimate_hard()
     test_estimate_identical()
     test_estimate_unrelated()

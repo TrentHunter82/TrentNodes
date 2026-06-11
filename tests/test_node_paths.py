@@ -68,17 +68,19 @@ def test_align_frames_global():
     p_gt = (-12.0, 9.0, math.log(0.985), math.log(0.985), 0.0)
     stylized, _ = alignment.warp_image(img, p_gt, DEVICE)
 
-    # Force CPU regardless of mm.get_torch_device()
+    # Force CPU regardless of mm.get_torch_device(), and run under
+    # torch.inference_mode() exactly like ComfyUI's executor does.
     import comfy.model_management as mm
     orig_get = mm.get_torch_device
     mm.get_torch_device = lambda: DEVICE
     try:
-        out = node.align_frames(
-            img, stylized,
-            subject_mode="disabled",
-            inpaint_method="blur",
-            visualization_mode="score_map",
-        )
+        with torch.inference_mode():
+            out = node.align_frames(
+                img, stylized,
+                subject_mode="disabled",
+                inpaint_method="blur",
+                visualization_mode="score_map",
+            )
     finally:
         mm.get_torch_device = orig_get
 
