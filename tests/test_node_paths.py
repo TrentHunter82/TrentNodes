@@ -264,12 +264,71 @@ def test_none_mode_mask_safety():
     )
 
 
+def _ghost_scene(H=256, W=256):
+    bg = make_image(H, W, seed=5)
+    m = circle_mask(H, W, 80, 80, 25)
+    green = torch.tensor([0.2, 0.9, 0.3])
+    styl = bg * (1 - m.unsqueeze(-1)) + m.unsqueeze(-1) * green
+    return styl, m
+
+
+def test_lama_backend():
+    print("\n[node-5] lama backend: removal works, alias maps, CPU-safe")
+    inpainting = importlib.import_module("TrentNodes.utils.inpainting")
+    styl, m = _ghost_scene()
+
+    out = inpainting.lama_inpaint(styl, m, DEVICE)
+    ghost = out[0, 80, 80]
+    check(
+        "lama-removes-ghost",
+        abs(ghost[1].item() - 0.9) > 0.2,
+        f"ghost center after fill = {[round(v, 2) for v in ghost.tolist()]}",
+    )
+    keep = (1 - m.unsqueeze(-1))
+    untouched = ((out - styl) * keep).abs().max().item()
+    check(
+        "lama-preserves-unmasked",
+        untouched < 1e-5,
+        f"max change outside mask = {untouched:.2e}",
+    )
+
+    out_alias = inpainting.inpaint(styl, m, DEVICE, method="sd_inpaint")
+    check(
+        "sd_inpaint-alias-is-lama",
+        (out_alias - out).abs().max().item() < 1e-5,
+        "legacy method name produces identical lama output",
+    )
+
+
+def test_void_backend():
+    print("\n[node-6] void backend (gated: TRENT_TEST_VOID=1 + CUDA)")
+    if os.environ.get("TRENT_TEST_VOID") != "1" or not torch.cuda.is_available():
+        print("  SKIP (set TRENT_TEST_VOID=1 and run with CUDA + VOID weights)")
+        return
+    inpainting = importlib.import_module("TrentNodes.utils.inpainting")
+    styl, m = _ghost_scene()
+    dev = torch.device("cuda")
+    out = inpainting.void_inpaint(styl, m, dev, steps=8)
+    ghost = out[0, 80, 80].cpu()
+    keep = (1 - m.unsqueeze(-1))
+    untouched = ((out.cpu() - styl) * keep).abs().max().item()
+    check(
+        "void-shape-and-removal",
+        out.shape == styl.shape and abs(ghost[1].item() - 0.9) > 0.2
+        and untouched < 1e-5,
+        f"shape {tuple(out.shape)}, ghost {[round(v, 2) for v in ghost.tolist()]}, "
+        f"outside-mask change {untouched:.2e}",
+    )
+
+
 if __name__ == "__main__":
     torch.manual_seed(0)
     test_align_frames_global()
     test_subject_path()
     test_segmentation_mismatch_guard()
     test_none_mode_mask_safety()
+    test_lama_backend()
+    test_void_backend()
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     if FAIL:
         print("FAILED:", ", ".join(FAIL))

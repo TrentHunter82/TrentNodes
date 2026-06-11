@@ -57,3 +57,4 @@ input/
 test_outputs/
 debug/
 *:Zone.Identifier
+tests/_void_feasibility/

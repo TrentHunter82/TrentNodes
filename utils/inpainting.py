@@ -1,9 +1,11 @@
 """
 Inpainting utilities for TrentNodes.
 
-Provides multiple inpainting methods:
-- SD 1.5 diffusion-based inpainting (highest quality)
-- Clone-stamp iterative fill (texture-preserving)
+Provides multiple inpainting methods for unprompted background fill
+(clean-plate / object removal):
+- big-lama: purpose-built removal model, single forward pass (default)
+- VOID (Netflix): video inpainting via ComfyUI core, HQ tier
+- Clone-stamp iterative fill (texture-preserving fallback)
 - Simple blur fill (fast fallback)
 """
 
@@ -11,128 +13,203 @@ import torch
 import torch.nn.functional as F
 
 import comfy.model_management as mm
-import comfy.sample
 
 from .mask_ops import dilate_mask, erode_mask
-from .model_cache import load_sd_inpaint_model
+from .model_cache import load_lama_model, load_void_models
 
 
-def sd_inpaint(
+def lama_inpaint(
     image: torch.Tensor,
     mask: torch.Tensor,
     device: torch.device,
-    checkpoint: str = "sd-v1-5-inpainting.safetensors",
-    steps: int = 20,
-    denoise: float = 0.9,
-    cfg: float = 7.5,
-    seed: int = 42
 ) -> torch.Tensor:
     """
-    Use Stable Diffusion 1.5 inpainting model to fill masked regions.
+    Fill masked regions with big-lama (purpose-built removal model).
 
-    Provides high-quality context-aware inpainting using diffusion.
+    Single forward pass, no prompt, ~0.1-1s per frame. Falls back to
+    clone_stamp if the model can't be loaded.
 
     Args:
         image: (B, H, W, C) image tensor in [0, 1] range
         mask: (B, H, W) inpaint mask (1 = area to inpaint)
         device: torch device
-        checkpoint: inpainting model checkpoint name
-        steps: diffusion steps (more = better quality, slower)
-        denoise: denoise strength (0.5-1.0, higher = more change)
-        cfg: classifier-free guidance scale
-        seed: random seed for reproducibility
 
     Returns:
-        Inpainted image tensor (B, H, W, C)
+        Inpainted image tensor (B, H, W, C) on `device`
     """
     B, H, W, C = image.shape
-    print(f"[TrentNodes] Running SD inpainting ({steps} steps)...")
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(0)
 
-    # Load inpainting model (cached); fall back gracefully when the
-    # checkpoint can't be loaded (e.g. first-run download failure) instead
-    # of aborting the whole node mid-execution.
     try:
-        model, clip, vae = load_sd_inpaint_model(checkpoint, device)
+        model = load_lama_model(device)
     except Exception as e:
         print(
-            f"[TrentNodes] SD inpaint checkpoint unavailable ({e}); "
+            f"[TrentNodes] big-lama unavailable ({e}); "
             f"falling back to clone_stamp inpainting"
         )
         return clone_stamp_inpaint(
             image, mask, device, iterations=25, sample_radius=12
         )
 
-    # Encode empty prompts
-    tokens = clip.tokenize("")
-    positive = clip.encode_from_tokens_scheduled(tokens)
-    negative = clip.encode_from_tokens_scheduled(tokens)
+    # LaMa wants (1, 3, H, W) in [0, 1] + (1, 1, H, W) binary mask,
+    # dims divisible by 8 (replicate-pad, crop after)
+    pad_h = (8 - H % 8) % 8
+    pad_w = (8 - W % 8) % 8
+    im = image[..., :3].permute(0, 3, 1, 2).float().to(device)
+    m = (mask > 0.5).float().unsqueeze(1).to(device)
+    if pad_h or pad_w:
+        im = F.pad(im, (0, pad_w, 0, pad_h), mode='replicate')
+        m = F.pad(m, (0, pad_w, 0, pad_h), mode='constant', value=0)
 
+    fills = []
+    with torch.no_grad():
+        for b in range(B):
+            fills.append(model(im[b:b + 1], m[b:b + 1]))
+    fill = torch.cat(fills, dim=0)[..., :H, :W]
+    fill = fill.permute(0, 2, 3, 1).clamp(0, 1)
+
+    # Composite: only masked pixels come from the fill
+    m3 = (mask > 0.5).float().unsqueeze(-1).to(device)
+    result = image.to(device) * (1 - m3) + fill.to(image.dtype) * m3
+    return result
+
+
+# VOID works at its training-scale resolution; larger frames are filled at
+# this cap and the fill upscaled back into the masked region only.
+VOID_MAX_W = 1344
+VOID_MAX_H = 768
+VOID_FRAMES = 5  # minimum valid clip length (latent_t must be even)
+
+_void_empty_cond = None
+
+
+@torch.no_grad()
+def _void_fill_frame(frame_hwc, mask_hw, steps, seed, cfg=6.0):
+    """
+    Run the 2-pass VOID pipeline on one frame (replicated x5).
+
+    The no_grad decorator is load-bearing outside the ComfyUI executor:
+    without it the DDIM loop retains autograd graphs (~13GB/step,
+    verified) and OOMs.
+    """
+    from comfy_extras.nodes_custom_sampler import (
+        BasicScheduler, CFGGuider, RandomNoise, SamplerCustomAdvanced,
+    )
+    from comfy_extras.nodes_void import (
+        VOIDInpaintConditioning, VOIDSampler,
+        VOIDWarpedNoise, VOIDWarpedNoiseSource,
+    )
+
+    global _void_empty_cond
+    model1, model2, clip, vae, flow = load_void_models()
+
+    H, W = frame_hwc.shape[:2]
+    scale = min(VOID_MAX_W / W, VOID_MAX_H / H, 1.0)
+    # /16-divisible work resolution (even latent dims for patch_size 2)
+    work_w = max(64, int(W * scale) // 16 * 16)
+    work_h = max(64, int(H * scale) // 16 * 16)
+
+    if _void_empty_cond is None:
+        tokens = clip.tokenize("")
+        _void_empty_cond = clip.encode_from_tokens_scheduled(tokens)
+    cond = _void_empty_cond
+
+    video = frame_hwc.unsqueeze(0).repeat(VOID_FRAMES, 1, 1, 1).cpu().float()
+    quadmask = (mask_hw > 0.5).float().unsqueeze(0).repeat(
+        VOID_FRAMES, 1, 1
+    ).cpu()
+
+    pos, neg, latent = VOIDInpaintConditioning.execute(
+        cond, cond, vae, video, quadmask, work_w, work_h, VOID_FRAMES, 1
+    ).args
+
+    sampler = VOIDSampler.execute().args[0]
+
+    # Pass 1: random noise
+    guider1 = CFGGuider().get_guider(model1, pos, neg, cfg)[0]
+    sigmas1 = BasicScheduler().get_sigmas(model1, "simple", steps, 1.0)[0]
+    noise1 = RandomNoise().get_noise(seed)[0]
+    out1, _ = SamplerCustomAdvanced().sample(
+        noise1, guider1, sampler, sigmas1, latent
+    )
+    video1 = vae.decode(out1["samples"])
+    if video1.ndim == 5:
+        video1 = video1.reshape(-1, *video1.shape[-3:])
+
+    # Pass 2: optical-flow warped noise refinement
+    warped = VOIDWarpedNoise.execute(
+        flow, video1, work_w, work_h, VOID_FRAMES, 1
+    ).args[0]
+    noise2 = VOIDWarpedNoiseSource.execute(warped).args[0]
+    guider2 = CFGGuider().get_guider(model2, pos, neg, cfg)[0]
+    sigmas2 = BasicScheduler().get_sigmas(model2, "simple", steps, 1.0)[0]
+    out2, _ = SamplerCustomAdvanced().sample(
+        noise2, guider2, sampler, sigmas2, latent
+    )
+    video2 = vae.decode(out2["samples"])
+    if video2.ndim == 5:
+        video2 = video2.reshape(-1, *video2.shape[-3:])
+
+    mid = video2[VOID_FRAMES // 2]  # (work_h', work_w', 3)
+    if mid.shape[0] != H or mid.shape[1] != W:
+        mid = F.interpolate(
+            mid.permute(2, 0, 1).unsqueeze(0),
+            size=(H, W), mode='bilinear', align_corners=False,
+        ).squeeze(0).permute(1, 2, 0)
+    return mid.clamp(0, 1)
+
+
+def void_inpaint(
+    image: torch.Tensor,
+    mask: torch.Tensor,
+    device: torch.device,
+    steps: int = 20,
+    seed: int = 43,
+) -> torch.Tensor:
+    """
+    Fill masked regions with Netflix VOID (HQ tier) via ComfyUI core.
+
+    VOID is a video model (CogVideoX-Fun-V1.5); single frames run through
+    a 5-frame replicated clip and the middle output frame is used. Two
+    diffusion passes per fill. Falls back to lama_inpaint on any failure.
+
+    Args:
+        image: (B, H, W, C) image tensor in [0, 1] range
+        mask: (B, H, W) inpaint mask (1 = area to inpaint)
+        device: torch device
+        steps: diffusion steps per pass
+        seed: noise seed
+
+    Returns:
+        Inpainted image tensor (B, H, W, C) on `device`
+    """
+    B, H, W, C = image.shape
     if mask.dim() == 2:
         mask = mask.unsqueeze(0)
 
-    # Pad to the VAE downscale multiple with replicate padding (the old
-    # center-crop left a 0-7 px un-inpainted strip around the border).
-    downscale = getattr(vae, 'downscale_ratio', 8)
-    pad_h = (downscale - H % downscale) % downscale
-    pad_w = (downscale - W % downscale) % downscale
+    try:
+        fills = []
+        for b in range(B):
+            print(
+                f"[TrentNodes] VOID inpainting frame {b + 1}/{B} "
+                f"({steps} steps x 2 passes)..."
+            )
+            fills.append(
+                _void_fill_frame(image[b, ..., :3], mask[b], steps, seed)
+            )
+        fill = torch.stack(fills, dim=0).to(device)
+    except Exception as e:
+        print(
+            f"[TrentNodes] VOID inpainting failed ({e}); "
+            f"falling back to big-lama"
+        )
+        return lama_inpaint(image, mask, device)
+    finally:
+        mm.soft_empty_cache()
 
-    if pad_h or pad_w:
-        pixels = F.pad(
-            image.permute(0, 3, 1, 2), (0, pad_w, 0, pad_h),
-            mode='replicate'
-        ).permute(0, 2, 3, 1)
-        inpaint_mask = F.pad(
-            mask.unsqueeze(1), (0, pad_w, 0, pad_h),
-            mode='constant', value=0
-        ).squeeze(1)
-    else:
-        pixels = image.clone()
-        inpaint_mask = mask.clone()
-
-    # Grow mask for seamless blending
-    grow_mask_by = 8
-    if grow_mask_by > 0:
-        inpaint_mask_4d = inpaint_mask.unsqueeze(1).to(device)
-        kernel_size = grow_mask_by * 2 + 1
-        kernel = torch.ones((1, 1, kernel_size, kernel_size), device=device)
-        padding = grow_mask_by
-        mask_grown = torch.clamp(
-            F.conv2d(inpaint_mask_4d.round(), kernel, padding=padding),
-            0, 1
-        ).squeeze(1)
-    else:
-        mask_grown = inpaint_mask.to(device)
-
-    # Apply mask to image (set inpaint area to gray)
-    m = (1.0 - inpaint_mask.round()).to(device)
-    pixels = pixels.to(device)
-    for i in range(3):
-        pixels[:, :, :, i] = pixels[:, :, :, i] * m + 0.5 * (1 - m)
-
-    # VAE encode
-    latent_samples = vae.encode(pixels)
-    latent_samples = comfy.sample.fix_empty_latent_channels(model, latent_samples)
-
-    # Prepare noise
-    noise = comfy.sample.prepare_noise(latent_samples, seed, None)
-
-    # Run sampling
-    samples = comfy.sample.sample(
-        model, noise, steps, cfg,
-        "dpmpp_2m", "karras",
-        positive, negative, latent_samples,
-        denoise=denoise,
-        noise_mask=mask_grown,
-        seed=seed
-    )
-
-    # VAE decode, then crop any padding back off
-    samples = samples.to(mm.intermediate_device())
-    result = vae.decode(samples)
-    result = result[:, :H, :W, :].cpu()
-
-    print("[TrentNodes] SD inpainting complete.")
-    return result
+    m3 = (mask > 0.5).float().unsqueeze(-1).to(device)
+    return image.to(device) * (1 - m3) + fill.to(image.dtype) * m3
 
 
 def clone_stamp_inpaint(
@@ -305,7 +382,7 @@ def inpaint(
     image: torch.Tensor,
     mask: torch.Tensor,
     device: torch.device,
-    method: str = "sd_inpaint",
+    method: str = "lama",
     **kwargs
 ) -> torch.Tensor:
     """
@@ -315,18 +392,38 @@ def inpaint(
         image: (B, H, W, C) image tensor
         mask: (B, H, W) inpaint mask (1 = area to inpaint)
         device: torch device
-        method: "sd_inpaint", "clone_stamp", or "blur"
+        method: "lama" (default), "void", "clone_stamp", or "blur".
+            "sd_inpaint" is accepted as a legacy alias for "lama" so old
+            saved workflows keep working (the SD 1.5 backend was removed).
         **kwargs: Method-specific arguments
 
     Returns:
         Inpainted image tensor
     """
     if method == "sd_inpaint":
-        return sd_inpaint(image, mask, device, **kwargs)
+        method = "lama"
+
+    # Each backend takes different knobs; select rather than forward so
+    # call sites can pass a uniform kwarg set.
+    if method == "lama":
+        return lama_inpaint(image, mask, device)
+    elif method == "void":
+        return void_inpaint(
+            image, mask, device,
+            steps=kwargs.get("steps", 20),
+            seed=kwargs.get("seed", 43),
+        )
     elif method == "clone_stamp":
-        return clone_stamp_inpaint(image, mask, device, **kwargs)
+        return clone_stamp_inpaint(
+            image, mask, device,
+            iterations=kwargs.get("iterations", 25),
+            sample_radius=kwargs.get("sample_radius", 12),
+        )
     elif method == "blur":
-        return blur_inpaint(image, mask, device, **kwargs)
+        return blur_inpaint(
+            image, mask, device,
+            iterations=kwargs.get("iterations", 5),
+        )
     else:
         raise ValueError(f"Unknown inpainting method: {method}")
 
@@ -335,7 +432,7 @@ def inpaint_transform_edges(
     image: torch.Tensor,
     validity_mask: torch.Tensor,
     device: torch.device,
-    method: str = "sd_inpaint",
+    method: str = "lama",
     steps: int = 20,
     denoise: float = 0.9,
     edge_threshold: float = 0.99,
@@ -353,9 +450,10 @@ def inpaint_transform_edges(
         validity_mask: (B, H, W) mask from apply_affine_transform_with_mask
                        where 1.0 = real pixels, <1.0 = border-replicated
         device: torch device
-        method: Inpainting method ("sd_inpaint", "clone_stamp", "blur")
-        steps: SD inpaint diffusion steps
-        denoise: SD inpaint denoise strength
+        method: Inpainting method ("lama", "void", "clone_stamp", "blur";
+                "sd_inpaint" maps to "lama")
+        steps: diffusion steps (void only)
+        denoise: unused (kept for call-site compatibility)
         edge_threshold: Pixels with validity < threshold need inpainting
         dilate_radius: Pixels to expand edge mask for better blending
 
@@ -384,12 +482,11 @@ def inpaint_transform_edges(
             edge_mask = edge_mask.unsqueeze(0)
 
     # Use the unified inpaint interface
-    if method == "sd_inpaint":
+    if method in ("lama", "sd_inpaint", "void"):
         result = inpaint(
             image, edge_mask, device,
-            method="sd_inpaint",
+            method=method,
             steps=steps,
-            denoise=denoise
         )
     elif method == "clone_stamp":
         result = inpaint(

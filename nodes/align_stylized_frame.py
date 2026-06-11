@@ -33,9 +33,7 @@ from ..utils.mask_ops import (
 )
 from ..utils.birefnet_wrapper import is_birefnet_available
 from ..utils.segmentation import birefnet_segment, auto_detect_subject
-from ..utils.inpainting import (
-    sd_inpaint, clone_stamp_inpaint, blur_inpaint, inpaint_transform_edges
-)
+from ..utils.inpainting import inpaint, inpaint_transform_edges
 from ..utils.pose_alignment import (
     detect_shoulders_in_masked_region, compute_shoulder_affine_transform,
     rotate_image, rotate_mask
@@ -151,14 +149,15 @@ class AlignStylizedFrame:
                     )
                 }),
                 "inpaint_method": (
-                    ["none", "sd_inpaint", "clone_stamp", "blur"],
+                    ["none", "lama", "void", "clone_stamp", "blur"],
                     {
-                        "default": "sd_inpaint",
+                        "default": "lama",
                         "tooltip": (
-                            "none: output mask for external "
-                            "inpaint | sd_inpaint: AI diffusion"
-                            " | clone_stamp: texture | "
-                            "blur: fast"
+                            "none: output mask for external inpaint | "
+                            "lama: fast removal model (recommended) | "
+                            "void: Netflix VOID diffusion (slow, "
+                            "experimental on stills) | clone_stamp: "
+                            "texture | blur: fast fallback"
                         )
                     }
                 ),
@@ -174,14 +173,18 @@ class AlignStylizedFrame:
                     "min": 5,
                     "max": 50,
                     "step": 5,
-                    "tooltip": "Diffusion steps (more = better quality, slower)"
+                    "tooltip": (
+                        "Diffusion steps per pass (void method only)"
+                    )
                 }),
                 "inpaint_denoise": ("FLOAT", {
                     "default": 0.9,
                     "min": 0.5,
                     "max": 1.0,
                     "step": 0.05,
-                    "tooltip": "Denoise strength (higher = more change)"
+                    "tooltip": (
+                        "Unused (kept for old workflow compatibility)"
+                    )
                 }),
             }
         }
@@ -399,18 +402,11 @@ class AlignStylizedFrame:
                 return aligned_bg, reason, None
             fill = torch.clamp(extra_edge_mask.to(device), 0, 1)
             result = aligned_bg.clone()
-            if inpaint_method == "sd_inpaint":
-                result = sd_inpaint(
+            if inpaint_method != "none":
+                result = inpaint(
                     result, fill, device,
-                    steps=inpaint_steps, denoise=inpaint_denoise
+                    method=inpaint_method, steps=inpaint_steps,
                 ).to(device)
-            elif inpaint_method == "clone_stamp":
-                result = clone_stamp_inpaint(
-                    result, fill, device,
-                    iterations=20, sample_radius=10
-                )
-            elif inpaint_method == "blur":
-                result = blur_inpaint(result, fill, device, iterations=5)
             return (
                 result,
                 reason + " (transform-edge gaps filled)",
@@ -751,25 +747,15 @@ class AlignStylizedFrame:
                 "Inpaint: none (ghost left in image; "
                 "use inpaint_mask externally)"
             )
-        elif inpaint_method == "sd_inpaint":
-            result = sd_inpaint(
-                result, inpaint_mask, device,
-                steps=inpaint_steps,
-                denoise=inpaint_denoise
-            )
-            result = result.to(device)
-            info_parts.append(
-                f"SD inpaint ({inpaint_steps} steps)"
-            )
-        elif inpaint_method == "clone_stamp":
-            result = clone_stamp_inpaint(
-                result, inpaint_mask, device,
-                iterations=20, sample_radius=10
-            )
         else:
-            result = blur_inpaint(
+            result = inpaint(
                 result, inpaint_mask, device,
-                iterations=5
+                method=inpaint_method, steps=inpaint_steps,
+            ).to(device)
+            info_parts.append(
+                f"Inpaint: {inpaint_method}"
+                + (f" ({inpaint_steps} steps x2)"
+                   if inpaint_method == "void" else "")
             )
 
         # STEP 5: Paste the scaled subject at target position
@@ -915,7 +901,7 @@ class AlignStylizedFrame:
                      visualization_mode="overlay", subject_mode="birefnet",
                      subject_mask=None, conform_to_original=1.0,
                      max_subject_shift=150,
-                     fill_transform_edges=True, inpaint_method="sd_inpaint",
+                     fill_transform_edges=True, inpaint_method="lama",
                      mask_expand=10, inpaint_steps=20, inpaint_denoise=0.9):
         """
         Main alignment function with subject-preserving mode.
@@ -929,6 +915,15 @@ class AlignStylizedFrame:
             conform_to_original: 0-1 slider to match original position/scale
             fill_transform_edges: Inpaint edges when scaling creates gaps
         """
+
+        if inpaint_method == "sd_inpaint":
+            # Legacy alias from saved workflows: SD 1.5 backend was
+            # replaced by big-lama (faster, better unprompted removal).
+            print(
+                "[AlignStylizedFrame] inpaint_method 'sd_inpaint' now maps "
+                "to 'lama' (SD 1.5 backend removed)"
+            )
+            inpaint_method = "lama"
 
         device = mm.get_torch_device()
         original_image = original_image.to(device)
