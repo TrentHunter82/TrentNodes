@@ -185,7 +185,7 @@ class LoRATestPromptGenerator:
         "all_prompts",
     )
     FUNCTION = "generate_prompts"
-    CATEGORY = "TrentNodes/Testing"
+    CATEGORY = "Trent/Testing"
     DESCRIPTION = (
         "Generates 10 test prompts for validating LoRA models across "
         "different scenarios"

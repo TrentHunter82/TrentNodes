@@ -137,7 +137,7 @@ class AnimationDuplicateFrameProcessor:
         "processed_frames", "duplicate_mask", "timing_report", "removal_indices"
     )
     FUNCTION = "process_animation_timing"
-    CATEGORY = "Animation/Timing"
+    CATEGORY = "Trent/Animation"
 
     def calculate_ssim(self, frame1, frame2):
         """Calculate Structural Similarity Index between two frames."""
@@ -776,7 +776,7 @@ class AnimationFrameRemover:
     RETURN_TYPES = ("IMAGE", "STRING")
     RETURN_NAMES = ("images", "removal_report")
     FUNCTION = "remove_frames"
-    CATEGORY = "Animation/Timing"
+    CATEGORY = "Trent/Animation"
 
     def remove_frames(self, images, removal_indices, debug_info=False):
         """Remove frames at the specified indices from the batch."""

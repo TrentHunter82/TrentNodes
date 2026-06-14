@@ -21,7 +21,7 @@ BOT_TYPES = ["MID_JOURNEY", "NIJI_JOURNEY"]
 class MidjourneyBlend:
     """Mix two images via the Midjourney Blend endpoint."""
 
-    CATEGORY = "Trent Tools/Midjourney"
+    CATEGORY = "Trent/Midjourney"
     RETURN_TYPES = ("IMAGE", "STRING")
     RETURN_NAMES = ("image", "task_id")
     FUNCTION = "blend"

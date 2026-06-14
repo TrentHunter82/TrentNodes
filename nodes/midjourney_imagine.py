@@ -55,7 +55,7 @@ def _build_prompt(
 class MidjourneyImagine:
     """Text -> Midjourney 2x2 grid via the Yunwu MJ API."""
 
-    CATEGORY = "Trent Tools/Midjourney"
+    CATEGORY = "Trent/Midjourney"
     RETURN_TYPES = ("IMAGE", "STRING", "DICT")
     RETURN_NAMES = ("image", "task_id", "buttons")
     FUNCTION = "generate"

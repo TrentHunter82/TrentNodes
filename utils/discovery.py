@@ -42,7 +42,7 @@ def register_node(
     node_class,
     class_mappings: dict,
     display_mappings: dict,
-    default_category: str = "Trent Tools/Auto"
+    default_category: str = "Trent/Auto"
 ):
     """
     Register a single node class into the mappings.

@@ -54,7 +54,7 @@ def _run_one_action(client, task_id, label, buttons):
 class MidjourneyAction:
     """Run one upscale (U1-U4) or variation (V1-V4) on a prior task."""
 
-    CATEGORY = "Trent Tools/Midjourney"
+    CATEGORY = "Trent/Midjourney"
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
     FUNCTION = "run"
@@ -109,7 +109,7 @@ class MidjourneyAction:
 class MidjourneyBatchActions:
     """Run all four upscales OR all four variations concurrently."""
 
-    CATEGORY = "Trent Tools/Midjourney"
+    CATEGORY = "Trent/Midjourney"
     RETURN_TYPES = ("IMAGE", "IMAGE", "IMAGE", "IMAGE")
     RETURN_NAMES = ("slot1", "slot2", "slot3", "slot4")
     FUNCTION = "run"

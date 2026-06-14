@@ -460,7 +460,7 @@ class CompositionCowboy:
     RETURN_TYPES = ("STRING", "STRING", "IMAGE", "BOUNDING_BOX", "INT", "INT", "STRING", "STRING")
     RETURN_NAMES = ("prompt_json", "prompt_text", "preview", "bboxes", "out_width", "out_height", "preset_name", "vlm_brief")
     FUNCTION = "build"
-    CATEGORY = "TrentNodes/Prompt"
+    CATEGORY = "Trent/Prompt"
     DESCRIPTION = (
         "Build print/cover layout prompts from curated, design-best-practice templates "
         "(magazine, comic, book, poster). Pick a preset or set select_by=index + the "
