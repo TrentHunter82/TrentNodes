@@ -20,7 +20,9 @@ import { app } from "../../scripts/app.js";
  * in column 0.
  */
 
-const PADDING = 20;
+// Uniform padding between the group's inner edges and its contents, matching
+// ComfyUI's native "Fit Group To Contents" (its default is 10; we use 25).
+const PADDING = 25;
 const COL_GAP = 40;
 const ROW_GAP = 40;
 
@@ -289,20 +291,27 @@ function arrangeGroup(group, graph) {
         }
     }
 
-    // Group height = wrap the lowest bottom edge across all columns.
-    let maxBottom = originY;
-    for (const n of nodes) {
-        const b = n.pos[1] + effectiveSize(n)[1];
-        if (b > maxBottom) maxBottom = b;
+    // Wrap the group around the laid-out nodes with uniform PADDING. Prefer
+    // LiteGraph's native resizeTo(): it fits to each node's full bounding box
+    // (including the title that renders above node.pos[1]) and accounts for the
+    // group's own title height — identical to ComfyUI's "Fit Group To Contents".
+    if (typeof group.resizeTo === "function") {
+        group.resizeTo(nodes, PADDING);
+    } else {
+        // Fallback for older litegraph (approximate; ignores node titles).
+        let maxBottom = originY;
+        for (const n of nodes) {
+            const b = n.pos[1] + effectiveSize(n)[1];
+            if (b > maxBottom) maxBottom = b;
+        }
+        const totalW = numCols > 0
+            ? colXOffsets[numCols - 1] + colWidths[numCols - 1]
+            : 0;
+        group.size = [
+            totalW + 2 * PADDING,
+            (maxBottom - originY) + 2 * PADDING + titleH
+        ];
     }
-
-    const totalW = numCols > 0
-        ? colXOffsets[numCols - 1] + colWidths[numCols - 1]
-        : 0;
-    group.size = [
-        totalW + 2 * PADDING,
-        (maxBottom - originY) + 2 * PADDING + titleH
-    ];
 }
 
 function organizeSelectedGroups() {
@@ -339,6 +348,17 @@ app.registerExtension({
             function: organizeSelectedGroups
         }
     ],
+
+    // Surface the command in the canvas selection toolbox (the popup toolbar)
+    // whenever a group is selected. ComfyUI collects the returned command id(s)
+    // across selected items and renders them as buttons.
+    getSelectionToolboxCommands(selectedItem) {
+        if (window.LiteGraph
+            && selectedItem instanceof window.LiteGraph.LGraphGroup) {
+            return ["TrentNodes.OrganizeGroupGrid"];
+        }
+        return [];
+    },
 
     keybindings: [
         {
