@@ -291,6 +291,17 @@ function arrangeGroup(group, graph) {
         }
     }
 
+    // A node's boundingRect is a cached, measured rect that only refreshes on the
+    // render pass — assigning node.pos above does NOT update it. resizeTo() reads
+    // those cached rects, so without this it would wrap the nodes' pre-move
+    // positions, leaving the group too small/offset. Force each moved node to
+    // re-measure first, reusing LiteGraph's own title/collapse-aware logic.
+    const ctx = app.canvas && app.canvas.ctx;
+    for (const n of nodes) {
+        if (typeof n.updateArea === "function") n.updateArea(ctx);
+        else if (typeof n.measure === "function") n.measure(n.boundingRect, ctx);
+    }
+
     // Wrap the group around the laid-out nodes with uniform PADDING. Prefer
     // LiteGraph's native resizeTo(): it fits to each node's full bounding box
     // (including the title that renders above node.pos[1]) and accounts for the
