@@ -32,15 +32,17 @@ class MaskToBBoxMask:
             },
         }
 
-    RETURN_TYPES = ("MASK", "IMAGE")
-    RETURN_NAMES = ("bbox_mask", "images")
+    RETURN_TYPES = ("MASK", "IMAGE", "BOUNDING_BOX")
+    RETURN_NAMES = ("bbox_mask", "images", "bboxes")
     FUNCTION = "convert"
     CATEGORY = "Trent/Masks"
     DESCRIPTION = (
         "Per frame, finds the bounding box of the input mask (pixels above threshold) and "
         "outputs a rectangular bbox mask that tracks each frame's mask area. Frames with no "
         "mask present yield an empty bbox for that frame. Optionally draws the bbox over an "
-        "input image or batch of images (outline unless 'fill' is on)."
+        "input image or batch of images (outline unless 'fill' is on). Also emits a "
+        "BOUNDING_BOX (x/y/width/height dicts per frame) compatible with Draw Gray BBox and "
+        "comfy-core bbox nodes."
     )
 
     def convert(self, mask, threshold=0.5, padding=0, fill=True, outline_thickness=3, image=None):
@@ -79,6 +81,7 @@ class MaskToBBoxMask:
             out_img = torch.zeros((b, oh, ow, 3), dtype=torch.float32, device=device)
 
         t = outline_thickness
+        out_bboxes = [[] for _ in range(b)]  # one list of dicts per frame
 
         for i in range(b):
             m = mask_rs[i if b_mask > 1 else 0]
@@ -92,6 +95,8 @@ class MaskToBBoxMask:
             y2 = min(oh, y2 + padding)
             if x2 <= x1 or y2 <= y1:
                 continue
+
+            out_bboxes[i].append({"x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1})
 
             if fill:
                 out_mask[i, y1:y2, x1:x2] = 1.0
@@ -111,7 +116,7 @@ class MaskToBBoxMask:
                 # No image: visualize the bbox mask itself as a grayscale image.
                 out_img[i, :, :, :] = out_mask[i].unsqueeze(-1)
 
-        return (out_mask, out_img)
+        return (out_mask, out_img, out_bboxes)
 
 
 NODE_CLASS_MAPPINGS = {"MaskToBBoxMask": MaskToBBoxMask}
