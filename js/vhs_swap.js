@@ -12,6 +12,17 @@ import { app } from "../../scripts/app.js";
  *   GetVideoComponents  (removed, connections rewired)
  *   CreateVideo         (removed, connections rewired)
  *
+ * After swapping, always wires up the VHS_VideoCombine(s):
+ *   - Sets `format` to video/h264-mp4 and `crf` to 13.
+ *   - Adds/reuses a VHS_VideoInfo off the VHS Load Video and runs its
+ *     `loaded_fps` down through two Reroute nodes parked at the bottom
+ *     of the workflow, then up into the Combine `frame_rate` input.
+ *     (This restores the fps that the swap otherwise drops when it
+ *     collapses GetVideoComponents.)
+ *   - No VHS Load Video? Defaults `frame_rate` to 24 instead.
+ * This wiring runs even when there's nothing to swap (a graph that is
+ * already VHS), so Shift+V is also a one-press "wire the Combine" tool.
+ *
  * Scope: if nodes are selected, only those are replaced.
  * Otherwise all matching nodes in the graph are replaced.
  *
@@ -24,6 +35,44 @@ const NATIVE_GET_COMPONENTS = "GetVideoComponents";
 const NATIVE_CREATE = "CreateVideo";
 const VHS_LOAD = "VHS_LoadVideo";
 const VHS_COMBINE = "VHS_VideoCombine";
+const VHS_VIDEO_INFO = "VHS_VideoInfo";
+const REROUTE_TYPE = "Reroute";
+
+// All VHS Load Video variants (for sourcing fps after a swap).
+const VHS_LOAD_TYPES = new Set([
+    "VHS_LoadVideo",
+    "VHS_LoadVideoPath",
+    "VHS_LoadVideoFFmpeg",
+    "VHS_LoadVideoFFmpegPath",
+]);
+
+// VHS_LoadVideo* output 3 = video_info; VHS_VideoInfo output 5 = loaded_fps.
+const LOAD_VIDEO_INFO_SLOT = 3;
+const INFO_LOADED_FPS_SLOT = 5;
+
+// Combine output settings applied on every swap.
+const TARGET_FORMAT = "video/h264-mp4";
+const TARGET_CRF = 13;
+// Fallback frame rate when there's no VHS Load Video to source fps from.
+const DEFAULT_FPS = 24;
+// Vertical gap below the lowest node where the reroute chain is parked.
+const BOTTOM_MARGIN = 120;
+
+// convertToInput helper, for turning the Combine's frame_rate widget into
+// an input slot. Resolved via the ComfyUI shim, with a dynamic-import
+// fallback for builds where window.comfyAPI hasn't populated yet.
+let convertWidgetToInput = window.comfyAPI?.widgetInputs?.convertToInput;
+if (!convertWidgetToInput) {
+    import("/extensions/core/widgetInputs.js")
+        .then((mod) => {
+            convertWidgetToInput = mod.convertToInput;
+        })
+        .catch((err) => {
+            console.warn(
+                "[VHSSwap] Could not load widgetInputs.js:", err
+            );
+        });
+}
 
 /**
  * Collect all input and output connections for a node.
@@ -149,7 +198,9 @@ function vhsSwap() {
         + buckets.getComponents.length
         + buckets.create.length
     );
-    if (totalTargets === 0) return;
+    // Note: no early return when totalTargets === 0. The swap phases
+    // below are no-ops on an empty bucket set, and we still want the
+    // fps/mp4 wiring to run on an already-VHS graph.
 
     // -- Step 3: undo transaction --
     canvas.emitBeforeChange();
@@ -522,20 +573,20 @@ function vhsSwap() {
             newNode.size = newNode.computeSize();
         }
 
-        graph.setDirtyCanvas(true, true);
+        if (totalTargets > 0) {
+            console.log(
+                `VHS Swap: replaced ${buckets.load.length} LoadVideo,`
+                + ` ${buckets.save.length} SaveVideo;`
+                + ` collapsed ${buckets.getComponents.length}`
+                + ` GetVideoComponents, ${buckets.create.length} CreateVideo`
+            );
+        }
 
-        const counts = {
-            load: buckets.load.length,
-            save: buckets.save.length,
-            gvc: buckets.getComponents.length,
-            create: buckets.create.length,
-        };
-        console.log(
-            `VHS Swap: replaced ${counts.load} LoadVideo,`
-            + ` ${counts.save} SaveVideo;`
-            + ` collapsed ${counts.gvc} GetVideoComponents,`
-            + ` ${counts.create} CreateVideo`
-        );
+        // -- Step 4: always wire the VHS_VideoCombine(s): mp4/crf13 and
+        // loaded_fps in via a VHS_VideoInfo + bottom reroutes.
+        wireCombineFps(graph);
+
+        graph.setDirtyCanvas(true, true);
     } finally {
         canvas.emitAfterChange();
     }
@@ -578,6 +629,253 @@ function findInputSlotByType(node, type) {
     return 0;
 }
 
+// -- Combine fps / mp4 wiring (runs after every swap) --
+
+/**
+ * Get the node-definition input config for a given input name.
+ * Falls back through several places where ComfyUI stashes nodeData.
+ */
+function getInputConfig(node, inputName) {
+    const sources = [
+        node.constructor?.nodeData,
+        LiteGraph.registered_node_types?.[node.type]?.nodeData,
+        LiteGraph.registered_node_types?.[getNodeType(node)]?.nodeData,
+    ];
+    for (const nd of sources) {
+        const req = nd?.input?.required?.[inputName];
+        if (req) return req;
+        const opt = nd?.input?.optional?.[inputName];
+        if (opt) return opt;
+    }
+    return null;
+}
+
+/**
+ * Find a VHS_VideoInfo node already wired to the Load's video_info
+ * output. Returns null if none exists.
+ */
+function findExistingVideoInfo(loadNode, graph) {
+    const out = loadNode.outputs?.[LOAD_VIDEO_INFO_SLOT];
+    if (!out || !out.links) return null;
+    for (const linkId of out.links) {
+        const link = graph.links[linkId];
+        if (!link) continue;
+        const target = graph.getNodeById(link.target_id);
+        if (target && getNodeType(target) === VHS_VIDEO_INFO) {
+            return target;
+        }
+    }
+    return null;
+}
+
+/**
+ * Ensure `frame_rate` is an input slot on the combine node, converting
+ * the widget if needed. Returns the input slot index, or -1 on failure.
+ */
+function ensureFrameRateInput(combineNode) {
+    const existing = findInputSlotByName(combineNode, "frame_rate");
+    if (existing >= 0) return existing;
+
+    const widget = combineNode.widgets?.find(
+        (w) => w.name === "frame_rate"
+    );
+    if (!widget) {
+        console.warn(
+            "[VHSSwap] frame_rate widget not found on Combine."
+        );
+        return -1;
+    }
+
+    if (!convertWidgetToInput) {
+        console.warn(
+            "[VHSSwap] convertToInput helper unavailable;"
+            + " cannot convert frame_rate widget to input."
+        );
+        return -1;
+    }
+
+    const config = getInputConfig(combineNode, "frame_rate")
+        ?? ["FLOAT", { default: 8, min: 1, step: 1 }];
+
+    try {
+        convertWidgetToInput(combineNode, widget, config);
+    } catch (err) {
+        console.warn("[VHSSwap] convertToInput threw:", err);
+        return -1;
+    }
+
+    return findInputSlotByName(combineNode, "frame_rate");
+}
+
+/**
+ * Y coordinate just below the lowest node in the graph, where the
+ * reroute chain is parked so its wire runs along the bottom edge.
+ */
+function computeBottomY(graph) {
+    let maxY = -Infinity;
+    for (const n of graph._nodes || []) {
+        const y = (n.pos?.[1] ?? 0) + (n.size?.[1] ?? 0);
+        if (y > maxY) maxY = y;
+    }
+    if (!isFinite(maxY)) maxY = 0;
+    return maxY + BOTTOM_MARGIN;
+}
+
+/**
+ * Route `sourceNode[sourceSlot]` into `combineNode[frameRateSlot]`
+ * through a chain of two Reroute nodes parked at the bottom of the
+ * workflow. Falls back to a direct connection if Reroutes can't be made.
+ */
+function createRerouteChain(
+    graph, sourceNode, sourceSlot, combineNode, frameRateSlot
+) {
+    const rerouteA = LiteGraph.createNode(REROUTE_TYPE);
+    const rerouteB = LiteGraph.createNode(REROUTE_TYPE);
+    if (!rerouteA || !rerouteB) {
+        console.warn(
+            "[VHSSwap] Could not create Reroute nodes;"
+            + " connecting fps directly."
+        );
+        sourceNode.connect(sourceSlot, combineNode, frameRateSlot);
+        return null;
+    }
+
+    const bottomY = computeBottomY(graph);
+    // A sits under the source, B under the Combine, so the wire drops
+    // down, runs along the bottom, and comes back up into the Combine.
+    rerouteA.pos = [sourceNode.pos[0], bottomY];
+    rerouteB.pos = [combineNode.pos[0], bottomY];
+    graph.add(rerouteA);
+    graph.add(rerouteB);
+
+    sourceNode.connect(sourceSlot, rerouteA, 0);
+    rerouteA.connect(0, rerouteB, 0);
+    rerouteB.connect(0, combineNode, frameRateSlot);
+
+    return [rerouteA, rerouteB];
+}
+
+/**
+ * Set the Combine `format` to h264-mp4 (firing its callback so VHS adds
+ * the format-specific widgets), then set crf.
+ */
+function applyH264Settings(combineNode) {
+    const formatW = combineNode.widgets?.find((w) => w.name === "format");
+    if (!formatW) {
+        console.warn("[VHSSwap] format widget not found on Combine.");
+        return;
+    }
+
+    if (formatW.value !== TARGET_FORMAT) {
+        formatW.value = TARGET_FORMAT;
+        if (formatW.callback) formatW.callback(TARGET_FORMAT);
+    }
+
+    const crfW = combineNode.widgets?.find((w) => w.name === "crf");
+    if (crfW) {
+        crfW.value = TARGET_CRF;
+        if (crfW.callback) crfW.callback(TARGET_CRF);
+    } else {
+        console.warn(
+            "[VHSSwap] crf widget did not appear after format change."
+        );
+    }
+
+    combineNode.setDirtyCanvas(true, true);
+}
+
+/**
+ * Default the frame_rate to DEFAULT_FPS. Only works while frame_rate is
+ * still a widget (the no-Load-Video path never converts it to an input).
+ */
+function applyDefaultFps(combineNode) {
+    const widget = combineNode.widgets?.find(
+        (w) => w.name === "frame_rate"
+    );
+    if (widget) {
+        widget.value = DEFAULT_FPS;
+        if (widget.callback) widget.callback(DEFAULT_FPS);
+    } else {
+        console.warn(
+            "[VHSSwap] frame_rate is an input slot, not a widget;"
+            + " leaving it as-is (no Load Video to source fps)."
+        );
+    }
+}
+
+/**
+ * For every VHS_VideoCombine in the graph: set mp4/crf13, and (if there
+ * is exactly one VHS Load Video) run its loaded_fps through a VHS_VideoInfo
+ * and two bottom reroutes into the Combine's frame_rate. Otherwise default
+ * frame_rate to 24. Idempotent: an existing Reroute feed is left intact; a
+ * stale direct loaded_fps->frame_rate link is rebuilt through the reroutes.
+ */
+function wireCombineFps(graph) {
+    const nodes = graph._nodes || [];
+    const combines = nodes.filter((n) => getNodeType(n) === VHS_COMBINE);
+    if (combines.length === 0) return;
+
+    const loads = nodes.filter((n) => VHS_LOAD_TYPES.has(getNodeType(n)));
+    const loadNode = loads.length === 1 ? loads[0] : null;
+
+    for (const combineNode of combines) {
+        // Always: h264-mp4 / crf 13.
+        applyH264Settings(combineNode);
+
+        // No single Load Video to source fps -> default to 24.
+        if (!loadNode) {
+            applyDefaultFps(combineNode);
+            continue;
+        }
+
+        // Ensure a VideoInfo node hangs off the Load Video.
+        let infoNode = findExistingVideoInfo(loadNode, graph);
+        if (!infoNode) {
+            infoNode = LiteGraph.createNode(VHS_VIDEO_INFO);
+            if (!infoNode) {
+                console.warn("[VHSSwap] Failed to create VHS_VideoInfo.");
+                applyDefaultFps(combineNode);
+                continue;
+            }
+            infoNode.pos = [
+                loadNode.pos[0] + (loadNode.size?.[0] || 240) + 40,
+                loadNode.pos[1],
+            ];
+            graph.add(infoNode);
+            loadNode.connect(LOAD_VIDEO_INFO_SLOT, infoNode, 0);
+        }
+
+        // Convert frame_rate to an input.
+        const frameRateSlot = ensureFrameRateInput(combineNode);
+        if (frameRateSlot < 0) continue;
+
+        // loaded_fps -> two bottom reroutes -> frame_rate (idempotent).
+        const frInput = combineNode.inputs?.[frameRateSlot];
+        const existingLink = (frInput && frInput.link != null)
+            ? graph.links[frInput.link]
+            : null;
+        const existingSource = existingLink
+            ? graph.getNodeById(existingLink.origin_id)
+            : null;
+
+        if (
+            existingSource
+            && getNodeType(existingSource) === REROUTE_TYPE
+        ) {
+            // Already routed through a Reroute; leave it intact.
+            continue;
+        }
+        if (existingLink) {
+            // Drop a stale direct connection before re-routing.
+            combineNode.disconnectInput(frameRateSlot);
+        }
+        createRerouteChain(
+            graph, infoNode, INFO_LOADED_FPS_SLOT,
+            combineNode, frameRateSlot
+        );
+    }
+}
+
 // -- Extension registration --
 
 app.registerExtension({
@@ -586,7 +884,7 @@ app.registerExtension({
     commands: [
         {
             id: "TrentNodes.VHSSwap",
-            label: "Swap Native Video to VHS",
+            label: "Swap Native Video to VHS (+ wire fps/mp4)",
             icon: "pi pi-refresh",
             function: () => vhsSwap(),
         },
