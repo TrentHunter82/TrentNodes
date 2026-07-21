@@ -63,6 +63,17 @@ function darken(hex, factor = 0.42) {
     return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
+// Lighten a color by raising HSL lightness `amount` of the way toward white,
+// keeping hue and saturation fixed (lighter, not more saturated). Used to give
+// group backgrounds a softer tint than the node title color painted alongside.
+function lighten(hex, amount = 0.15) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+    if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    const { h, s, l } = rgbToHsl([(n >> 16) & 255, (n >> 8) & 255, n & 255]);
+    return rgbToHex(hslToRgb(h, s, l + (1 - l) * amount));
+}
+
 // ---- color extraction (drag an image -> dominant palette) -------------------
 
 function rgbToHex([r, g, b]) {
@@ -84,6 +95,24 @@ function rgbToHsl([r, g, b]) {
         h *= 60;
     }
     return { h, s, l };
+}
+
+// Inverse of rgbToHsl. h:0..360, s/l:0..1 -> [r,g,b] each 0..255.
+function hslToRgb(h, s, l) {
+    h = ((h % 360) + 360) % 360 / 360;
+    s = Math.max(0, Math.min(1, s));
+    l = Math.max(0, Math.min(1, l));
+    if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const hue = (t) => {
+        if (t < 0) t += 1; else if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+    };
+    return [hue(h + 1 / 3), hue(h), hue(h - 1 / 3)].map((v) => Math.round(v * 255));
 }
 
 function dedupe(pixels) {
@@ -258,8 +287,9 @@ function applyColorToSelection(hex) {
         node.color = hex;
         node.bgcolor = body;
     }
+    const groupHex = lighten(hex); // ~15% lighter tint than the node title color
     for (const group of groups) {
-        group.color = hex; // groups carry a single color (no bgcolor)
+        group.color = groupHex; // groups carry a single color (no bgcolor)
     }
     app.graph.change();
 }
@@ -315,7 +345,7 @@ function installBucketPatch() {
                 return false;
             }
             if (group) {
-                group.color = armedHex;
+                group.color = lighten(armedHex);
                 if (graph) graph.change();
                 e.preventDefault(); e.stopPropagation();
                 return false;
