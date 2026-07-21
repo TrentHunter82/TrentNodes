@@ -3,8 +3,8 @@ import { app } from "../../scripts/app.js";
 /**
  * Wire VHS Combine Extension
  *
- * One-hotkey wiring of a VHS output workflow. Two behaviours,
- * chosen automatically:
+ * One-hotkey wiring of a VHS output workflow. Two behaviours, chosen
+ * automatically:
  *
  *   A. A VHS Load Video is present (feeding, or available to feed,
  *      the Combine):
@@ -22,11 +22,14 @@ import { app } from "../../scripts/app.js";
  *        defaults its `frame_rate` widget to 24. No VideoInfo,
  *        no reroutes.
  *
+ * Purely VHS: this never creates or touches ComfyUI's native video
+ * nodes.
+ *
  * Scope: if a VHS Load Video and/or a VHS_VideoCombine are selected,
  * those are used. Otherwise falls back to the single matching
  * node(s) in the graph.
  *
- * Hotkey: Shift+Alt+V
+ * Hotkey: Shift+V
  */
 
 const VHS_LOAD_TYPES = new Set([
@@ -144,7 +147,7 @@ function resolvePair() {
 
     if (pick.combines.length !== 1) {
         return { error: (
-            `Select one VHS Video Combine, then press Shift+Alt+V.\n\n`
+            `Select one VHS Video Combine, then press Shift+V.\n\n`
             + `Found ${pick.combines.length} Video Combine node(s)`
             + ` in ${usingSelection ? "your selection" : "the graph"}.`
         )};
@@ -153,7 +156,7 @@ function resolvePair() {
         return { error: (
             `Found ${pick.loads.length} VHS Load Video nodes.\n\n`
             + `Select the one to wire (plus the Video Combine),`
-            + ` then press Shift+Alt+V.`
+            + ` then press Shift+V.`
         )};
     }
 
@@ -398,15 +401,29 @@ function wireVHSCombine() {
         const frameRateSlot = ensureFrameRateInput(combineNode);
         if (frameRateSlot < 0) return;
 
-        // Step 3: run loaded_fps -> two bottom reroutes -> frame_rate,
-        // unless frame_rate is already wired (idempotent re-runs).
+        // Step 3: run loaded_fps -> two bottom reroutes -> frame_rate.
+        // Idempotency: if frame_rate is already fed by a Reroute, assume
+        // our chain exists and leave it. If it's fed by a *direct* link
+        // (e.g. an earlier version wired loaded_fps straight in), drop
+        // that link and rebuild through the bottom reroutes.
         const frInput = combineNode.inputs?.[frameRateSlot];
-        if (frInput && frInput.link != null) {
+        const existingLink = (frInput && frInput.link != null)
+            ? graph.links[frInput.link]
+            : null;
+        const existingSource = existingLink
+            ? graph.getNodeById(existingLink.origin_id)
+            : null;
+
+        if (existingSource && getNodeType(existingSource) === REROUTE_TYPE) {
             console.log(
-                "[WireVHSCombine] frame_rate already wired;"
+                "[WireVHSCombine] frame_rate already fed by a Reroute;"
                 + " leaving existing routing intact."
             );
         } else {
+            if (existingLink) {
+                // Remove the old direct connection before re-routing.
+                combineNode.disconnectInput(frameRateSlot);
+            }
             createRerouteChain(
                 graph, infoNode, INFO_LOADED_FPS_SLOT,
                 combineNode, frameRateSlot
@@ -443,7 +460,7 @@ app.registerExtension({
     keybindings: [
         {
             commandId: "TrentNodes.WireVHSCombine",
-            combo: { key: "v", shift: true, alt: true },
+            combo: { key: "v", shift: true },
         },
     ],
 
