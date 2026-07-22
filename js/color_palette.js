@@ -3,7 +3,7 @@ import { app } from "../../scripts/app.js";
 /*
  * Trent Color Palette
  * -------------------
- * A tiny floating, draggable palette of 7 preset color swatches.
+ * A docked ComfyUI sidebar tab holding 7 preset color swatches.
  *   - Left-click a swatch  -> color all currently-selected node(s) AND group(s)
  *   - Right-click a swatch -> pick a new preset color for that slot
  *   - "Reset" chip         -> strip selected node(s)/group(s) back to default
@@ -11,12 +11,13 @@ import { app } from "../../scripts/app.js";
  *   - Drop an image on the panel -> auto-fill the 7 swatches with its dominant
  *                                   colors (one-step "undo import" to revert)
  * Presets are also synced into LiteGraph's right-click "Colors" menu.
- * Everything (colors, panel position, collapsed state) persists in localStorage.
+ * Show/hide/dock is handled natively by ComfyUI's sidebar (icon rail, or the
+ * "🎨 Color Palette" command). Colors persist in localStorage; the UI is built
+ * once and re-mounted on each sidebar render so paint/undo state survives toggles.
  */
 
+const TAB_ID = "trent-color-palette";
 const LS_COLORS = "TrentPalette.colors";
-const LS_POS = "TrentPalette.pos";
-const LS_COLLAPSED = "TrentPalette.collapsed";
 const LS_PREV = "TrentPalette.colors.prev"; // one-step undo backup for image imports
 
 const N_COLORS = 7;            // palette size (must match DEFAULT_COLORS length)
@@ -314,7 +315,7 @@ function resetSelection() {
 // ---- paint-bucket mode -----------------------------------------------------
 // `bucketArmed` = paint mode is on (toggle button); `armedHex` = a swatch color
 // has been picked. The canvas patch only paints when BOTH are set. The UI-aware
-// disarm is installed by buildPanel; this default just clears state.
+// disarm is installed by buildPaletteBody; this default just clears state.
 let bucketArmed = false;
 let armedHex = null;
 let disarmBucket = () => { bucketArmed = false; armedHex = null; };
@@ -393,59 +394,30 @@ function flash(msg) {
 
 // ---- panel UI --------------------------------------------------------------
 
-function buildPanel() {
-    if (document.getElementById("trent-palette")) return;
-
+// Build the palette UI once into a detached container and return it. ComfyUI's
+// sidebar render() re-parents this same element on every open, so all event
+// handlers, the `colors` closures, and paint/undo state survive tab toggles.
+function buildPaletteBody() {
     const colors = loadColors();
     syncContextMenuColors(colors);
 
-    const panel = document.createElement("div");
-    panel.id = "trent-palette";
-    Object.assign(panel.style, {
-        position: "fixed",
-        zIndex: "1000",
-        background: "#11181d",
-        border: "1px solid #2a3942",
-        borderRadius: "8px",
-        boxShadow: "0 4px 18px rgba(0,0,0,0.55)",
+    const root = document.createElement("div");
+    root.id = "trent-palette";
+    Object.assign(root.style, {
+        boxSizing: "border-box",
+        padding: "10px",
         font: "12px sans-serif",
         color: "#cdd6dd",
         userSelect: "none",
-        width: "auto",
+        width: "100%",
     });
 
-    // restore position
-    let pos = { left: "auto", top: "120px", right: "16px" };
-    try { pos = Object.assign(pos, JSON.parse(localStorage.getItem(LS_POS) || "{}")); } catch (e) {}
-    panel.style.left = pos.left;
-    panel.style.top = pos.top;
-    panel.style.right = pos.left === "auto" ? pos.right : "auto";
-
-    // header (drag handle + collapse)
-    const header = document.createElement("div");
-    Object.assign(header.style, {
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "5px 8px", cursor: "move", borderBottom: "1px solid #2a3942",
-        gap: "8px",
-    });
-    const title = document.createElement("span");
-    title.textContent = "🎨 Colors";
-    title.style.fontWeight = "600";
-    title.style.letterSpacing = "0.3px";
-    const collapseBtn = document.createElement("span");
-    collapseBtn.style.cursor = "pointer";
-    collapseBtn.style.padding = "0 4px";
-    collapseBtn.style.opacity = "0.7";
-    header.appendChild(title);
-    header.appendChild(collapseBtn);
-    panel.appendChild(header);
-
-    // body
-    const body = document.createElement("div");
-    body.style.padding = "8px";
+    // body content mounts directly into root (the sidebar frame supplies the
+    // title/border/scroll; no floating chrome, drag handle, or collapse here).
+    const body = root;
 
     const swatchRow = document.createElement("div");
-    Object.assign(swatchRow.style, { display: "flex", gap: "6px", flexWrap: "nowrap" });
+    Object.assign(swatchRow.style, { display: "flex", gap: "6px", flexWrap: "wrap" });
 
     const swatchEls = []; // swatch divs, parallel to `colors`, for bulk restyling
 
@@ -516,7 +488,7 @@ function buildPanel() {
     const footer = document.createElement("div");
     Object.assign(footer.style, {
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        marginTop: "8px", gap: "8px",
+        marginTop: "8px", gap: "8px", flexWrap: "wrap",
     });
     const resetChip = document.createElement("div");
     resetChip.textContent = "✕ reset";
@@ -685,23 +657,23 @@ function buildPanel() {
         dropZone.style.background = on ? "rgba(69,182,224,0.12)" : "transparent";
         dropZone.style.color = on ? "#cdd6dd" : "#7c8a93";
     }
-    panel.addEventListener("dragenter", (e) => {
+    root.addEventListener("dragenter", (e) => {
         if (!dragHasImage(e)) return;
         e.preventDefault();
         dragDepth++;
         setDropHighlight(true);
     });
-    panel.addEventListener("dragover", (e) => {
+    root.addEventListener("dragover", (e) => {
         if (!dragHasImage(e)) return;
         e.preventDefault();
         e.stopPropagation(); // keep ComfyUI's global canvas drop from also firing
         e.dataTransfer.dropEffect = "copy";
     });
-    panel.addEventListener("dragleave", () => {
+    root.addEventListener("dragleave", () => {
         dragDepth = Math.max(0, dragDepth - 1);
         if (dragDepth === 0) setDropHighlight(false);
     });
-    panel.addEventListener("drop", async (e) => {
+    root.addEventListener("drop", async (e) => {
         e.preventDefault();
         e.stopPropagation(); // critical: block the canvas from spawning a LoadImage node
         dragDepth = 0;
@@ -715,52 +687,83 @@ function buildPanel() {
         flash("No image in drop");
     });
 
-    panel.appendChild(body);
-    document.body.appendChild(panel);
+    return root;
+}
 
-    // ---- collapse behavior ----
-    function setCollapsed(collapsed) {
-        body.style.display = collapsed ? "none" : "block";
-        collapseBtn.textContent = collapsed ? "▸" : "▾";
-        localStorage.setItem(LS_COLLAPSED, collapsed ? "1" : "0");
+// ---- sidebar mounting ------------------------------------------------------
+
+// Build the palette body lazily, then keep the one instance for the app's life.
+let paletteRoot = null;
+function ensurePaletteBuilt() {
+    if (!paletteRoot) paletteRoot = buildPaletteBody();
+    return paletteRoot;
+}
+
+// Inject the 🎨 emoji as the sidebar tab's icon (icons are CSS classes; the
+// ::before content trick mirrors how other extensions supply a custom glyph).
+function installTabIcon() {
+    if (document.getElementById("trent-palette-icon-style")) return;
+    const style = document.createElement("style");
+    style.id = "trent-palette-icon-style";
+    style.textContent = ".trent-palette-icon:before{content:'🎨';font-style:normal;}";
+    document.head.appendChild(style);
+}
+
+// Open/close the palette sidebar tab. The toggle lives on the sidebar-tab store;
+// its exact location has shifted across frontend versions, so probe a few paths.
+function toggleSidebar() {
+    const em = app.extensionManager;
+    if (!em) return;
+    const fns = [
+        em.toggleSidebarTab,
+        em.sidebarTab && em.sidebarTab.toggleSidebarTab,
+        em.sidebarTab && em.sidebarTab.value && em.sidebarTab.value.toggleSidebarTab,
+    ];
+    for (const fn of fns) {
+        if (typeof fn === "function") { fn.call(em.sidebarTab || em, TAB_ID); return; }
     }
-    setCollapsed(localStorage.getItem(LS_COLLAPSED) === "1");
-    collapseBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        setCollapsed(body.style.display !== "none");
-    });
-
-    // ---- dragging ----
-    let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
-    header.addEventListener("mousedown", (e) => {
-        if (e.target === collapseBtn) return;
-        dragging = true;
-        const rect = panel.getBoundingClientRect();
-        ox = rect.left; oy = rect.top;
-        sx = e.clientX; sy = e.clientY;
-        e.preventDefault();
-    });
-    window.addEventListener("mousemove", (e) => {
-        if (!dragging) return;
-        const nx = Math.max(0, Math.min(window.innerWidth - 60, ox + (e.clientX - sx)));
-        const ny = Math.max(0, Math.min(window.innerHeight - 30, oy + (e.clientY - sy)));
-        panel.style.left = nx + "px";
-        panel.style.top = ny + "px";
-        panel.style.right = "auto";
-    });
-    window.addEventListener("mouseup", () => {
-        if (!dragging) return;
-        dragging = false;
-        localStorage.setItem(LS_POS, JSON.stringify({
-            left: panel.style.left, top: panel.style.top, right: "auto",
-        }));
-    });
+    console.warn("[TrentPalette] could not toggle sidebar tab (API not found)");
 }
 
 app.registerExtension({
     name: "TrentNodes.colorPalette",
+
+    commands: [
+        {
+            id: "TrentNodes.ToggleColorPalette",
+            label: "🎨 Color Palette",
+            icon: "pi pi-palette",
+            function: toggleSidebar,
+        },
+    ],
+
+    keybindings: [
+        {
+            commandId: "TrentNodes.ToggleColorPalette",
+            combo: { key: "c", shift: true, alt: true },
+        },
+    ],
+
+    menuCommands: [
+        {
+            path: ["TrentNodes"],
+            commands: ["TrentNodes.ToggleColorPalette"],
+        },
+    ],
+
     async setup() {
-        buildPanel();
+        installTabIcon();
+        // Dock the palette as a native sidebar tab. render() fires on every open
+        // (sometimes with a fresh container), so re-parent the one persistent
+        // body instead of rebuilding it — keeps paint/undo state and closures.
+        app.extensionManager.registerSidebarTab({
+            id: TAB_ID,
+            title: "Colors",
+            tooltip: "Trent Color Palette",
+            icon: "trent-palette-icon",
+            type: "custom",
+            render: (el) => { el.appendChild(ensurePaletteBuilt()); },
+        });
         // Re-sync presets into the context menu once the canvas/LiteGraph is ready.
         syncContextMenuColors(loadColors());
         // Paint-bucket: install the canvas click patch + Escape-to-disarm once.
