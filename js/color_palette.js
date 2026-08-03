@@ -1,4 +1,7 @@
 import { app } from "../../scripts/app.js";
+import {
+    getCircuit, setCircuit, getMagnet, setMagnet, onNoodleChange,
+} from "./noodle_wrangler.js";
 
 /*
  * Trent Color Palette
@@ -310,6 +313,102 @@ function resetSelection() {
         delete group.color;
     }
     app.graph.change();
+}
+
+// ---- align / distribute / match-size (selected nodes) ----------------------
+// Operates on selected NODES only (not groups): group alignment would mean
+// moving a group plus its contents with different coordinate math — a later
+// pass. Mirrors organize_group_grid.js for collapsed-size and undo handling.
+
+function nodeTitleHeight() {
+    return (window.LiteGraph && window.LiteGraph.NODE_TITLE_HEIGHT) || 30;
+}
+
+// Visual w/h: a collapsed node renders as a short pill, but node.size keeps the
+// expanded dims — use the pill size so right/bottom/center/distribute line up.
+function visualSize(node) {
+    if (node.flags && node.flags.collapsed) {
+        const LG = window.LiteGraph || {};
+        return [node._collapsed_width || LG.NODE_COLLAPSED_WIDTH || 80, nodeTitleHeight()];
+    }
+    return [node.size[0], node.size[1]];
+}
+
+// Run a layout mutation with undo bracketing + a canvas redraw, matching the
+// grid tool. Returns the selected nodes, or [] (after a hint) if too few.
+function withNodes(min, fn) {
+    const nodes = getSelectedNodes();
+    if (nodes.length < min) {
+        flash(`Select ${min}+ nodes first`);
+        return;
+    }
+    const canvas = app.canvas;
+    if (canvas && canvas.emitBeforeChange) canvas.emitBeforeChange();
+    try {
+        fn(nodes);
+    } finally {
+        if (canvas && canvas.emitAfterChange) canvas.emitAfterChange();
+    }
+    app.graph.setDirtyCanvas(true, true);
+    app.graph.change();
+}
+
+// mode: "left" | "right" | "top" | "bottom" | "centerx" | "centery"
+function alignSelection(mode) {
+    withNodes(2, (nodes) => {
+        const boxes = nodes.map((n) => {
+            const [w, h] = visualSize(n);
+            return { n, x: n.pos[0], y: n.pos[1], w, h };
+        });
+        const minX = Math.min(...boxes.map((b) => b.x));
+        const maxR = Math.max(...boxes.map((b) => b.x + b.w));
+        const minY = Math.min(...boxes.map((b) => b.y));
+        const maxB = Math.max(...boxes.map((b) => b.y + b.h));
+        const cx = (minX + maxR) / 2, cy = (minY + maxB) / 2;
+        for (const b of boxes) {
+            if (mode === "left") b.n.pos[0] = minX;
+            else if (mode === "right") b.n.pos[0] = maxR - b.w;
+            else if (mode === "centerx") b.n.pos[0] = Math.round(cx - b.w / 2);
+            else if (mode === "top") b.n.pos[1] = minY;
+            else if (mode === "bottom") b.n.pos[1] = maxB - b.h;
+            else if (mode === "centery") b.n.pos[1] = Math.round(cy - b.h / 2);
+        }
+    });
+}
+
+// axis: "h" | "v" — equal edge-to-edge gaps, endpoints held fixed.
+function distributeSelection(axis) {
+    withNodes(3, (nodes) => {
+        const horiz = axis === "h";
+        const boxes = nodes.map((n) => {
+            const [w, h] = visualSize(n);
+            return { n, start: horiz ? n.pos[0] : n.pos[1], len: horiz ? w : h };
+        });
+        boxes.sort((a, b) => a.start - b.start);
+        const first = boxes[0], last = boxes[boxes.length - 1];
+        const span = (last.start + last.len) - first.start;
+        const used = boxes.reduce((s, b) => s + b.len, 0);
+        const gap = (span - used) / (boxes.length - 1);
+        let cursor = first.start;
+        for (const b of boxes) {
+            const v = Math.round(cursor);
+            if (horiz) b.n.pos[0] = v; else b.n.pos[1] = v;
+            cursor += b.len + gap;
+        }
+    });
+}
+
+// dim: "w" | "h" — grow every node to the largest in that dimension.
+function matchSizeSelection(dim) {
+    withNodes(2, (nodes) => {
+        const idx = dim === "w" ? 0 : 1;
+        const target = Math.max(...nodes.map((n) => n.size[idx]));
+        for (const n of nodes) {
+            const w = dim === "w" ? target : n.size[0];
+            const h = dim === "h" ? target : n.size[1];
+            if (n.setSize) n.setSize([w, h]); else { n.size[0] = w; n.size[1] = h; }
+        }
+    });
 }
 
 // ---- paint-bucket mode -----------------------------------------------------
@@ -651,41 +750,154 @@ function buildPaletteBody() {
         return (dt.types || []).some((t) => t === "Files" || t === "text/uri-list" || t === "text/plain");
     }
 
-    let dragDepth = 0;
+    let dropOn = false;
     function setDropHighlight(on) {
+        dropOn = on;
         dropZone.style.borderColor = on ? "#45b6e0" : "#2a3942";
         dropZone.style.background = on ? "rgba(69,182,224,0.12)" : "transparent";
         dropZone.style.color = on ? "#cdd6dd" : "#7c8a93";
     }
-    root.addEventListener("dragenter", (e) => {
-        if (!dragHasImage(e)) return;
-        e.preventDefault();
-        dragDepth++;
-        setDropHighlight(true);
-    });
-    root.addEventListener("dragover", (e) => {
-        if (!dragHasImage(e)) return;
-        e.preventDefault();
-        e.stopPropagation(); // keep ComfyUI's global canvas drop from also firing
-        e.dataTransfer.dropEffect = "copy";
-    });
-    root.addEventListener("dragleave", () => {
-        dragDepth = Math.max(0, dragDepth - 1);
-        if (dragDepth === 0) setDropHighlight(false);
-    });
-    root.addEventListener("drop", async (e) => {
-        e.preventDefault();
-        e.stopPropagation(); // critical: block the canvas from spawning a LoadImage node
-        dragDepth = 0;
-        setDropHighlight(false);
+    // Is this drag event targeting somewhere inside our (mounted) panel?
+    function overPanel(e) {
+        return e.target && root.contains(e.target);
+    }
+    async function handleImageDrop(e) {
         const dt = e.dataTransfer;
-        const file = [...(dt.files || [])].find((f) => /^image\//i.test(f.type) || IMAGE_RE.test(f.name || ""));
+        const file = [...((dt && dt.files) || [])].find((f) => /^image\//i.test(f.type) || IMAGE_RE.test(f.name || ""));
         if (file) { await extractFromFile(file); return; }
-        const uri = (dt.getData("text/uri-list") || dt.getData("text/plain") || "")
+        const uri = ((dt && (dt.getData("text/uri-list") || dt.getData("text/plain"))) || "")
             .split("\n").map((s) => s.trim()).find((s) => /^https?:|^data:|^blob:/.test(s));
         if (uri) { await extractFromUrl(uri); return; }
         flash("No image in drop");
+    }
+
+    // The sidebar lives INSIDE ComfyUI's Vue tree, whose graph container has its
+    // own drop handler (spawns a LoadImage node). Bubble-phase stopPropagation on
+    // our panel can't stop an ANCESTOR's handler, so intercept in the capture
+    // phase on window — a window-capture listener runs before any handler on a
+    // descendant element, regardless of that handler's phase. Gate on overPanel
+    // so drags anywhere else on the canvas behave normally.
+    window.addEventListener("dragover", (e) => {
+        if (!overPanel(e)) { if (dropOn) setDropHighlight(false); return; }
+        if (!dragHasImage(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+        if (!dropOn) setDropHighlight(true);
+    }, true);
+    window.addEventListener("drop", (e) => {
+        if (!overPanel(e)) return;
+        e.preventDefault();
+        e.stopImmediatePropagation(); // block the canvas from spawning a LoadImage node
+        setDropHighlight(false);
+        handleImageDrop(e);
+    }, true);
+    window.addEventListener("dragend", () => { if (dropOn) setDropHighlight(false); }, true);
+
+    // ---- align / distribute / match-size section ----
+    const divider = document.createElement("div");
+    Object.assign(divider.style, { borderTop: "1px solid #2a3942", margin: "12px 0 8px" });
+    body.appendChild(divider);
+
+    function sectionLabel(text) {
+        const el = document.createElement("div");
+        el.textContent = text;
+        Object.assign(el.style, {
+            fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.5px",
+            opacity: "0.5", marginBottom: "6px",
+        });
+        return el;
+    }
+
+    // A small square icon button wired to an action; glyphs are widely-supported
+    // arrows, tooltips carry the precise meaning.
+    function layoutBtn(glyph, tip, onClick) {
+        const b = document.createElement("div");
+        b.textContent = glyph;
+        b.title = tip;
+        Object.assign(b.style, {
+            width: "30px", height: "26px", display: "flex", alignItems: "center",
+            justifyContent: "center", cursor: "pointer", borderRadius: "5px",
+            background: "#1c272e", border: "1px solid #2a3942", fontSize: "14px",
+            lineHeight: "1",
+        });
+        b.addEventListener("mouseenter", () => { b.style.background = "#26343d"; });
+        b.addEventListener("mouseleave", () => { b.style.background = "#1c272e"; });
+        b.addEventListener("click", onClick);
+        return b;
+    }
+
+    function btnRow(buttons) {
+        const row = document.createElement("div");
+        Object.assign(row.style, { display: "flex", gap: "5px", flexWrap: "wrap", marginBottom: "8px" });
+        buttons.forEach((b) => row.appendChild(b));
+        return row;
+    }
+
+    body.appendChild(sectionLabel("Align"));
+    body.appendChild(btnRow([
+        layoutBtn("⇤", "Align left edges", () => alignSelection("left")),
+        layoutBtn("⇔", "Align horizontal centers (same center X)", () => alignSelection("centerx")),
+        layoutBtn("⇥", "Align right edges", () => alignSelection("right")),
+        layoutBtn("⤒", "Align top edges", () => alignSelection("top")),
+        layoutBtn("⇕", "Align vertical centers (same center Y)", () => alignSelection("centery")),
+        layoutBtn("⤓", "Align bottom edges", () => alignSelection("bottom")),
+    ]));
+
+    body.appendChild(sectionLabel("Distribute · Match size"));
+    body.appendChild(btnRow([
+        layoutBtn("↔", "Distribute horizontally (equal gaps, 3+ nodes)", () => distributeSelection("h")),
+        layoutBtn("↕", "Distribute vertically (equal gaps, 3+ nodes)", () => distributeSelection("v")),
+        layoutBtn("W", "Match width (grow all to the widest)", () => matchSizeSelection("w")),
+        layoutBtn("H", "Match height (grow all to the tallest)", () => matchSizeSelection("h")),
+    ]));
+
+    // ---- noodles section (circuit-board links + magnetic snapping) ----
+    // Toggle chips mirror the paint chip style; state lives in
+    // noodle_wrangler.js (localStorage) so it survives reloads and stays in
+    // sync with the TrentNodes menu commands via onNoodleChange.
+    body.appendChild(sectionLabel("Noodles"));
+
+    function noodleChip(label, tip, getOn, setOn) {
+        const chip = document.createElement("div");
+        chip.textContent = label;
+        chip.title = tip;
+        Object.assign(chip.style, {
+            cursor: "pointer", padding: "3px 8px", borderRadius: "5px",
+            background: "#1c272e", border: "1px solid #2a3942", fontSize: "11px",
+        });
+        function paint(on) {
+            chip.style.background = on ? "#274b57" : "#1c272e";
+            chip.style.borderColor = on ? "#45b6e0" : "#2a3942";
+        }
+        paint(getOn());
+        chip.addEventListener("click", () => setOn(!getOn()));
+        chip.addEventListener("mouseenter", () => { if (!getOn()) chip.style.background = "#26343d"; });
+        chip.addEventListener("mouseleave", () => { if (!getOn()) chip.style.background = "#1c272e"; });
+        chip._paint = paint;
+        return chip;
+    }
+
+    const circuitChip = noodleChip(
+        "⚡ circuit noodles",
+        "Draw links as rounded circuit-board traces instead of splines",
+        getCircuit, setCircuit,
+    );
+    const magnetChip = noodleChip(
+        "🧲 magnet",
+        "Magnetic snapping while dragging nodes: edges align, nodes dock with an even gap, connected slots pull level (Alt = drag free)",
+        getMagnet, setMagnet,
+    );
+    onNoodleChange((s) => {
+        circuitChip._paint(s.circuit);
+        magnetChip._paint(s.magnet);
     });
+
+    const noodleRow = document.createElement("div");
+    Object.assign(noodleRow.style, { display: "flex", gap: "6px", flexWrap: "wrap" });
+    noodleRow.appendChild(circuitChip);
+    noodleRow.appendChild(magnetChip);
+    body.appendChild(noodleRow);
 
     return root;
 }
@@ -762,7 +974,20 @@ app.registerExtension({
             tooltip: "Trent Color Palette",
             icon: "trent-palette-icon",
             type: "custom",
-            render: (el) => { el.appendChild(ensurePaletteBuilt()); },
+            render: (el) => {
+                // Center the panel vertically in the sidebar. "safe center"
+                // falls back to top-aligned when the panel is taller than the
+                // sidebar, so nothing gets clipped off-screen.
+                Object.assign(el.style, {
+                    height: "100%",
+                    minHeight: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "safe center",
+                    overflowY: "auto",
+                });
+                el.appendChild(ensurePaletteBuilt());
+            },
         });
         // Re-sync presets into the context menu once the canvas/LiteGraph is ready.
         syncContextMenuColors(loadColors());
