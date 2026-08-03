@@ -70,7 +70,7 @@ function darken(hex, factor = 0.42) {
 // Lighten a color by raising HSL lightness `amount` of the way toward white,
 // keeping hue and saturation fixed (lighter, not more saturated). Used to give
 // group backgrounds a softer tint than the node title color painted alongside.
-function lighten(hex, amount = 0.15) {
+function lighten(hex, amount = 0.30) {
     const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
     if (!m) return hex;
     const n = parseInt(m[1], 16);
@@ -291,7 +291,7 @@ function applyColorToSelection(hex) {
         node.color = hex;
         node.bgcolor = body;
     }
-    const groupHex = lighten(hex); // ~15% lighter tint than the node title color
+    const groupHex = lighten(hex); // ~30% lighter tint than the node title color
     for (const group of groups) {
         group.color = groupHex; // groups carry a single color (no bgcolor)
     }
