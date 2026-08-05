@@ -12,10 +12,11 @@ import { app } from "../../scripts/app.js";
  *      https://github.com/niknah/quick-connections). Only the circuit-board
  *      renderer is ported — the "quick connections" drag helper is not.
  *
- *   2. Magnet — while dragging nodes, nearby nodes attract: edges align,
- *      nodes dock side-by-side/stacked with a uniform gap, and connected
- *      slots pull level so their noodle runs dead straight.
- *      Hold Alt while dragging to suppress the magnet.
+ *   2. Magnet (smart align) — Figma/Excalidraw-style alignment while
+ *      dragging nodes: hard snap + dashed guide lines when an edge lines
+ *      up, a 32px dock gap is hit, or connected slots sit level (straight
+ *      noodle). Instant in, instant out — no attraction physics.
+ *      Hold Alt while dragging to suppress it.
  *
  * State persists in localStorage. Other TrentNodes scripts can subscribe to
  * toggle changes via onNoodleChange(fn) to keep their UI in sync.
@@ -612,10 +613,10 @@ class CircuitBoard {
  * ========================================================================== */
 
 const MAGNET = {
-    screenSnap: 12,     // screen px within which an edge alignment engages
-    screenSlotSnap: 18, // screen px for slot (straight-noodle) alignment
-    range: 200,         // canvas px: how close a neighbour must be to pull
-    gap: 32,            // canvas px: docking gap between node boxes
+    snap: 10,      // screen px: edge/dock alignment snaps
+    slotSnap: 14,  // screen px: slot (straight-noodle) alignment snaps
+    range: 200,    // canvas px: neighbour search radius
+    gap: 32,       // canvas px: docking gap between node boxes
 };
 
 function nodeBox(node) {
@@ -642,17 +643,9 @@ function draggedNodes(canvas) {
     return out;
 }
 
-function applyMagnet(canvas) {
-    const graph = canvas.graph;
-    if (!graph) return;
-    const dragged = draggedNodes(canvas);
-    if (!dragged.length) return;
-
-    const draggedIds = new Set(dragged.map((n) => n.id));
-
-    // union box of everything being dragged — the whole selection shifts rigidly
+function unionBox(nodes) {
     let ub = null;
-    for (const n of dragged) {
+    for (const n of nodes) {
         const b = nodeBox(n);
         if (!ub) ub = { ...b };
         else {
@@ -660,46 +653,75 @@ function applyMagnet(canvas) {
             ub.x2 = Math.max(ub.x2, b.x2); ub.y2 = Math.max(ub.y2, b.y2);
         }
     }
+    return ub;
+}
 
-    const zoom = canvas.ds?.scale || 1;
-    const snap = MAGNET.screenSnap / zoom;
-    const slotSnap = MAGNET.screenSlotSnap / zoom;
+/*
+ * Smart align, Excalidraw/Figma style: a pure function of the free drag
+ * position, evaluated synchronously after every pointer move. LiteGraph
+ * moves dragged items by per-event pointer deltas, so an offset we add on
+ * top persists. sim.off tracks that offset:
+ *   node.pos = free position (pure mouse) + sim.off
+ * Inside the snap threshold the offset is the full correction (hard snap,
+ * guide line shown); outside it is zero (node exactly under the mouse).
+ * No easing, no attraction, no timers — snapping in and releasing are
+ * both instant, which is what makes it feel crisp instead of janky.
+ */
+const sim = {
+    canvas: null,
+    off: [0, 0],
+    guides: [], // guide segments drawn by drawMagnetGuides
+};
 
-    let bestX = null; // { delta, score }
-    let bestY = null;
-    const considerX = (delta, weight, limit) => {
-        const score = Math.abs(delta) * weight;
-        if (Math.abs(delta) <= limit && (!bestX || score < bestX.score)) bestX = { delta, score };
-    };
-    const considerY = (delta, weight, limit) => {
-        const score = Math.abs(delta) * weight;
-        if (Math.abs(delta) <= limit && (!bestY || score < bestY.score)) bestY = { delta, score };
-    };
+function stopSim() {
+    sim.off = [0, 0];
+    if (sim.guides.length && sim.canvas) {
+        sim.canvas.dirty_canvas = true;
+        sim.canvas.dirty_bgcanvas = true;
+    }
+    sim.guides = [];
+    sim.canvas = null;
+}
 
-    // 1) edge alignment + gap docking against nearby stationary nodes
+// All snap candidates for the current union box, per axis. Each candidate:
+// { delta, weight, snapR, guide } — delta shifts the whole box, weight
+// scores competing candidates (lower = stronger), snapR is the screen-px
+// snap radius, guide is the dashed line drawn while snapped.
+function collectCandidates(canvas, ub, draggedIds) {
+    const xs = [], ys = [];
+    const graph = canvas.graph;
+    const gap = MAGNET.gap;
+
     for (const other of graph._nodes || []) {
         if (draggedIds.has(other.id)) continue;
-        if (other.flags?.pinned) { /* pinned nodes still attract — fine */ }
         const ob = nodeBox(other);
         if (!boxesNear(ub, ob, MAGNET.range)) continue;
 
-        // edges (weight 1) and centers (weight 1.25, weaker pull)
-        considerX(ob.x1 - ub.x1, 1, snap);
-        considerX(ob.x2 - ub.x2, 1, snap);
-        considerX((ob.x1 + ob.x2) / 2 - (ub.x1 + ub.x2) / 2, 1.25, snap);
-        considerY(ob.y1 - ub.y1, 1, snap);
-        considerY(ob.y2 - ub.y2, 1, snap);
-        considerY((ob.y1 + ob.y2) / 2 - (ub.y1 + ub.y2) / 2, 1.25, snap);
+        const ySpan = [Math.min(ob.y1, ub.y1) - 16, Math.max(ob.y2, ub.y2) + 16];
+        const xSpan = [Math.min(ob.x1, ub.x1) - 16, Math.max(ob.x2, ub.x2) + 16];
+        const gx = (at) => ({ axis: "x", at, a: ySpan[0], b: ySpan[1] });
+        const gy = (at) => ({ axis: "y", at, a: xSpan[0], b: xSpan[1] });
 
-        // docking: sit beside / stack under with a uniform gap (weight 0.9)
-        considerX(ob.x2 + MAGNET.gap - ub.x1, 0.9, snap);
-        considerX(ob.x1 - MAGNET.gap - ub.x2, 0.9, snap);
-        considerY(ob.y2 + MAGNET.gap - ub.y1, 0.9, snap);
-        considerY(ob.y1 - MAGNET.gap - ub.y2, 0.9, snap);
+        // edge alignment (weight 1), centers (1.25, weaker)
+        xs.push(
+            { delta: ob.x1 - ub.x1, weight: 1, snapR: MAGNET.snap, guide: gx(ob.x1) },
+            { delta: ob.x2 - ub.x2, weight: 1, snapR: MAGNET.snap, guide: gx(ob.x2) },
+            { delta: (ob.x1 + ob.x2) / 2 - (ub.x1 + ub.x2) / 2, weight: 1.25, snapR: MAGNET.snap, guide: gx((ob.x1 + ob.x2) / 2) },
+            // docking: sit beside with a uniform gap (0.9, slightly stronger)
+            { delta: ob.x2 + gap - ub.x1, weight: 0.9, snapR: MAGNET.snap, guide: gx(ob.x2 + gap / 2) },
+            { delta: ob.x1 - gap - ub.x2, weight: 0.9, snapR: MAGNET.snap, guide: gx(ob.x1 - gap / 2) },
+        );
+        ys.push(
+            { delta: ob.y1 - ub.y1, weight: 1, snapR: MAGNET.snap, guide: gy(ob.y1) },
+            { delta: ob.y2 - ub.y2, weight: 1, snapR: MAGNET.snap, guide: gy(ob.y2) },
+            { delta: (ob.y1 + ob.y2) / 2 - (ub.y1 + ub.y2) / 2, weight: 1.25, snapR: MAGNET.snap, guide: gy((ob.y1 + ob.y2) / 2) },
+            { delta: ob.y2 + gap - ub.y1, weight: 0.9, snapR: MAGNET.snap, guide: gy(ob.y2 + gap / 2) },
+            { delta: ob.y1 - gap - ub.y2, weight: 0.9, snapR: MAGNET.snap, guide: gy(ob.y1 - gap / 2) },
+        );
     }
 
-    // 2) slot alignment: pull connected slots level so the noodle runs straight
-    //    (weight 0.5 — the strongest magnet)
+    // slot alignment: pull connected slots level so the noodle runs straight
+    // (weight 0.5 — the strongest magnet, and a wider lock radius)
     const links = graph._links?.values ? graph._links.values() : Object.values(graph.links || {});
     for (const link of links) {
         if (!link) continue;
@@ -714,19 +736,103 @@ function applyMagnet(canvas) {
             const oPos = slotOutPos(outNode, link.origin_slot);
             const iPos = slotInPos(inNode, link.target_slot);
             const delta = outDragged ? (iPos[1] - oPos[1]) : (oPos[1] - iPos[1]);
-            considerY(delta, 0.5, slotSnap);
+            const targetY = outDragged ? iPos[1] : oPos[1];
+            ys.push({
+                delta, weight: 0.5, snapR: MAGNET.slotSnap,
+                guide: {
+                    axis: "y", at: targetY,
+                    a: Math.min(oPos[0], iPos[0]) - 10,
+                    b: Math.max(oPos[0], iPos[0]) + 10,
+                },
+            });
         } catch (e) { /* odd slot — skip */ }
     }
+    return { xs, ys };
+}
 
-    if (!bestX && !bestY) return;
-    const dx = bestX ? bestX.delta : 0;
-    const dy = bestY ? bestY.delta : 0;
-    for (const n of dragged) {
-        n.pos[0] += dx;
-        n.pos[1] += dy;
+// One axis: pick the best candidate inside its snap radius, measured from
+// the FREE position (current pos minus the offset we already applied).
+// Returns the full correction, or 0 when nothing is in range.
+function pickAxis(cands, axis, zoom) {
+    let best = null;
+    for (const c of cands) {
+        const dFree = c.delta + sim.off[axis]; // candidate delta in the free frame
+        const dScr = Math.abs(dFree) * zoom;
+        if (dScr > c.snapR) continue;
+        const score = dScr * c.weight;
+        if (!best || score < best.score) best = { c, dFree, score };
     }
-    canvas.dirty_canvas = true;
-    canvas.dirty_bgcanvas = true;
+    if (!best) return 0;
+    sim.guides.push(best.c.guide);
+    return best.dFree;
+}
+
+// Runs synchronously after LiteGraph applies each pointer move: hard-snap
+// to the best target in range, or return the node exactly to the mouse.
+function applySmartAlign(canvas, altFree) {
+    const dragged = draggedNodes(canvas);
+    if (!dragged.length) return;
+
+    const zoom = canvas.ds?.scale || 1;
+    const ub = unionBox(dragged);
+    const prevGuides = sim.guides.length;
+    sim.guides = [];
+
+    const desired = [0, 0];
+    if (!altFree) {
+        const draggedIds = new Set(dragged.map((n) => n.id));
+        const { xs, ys } = collectCandidates(canvas, ub, draggedIds);
+        desired[0] = pickAxis(xs, 0, zoom);
+        desired[1] = pickAxis(ys, 1, zoom);
+    }
+
+    let moved = false;
+    for (let a = 0; a < 2; ++a) {
+        const d = desired[a] - sim.off[a];
+        if (d) {
+            for (const n of dragged) n.pos[a] += d;
+            moved = true;
+        }
+        sim.off[a] = desired[a];
+    }
+
+    if (moved || sim.guides.length !== prevGuides) {
+        canvas.dirty_canvas = true;
+        canvas.dirty_bgcanvas = true;
+    }
+}
+
+// dashed accent lines along whatever the magnet is currently locked to;
+// chained onto canvas.onDrawForeground (graph space)
+function drawMagnetGuides(canvas, ctx) {
+    if (!sim.guides.length || sim.canvas !== canvas) return;
+    const zoom = canvas.ds?.scale || 1;
+    ctx.save();
+    ctx.strokeStyle = "rgba(69, 182, 224, 0.85)";
+    ctx.lineWidth = 1.5 / zoom;
+    ctx.setLineDash([6 / zoom, 4 / zoom]);
+    for (const g of sim.guides) {
+        ctx.beginPath();
+        if (g.axis === "x") {
+            ctx.moveTo(g.at, g.a);
+            ctx.lineTo(g.at, g.b);
+        } else {
+            ctx.moveTo(g.a, g.at);
+            ctx.lineTo(g.b, g.at);
+        }
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function chainGuideOverlay(canvas) {
+    if (canvas.__trentMagnetOverlay) return;
+    const prev = canvas.onDrawForeground;
+    canvas.onDrawForeground = function (ctx, area) {
+        if (prev) prev.call(this, ctx, area);
+        try { drawMagnetGuides(this, ctx); } catch (e) { /* never break drawing */ }
+    };
+    canvas.__trentMagnetOverlay = true;
 }
 
 /* ==========================================================================
@@ -756,19 +862,38 @@ function installPatches() {
         return origDrawConnections.apply(this, arguments);
     };
 
-    // magnet: nudge dragged nodes toward alignment after each mouse move
-    const origProcessMouseMove = proto.processMouseMove;
-    proto.processMouseMove = function (e) {
-        const r = origProcessMouseMove.apply(this, arguments);
+    // Smart-align event wiring. NOTE: the canvas registers bound COPIES of
+    // its pointer handlers at construction (this.processMouseMove.bind(this)),
+    // so patching the prototype after startup never intercepts real mouse
+    // events. Window listeners are immune to that. This one is BUBBLE phase:
+    // the canvas's own pointermove (target) runs first and moves the dragged
+    // nodes, then this fires in the same event and applies the snap — so the
+    // drawn frame is always consistent, with no oscillation between the two.
+    window.addEventListener("pointermove", (e) => {
         try {
-            if (state.magnet && this.isDragging && !e.altKey && !window.LiteGraph?.vueNodesMode) {
-                applyMagnet(this);
+            const canvas = app.canvas;
+            if (!canvas || window.LiteGraph?.vueNodesMode) return;
+            if (state.magnet && canvas.isDragging) {
+                sim.canvas = canvas;
+                chainGuideOverlay(canvas);
+                applySmartAlign(canvas, !!e.altKey);
+            } else if (sim.canvas) {
+                stopSim();
             }
         } catch (err) {
             console.warn("[TrentNoodles] magnet error", err);
         }
-        return r;
-    };
+    }, false);
+
+    // the snap offset is already exact on the last move; just reset state
+    // BEFORE the canvas handler finalizes the drag (capture = ancestors first)
+    window.addEventListener("pointerup", () => {
+        if (sim.canvas) stopSim();
+    }, true);
+
+    window.addEventListener("pointercancel", () => {
+        if (sim.canvas) stopSim();
+    }, true);
 
     proto.__trentNoodlesPatched = true;
 }

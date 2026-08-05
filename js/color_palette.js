@@ -419,42 +419,35 @@ let bucketArmed = false;
 let armedHex = null;
 let disarmBucket = () => { bucketArmed = false; armedHex = null; };
 
-// Permanently wrap LGraphCanvas.processMouseDown. When armed and a plain
-// left-click lands on a node or group, paint it and consume the event so no
-// drag/box-select/pan starts. When not armed it's a transparent pass-through.
+// Paint-bucket click interception. The canvas registers a bound COPY of
+// processMouseDown at construction, so a prototype patch installed at
+// extension-setup time never sees real clicks. Intercept in the capture
+// phase on window instead: it runs before the canvas handler, and stopping
+// propagation there prevents any drag/box-select/pan from starting.
 function installBucketPatch() {
-    const LGC = window.LGraphCanvas;
-    if (!LGC || !LGC.prototype || LGC.prototype.__trentBucketPatched) return;
-    const proto = LGC.prototype;
-    const orig = proto.processMouseDown;
-    proto.processMouseDown = function (e) {
-        if (bucketArmed && armedHex && e.button === 0 && !e.ctrlKey && !e.shiftKey && !e.altKey) {
-            let x = e.canvasX, y = e.canvasY;
-            if (x === undefined || y === undefined) {
-                const p = this.convertEventToCanvasOffset(e);
-                x = p[0]; y = p[1];
-            }
-            const graph = this.graph;
-            const node = graph && graph.getNodeOnPos ? graph.getNodeOnPos(x, y) : null;
-            const group = (!node && graph && graph.getGroupOnPos) ? graph.getGroupOnPos(x, y) : null;
-            if (node) {
-                node.color = armedHex;
-                node.bgcolor = darken(armedHex);
-                if (graph) graph.change();
-                e.preventDefault(); e.stopPropagation();
-                return false;
-            }
-            if (group) {
-                group.color = lighten(armedHex);
-                if (graph) graph.change();
-                e.preventDefault(); e.stopPropagation();
-                return false;
-            }
-            // armed but clicked empty canvas -> fall through (pan/deselect as normal)
+    if (window.__trentBucketPointer) return;
+    window.__trentBucketPointer = true;
+    window.addEventListener("pointerdown", (e) => {
+        if (!(bucketArmed && armedHex && e.button === 0 && !e.ctrlKey && !e.shiftKey && !e.altKey)) return;
+        const canvas = app.canvas;
+        if (!canvas || e.target !== canvas.canvas) return; // only clicks on the graph canvas
+        const p = canvas.convertEventToCanvasOffset(e);
+        const graph = canvas.graph;
+        if (!graph) return;
+        const node = graph.getNodeOnPos ? graph.getNodeOnPos(p[0], p[1]) : null;
+        const group = (!node && graph.getGroupOnPos) ? graph.getGroupOnPos(p[0], p[1]) : null;
+        if (node) {
+            node.color = armedHex;
+            node.bgcolor = darken(armedHex);
+        } else if (group) {
+            group.color = lighten(armedHex);
+        } else {
+            return; // armed but clicked empty canvas -> pan/deselect as normal
         }
-        return orig.apply(this, arguments);
-    };
-    proto.__trentBucketPatched = true;
+        graph.change();
+        e.preventDefault();
+        e.stopPropagation();
+    }, true);
 }
 
 // One page-lifetime Escape handler that disarms paint mode.
@@ -884,8 +877,8 @@ function buildPaletteBody() {
         getCircuit, setCircuit,
     );
     const magnetChip = noodleChip(
-        "🧲 magnet",
-        "Magnetic snapping while dragging nodes: edges align, nodes dock with an even gap, connected slots pull level (Alt = drag free)",
+        "🧲 smart align",
+        "Alignment guides while dragging nodes: snaps to edges, even 32px gaps, and straight noodles, with dashed guide lines (Alt = drag free)",
         getMagnet, setMagnet,
     );
     onNoodleChange((s) => {
