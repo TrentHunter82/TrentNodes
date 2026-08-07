@@ -878,7 +878,7 @@ function buildPaletteBody() {
     );
     const magnetChip = noodleChip(
         "🧲 smart align",
-        "Alignment guides while dragging nodes: snaps to edges, even 32px gaps, and straight noodles, with dashed guide lines (Alt = drag free)",
+        "Alignment guides while dragging nodes or groups: snaps to edges, even 32px gaps, and straight noodles, with dashed guide lines (Alt = drag free)",
         getMagnet, setMagnet,
     );
     onNoodleChange((s) => {

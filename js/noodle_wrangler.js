@@ -630,30 +630,45 @@ function boxesNear(a, b, range) {
         a.y1 - range < b.y2 && a.y2 + range > b.y1;
 }
 
-// Collect the LGraphNodes currently being dragged (selectedItems may also
-// contain groups/reroutes — only rigid-shift real nodes).
-function draggedNodes(canvas) {
+// Collect what is being dragged, split into nodes and groups (reroutes and
+// anything else in selectedItems are ignored).
+function draggedItems(canvas) {
     const LG = window.LiteGraph;
-    const out = [];
-    if (!canvas.selectedItems) return out;
+    const nodes = [], groups = [];
+    if (!canvas.selectedItems) return { nodes, groups };
     for (const item of canvas.selectedItems) {
-        if (LG && LG.LGraphNode && item instanceof LG.LGraphNode) out.push(item);
-        else if (!LG?.LGraphNode && item.pos && item.size && item.getBounding) out.push(item);
+        if (LG?.LGraphGroup && item instanceof LG.LGraphGroup) groups.push(item);
+        else if (LG?.LGraphNode && item instanceof LG.LGraphNode) nodes.push(item);
+        else if (!LG?.LGraphNode && item.pos && item.size && item.getBounding) nodes.push(item);
     }
-    return out;
+    return { nodes, groups };
 }
 
-function unionBox(nodes) {
-    let ub = null;
-    for (const n of nodes) {
-        const b = nodeBox(n);
-        if (!ub) ub = { ...b };
-        else {
-            ub.x1 = Math.min(ub.x1, b.x1); ub.y1 = Math.min(ub.y1, b.y1);
-            ub.x2 = Math.max(ub.x2, b.x2); ub.y2 = Math.max(ub.y2, b.y2);
+// A group's frame box (its pos/size ARE the frame; no title offset needed).
+function groupBox(g) {
+    return { x1: g.pos[0], y1: g.pos[1], x2: g.pos[0] + g.size[0], y2: g.pos[1] + g.size[1] };
+}
+
+// Everything nested inside the dragged groups moves with them, so none of
+// it may serve as a snap target. Returns { nodeIds, groups } of the nested
+// content (recursing through sub-groups).
+function nestedContent(groups) {
+    const LG = window.LiteGraph;
+    const nodeIds = new Set();
+    const nested = new Set(groups);
+    const stack = [...groups];
+    while (stack.length) {
+        const g = stack.pop();
+        for (const child of g._children || []) {
+            if (LG?.LGraphGroup && child instanceof LG.LGraphGroup) {
+                if (!nested.has(child)) { nested.add(child); stack.push(child); }
+            } else if (child.id !== undefined) {
+                nodeIds.add(child.id);
+            }
         }
+        for (const n of g._nodes || []) nodeIds.add(n.id);
     }
-    return ub;
+    return { nodeIds, groups: nested };
 }
 
 /*
@@ -687,14 +702,21 @@ function stopSim() {
 // { delta, weight, snapR, guide } — delta shifts the whole box, weight
 // scores competing candidates (lower = stronger), snapR is the screen-px
 // snap radius, guide is the dashed line drawn while snapped.
-function collectCandidates(canvas, ub, draggedIds) {
+function collectCandidates(canvas, ub, draggedIds, excludedGroups, includeSlots) {
     const xs = [], ys = [];
     const graph = canvas.graph;
     const gap = MAGNET.gap;
 
+    // snap targets: parked nodes and parked group frames
+    const targetBoxes = [];
     for (const other of graph._nodes || []) {
-        if (draggedIds.has(other.id)) continue;
-        const ob = nodeBox(other);
+        if (!draggedIds.has(other.id)) targetBoxes.push(nodeBox(other));
+    }
+    for (const g of graph._groups || []) {
+        if (!excludedGroups.has(g)) targetBoxes.push(groupBox(g));
+    }
+
+    for (const ob of targetBoxes) {
         if (!boxesNear(ub, ob, MAGNET.range)) continue;
 
         const ySpan = [Math.min(ob.y1, ub.y1) - 16, Math.max(ob.y2, ub.y2) + 16];
@@ -721,7 +743,9 @@ function collectCandidates(canvas, ub, draggedIds) {
     }
 
     // slot alignment: pull connected slots level so the noodle runs straight
-    // (weight 0.5 — the strongest magnet, and a wider lock radius)
+    // (weight 0.5 — the strongest magnet, and a wider snap radius).
+    // Skipped when a group is being dragged: a group aligns by its frame only.
+    if (!includeSlots) return { xs, ys };
     const links = graph._links?.values ? graph._links.values() : Object.values(graph.links || {});
     for (const link of links) {
         if (!link) continue;
@@ -768,35 +792,61 @@ function pickAxis(cands, axis, zoom) {
 }
 
 // Runs synchronously after LiteGraph applies each pointer move: hard-snap
-// to the best target in range, or return the node exactly to the mouse.
-function applySmartAlign(canvas, altFree) {
-    const dragged = draggedNodes(canvas);
-    if (!dragged.length) return;
+// to the best target in range, or return the selection exactly to the
+// mouse. Groups align by their frame box; their contents ride along.
+// soloDrag mirrors LiteGraph's Ctrl/Meta drag (group frame moves without
+// its children), so our correction moves exactly what the drag moves.
+function applySmartAlign(canvas, altFree, soloDrag) {
+    const { nodes, groups } = draggedItems(canvas);
+    if (!nodes.length && !groups.length) return;
+
+    const nested = nestedContent(groups);
+    // nodes the user also selected but that already ride inside a dragged
+    // group must not be shifted twice
+    const looseNodes = soloDrag ? nodes : nodes.filter((n) => !nested.nodeIds.has(n.id));
 
     const zoom = canvas.ds?.scale || 1;
-    const ub = unionBox(dragged);
+    const boxes = [...looseNodes.map(nodeBox), ...groups.map(groupBox)];
+    let ub = null;
+    for (const b of boxes) {
+        if (!ub) ub = { ...b };
+        else {
+            ub.x1 = Math.min(ub.x1, b.x1); ub.y1 = Math.min(ub.y1, b.y1);
+            ub.x2 = Math.max(ub.x2, b.x2); ub.y2 = Math.max(ub.y2, b.y2);
+        }
+    }
+
     const prevGuides = sim.guides.length;
     sim.guides = [];
 
     const desired = [0, 0];
     if (!altFree) {
-        const draggedIds = new Set(dragged.map((n) => n.id));
-        const { xs, ys } = collectCandidates(canvas, ub, draggedIds);
+        const draggedIds = new Set(nodes.map((n) => n.id));
+        // content moving inside dragged groups can't be a snap target either
+        // (unless Ctrl-dragging the frame alone, when contents stay parked)
+        if (!soloDrag) for (const id of nested.nodeIds) draggedIds.add(id);
+        const excludedGroups = soloDrag ? new Set(groups) : nested.groups;
+        const { xs, ys } = collectCandidates(
+            canvas, ub, draggedIds, excludedGroups,
+            groups.length === 0, // slots only for pure node drags
+        );
         desired[0] = pickAxis(xs, 0, zoom);
         desired[1] = pickAxis(ys, 1, zoom);
     }
 
-    let moved = false;
-    for (let a = 0; a < 2; ++a) {
-        const d = desired[a] - sim.off[a];
-        if (d) {
-            for (const n of dragged) n.pos[a] += d;
-            moved = true;
+    const dx = desired[0] - sim.off[0];
+    const dy = desired[1] - sim.off[1];
+    if (dx || dy) {
+        for (const g of groups) g.move(dx, dy, !!soloDrag);
+        for (const n of looseNodes) {
+            n.pos[0] += dx;
+            n.pos[1] += dy;
         }
-        sim.off[a] = desired[a];
     }
+    sim.off[0] = desired[0];
+    sim.off[1] = desired[1];
 
-    if (moved || sim.guides.length !== prevGuides) {
+    if (dx || dy || sim.guides.length !== prevGuides) {
         canvas.dirty_canvas = true;
         canvas.dirty_bgcanvas = true;
     }
@@ -876,7 +926,8 @@ function installPatches() {
             if (state.magnet && canvas.isDragging) {
                 sim.canvas = canvas;
                 chainGuideOverlay(canvas);
-                applySmartAlign(canvas, !!e.altKey);
+                // Ctrl/Meta = LiteGraph's "move group frame without contents"
+                applySmartAlign(canvas, !!e.altKey, !!(e.ctrlKey || e.metaKey));
             } else if (sim.canvas) {
                 stopSim();
             }
