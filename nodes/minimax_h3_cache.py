@@ -62,10 +62,16 @@ def _apply_core_patch():
     if getattr(model_cls, "_trent_minimax_cache_patch", False):
         return
 
-    # Newer cores (Kijai PR #15243 / SDE fix) scale the audio velocity by
-    # d(sigma_a)/d(sigma_v) in forward(); older cores expect _forward to do it.
-    # Scaling in both places breaks audio, so detect which core this is.
-    core_scales_audio = "time_shift_slope" in inspect.getsource(model_cls.forward)
+    # Newer cores (Kijai PR #15243 / SDE fix) handle the audio-schedule
+    # conversion in forward() — first via a time_shift_slope velocity scale,
+    # then the "audio_stream_scale" carried-variable draft, now the
+    # ModelSamplingAV "audio_scale" payload scheme (2026-08-06 PR head).
+    # Older cores expect _forward to apply the slope itself. Scaling in both
+    # places breaks audio, so detect which core this is.
+    forward_src = inspect.getsource(model_cls.forward)
+    core_scales_audio = ("time_shift_slope" in forward_src
+                         or "audio_stream_scale" in forward_src
+                         or "audio_scale" in forward_src)
 
     def _run_blocks(self, h, t_emb, mod_segments, rope_freqs, transformer_options, start=0, end=None):
         patches_replace = transformer_options.get("patches_replace", {})
@@ -217,9 +223,17 @@ def _apply_core_patch():
         audio_out = mm.unpack_audio(a)
 
         if core_scales_audio:
-            # forward() applies d(sigma_a)/d(sigma_v); return raw velocity
+            # forward() converts the audio stream; return raw velocity
             return [-video_out.to(video_x.dtype), -audio_out.to(audio_x.dtype)]
-        slope_a = mm.time_shift_slope(sigma_v, shift_v, shift_a).to(audio_out.dtype)
+        # legacy core: _forward owns the d(sigma_a)/d(sigma_v) velocity scale.
+        # time_shift_slope was removed from newer cores, so compute it inline.
+        slope_fn = getattr(mm, "time_shift_slope", None)
+        if slope_fn is not None:
+            slope_a = slope_fn(sigma_v, shift_v, shift_a)
+        else:
+            base = sigma_v / (shift_v + sigma_v * (1.0 - shift_v))
+            slope_a = (shift_a * (1.0 + (shift_v - 1.0) * base) ** 2) / (shift_v * (1.0 + (shift_a - 1.0) * base) ** 2)
+        slope_a = slope_a.to(audio_out.dtype)
         return [-video_out.to(video_x.dtype), (-slope_a) * audio_out.to(audio_x.dtype)]
 
     model_cls._run_blocks = _run_blocks
