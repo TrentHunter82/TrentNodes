@@ -15,7 +15,7 @@ class MiniH3FrameAdjusterNode:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "INT", "INT", "FLOAT")
+    RETURN_TYPES = ("IMAGE", "INT", "INT", "INT")
     RETURN_NAMES = ("adjusted_images", "final_frame_count", "frames_added", "duration_seconds")
     FUNCTION = "adjust_frame_count"
     CATEGORY = "Trent/Utilities"
@@ -57,8 +57,9 @@ class MiniH3FrameAdjusterNode:
 
         final_count = adjusted_images.shape[0]
 
-        # Duration of the adjusted clip at H3's native 24 fps
-        duration_seconds = final_count / 24.0
+        # Duration of the adjusted clip at H3's native 24 fps,
+        # rounded to the nearest whole second for INT consumers
+        duration_seconds = round(final_count / 24.0)
 
         return (adjusted_images, final_count, frames_to_add, duration_seconds)
 
