@@ -17,6 +17,10 @@ Ported from lihaoyun6/ComfyUI-MiniMaxH3-Cache (GPL-3.0), with fixes:
 The patched _forward is a copy of comfy.ldm.minimax.model.MiniMaxH3Model._forward
 with the 50-block loop factored into _run_blocks behind a ("block_loop", 0)
 patches_replace hook. If core _forward changes upstream, re-sync this copy.
+Last synced 2026-08-07 against drozbay per-token latent noise mask core
+(PR #15375, commit 3c474997): denoise_mask / audio_denoise_mask params and
+the per-row timestep pinning they drive. On cores without mask_row_targets
+the masks are ignored, matching those cores' own behavior.
 
 Do not install alongside the original ComfyUI-MiniMaxH3-Cache extension:
 both replace MiniMaxH3Model._forward and the import order decides which wins.
@@ -95,7 +99,8 @@ def _apply_core_patch():
             model_prefetch.prefetch_queue_pop(prefetch_queue, h.device, None)
         return h
 
-    def patched_forward(self, x, timestep, context, transformer_options={}, minimax_payload=None, **kwargs):
+    def patched_forward(self, x, timestep, context, transformer_options={}, minimax_payload=None,
+                        denoise_mask=None, audio_denoise_mask=None, **kwargs):
         video_x, audio_x = x[0], x[1]
         orig_t, orig_h, orig_w = video_x.shape[2], video_x.shape[3], video_x.shape[4]
         video_x = comfy.ldm.common_dit.pad_to_patch_size(video_x, self.patch_size)
@@ -124,13 +129,34 @@ def _apply_core_patch():
 
         vis_aug = float(payload.get("visual_cond_noise_aug", mm.VISUAL_COND_TIMESTEP))
         aud_aug = float(payload.get("audio_cond_noise_aug", mm.AUDIO_COND_TIMESTEP))
-        has_vis_cond = any(k in ("cond", "ref_img") for _, _, k in layout.segments)
-        has_aud_cond = any(k == "ref_audio" for _, _, k in layout.segments)
         seg_t = {"text": t_v, "video": t_v, "audio": t_a,
                  "cond": max(t_v, vis_aug), "ref_img": max(t_v, vis_aug),
                  "ref_audio": max(t_a, aud_aug)}
-        unique_t = sorted({t_v, t_a} | ({seg_t["cond"]} if has_vis_cond else set())
-                          | ({seg_t["ref_audio"]} if has_aud_cond else set()))
+
+        # rows that are preserved by the noise mask run at the cond timestep
+        t_pin_v = max(t_v, mm.VISUAL_COND_TIMESTEP)
+        t_pin_a = max(t_a, mm.AUDIO_COND_TIMESTEP)
+        video_w = None
+        audio_w = None
+        mask_row_targets = getattr(mm, "mask_row_targets", None)
+        if denoise_mask is not None and mask_row_targets is not None:
+            targets = mask_row_targets(denoise_mask[0, 0].to(torch.float32), latent_t, lat_h, lat_w)
+            if targets is not None:
+                if bool(targets.any()):
+                    video_w = targets.to(torch.float32).unsqueeze(1)  # [n, 1], 1 = generate
+                else:
+                    seg_t["video"] = t_pin_v
+        if audio_denoise_mask is not None and mask_row_targets is not None:
+            targets = audio_denoise_mask[0, 0].to(torch.float32).reshape(-1) >= 0.5
+            if not bool(targets.all()):
+                if bool(targets.any()):
+                    audio_w = targets.to(torch.float32).unsqueeze(1)
+                else:
+                    seg_t["audio"] = t_pin_a
+
+        unique_t = sorted({t_v, t_a} | {seg_t[k] for _, _, k in layout.segments}
+                          | ({t_pin_v} if video_w is not None else set())
+                          | ({t_pin_a} if audio_w is not None else set()))
         t_row = {t: i for i, t in enumerate(unique_t)}
         seg_tag = {"text": 1, "video": 0, "audio": 2, "cond": 0, "ref_img": 0, "ref_audio": 2}
 
@@ -145,6 +171,10 @@ def _apply_core_patch():
                     if i == b - a or tags[i] != tags[run_start]:
                         mod_segments.append((a + run_start, a + i, row_base + int(tags[run_start])))
                         run_start = i
+            elif kind == "video" and video_w is not None:
+                mod_segments.append((a, b, (row_base + seg_tag[kind], t_row[t_pin_v] * 3 + seg_tag[kind], video_w)))
+            elif kind == "audio" and audio_w is not None:
+                mod_segments.append((a, b, (row_base + seg_tag[kind], t_row[t_pin_a] * 3 + seg_tag[kind], audio_w)))
             else:
                 mod_segments.append((a, b, row_base + seg_tag[kind]))
 
@@ -214,8 +244,16 @@ def _apply_core_patch():
             h = self._run_blocks(h, t_emb, mod_segments, rope_freqs, transformer_options)
         # ----------------------------------------------------------
 
-        video_seg = next((a, b, t_row[seg_t["video"]]) for a, b, k in layout.segments if k == "video")
-        audio_seg = next((a, b, t_row[seg_t["audio"]]) for a, b, k in layout.segments if k == "audio")
+        va, vb, _ = next(s for s in layout.segments if s[2] == "video")
+        aa, ab, _ = next(s for s in layout.segments if s[2] == "audio")
+        if video_w is not None:
+            video_seg = (va, vb, (t_row[seg_t["video"]], t_row[t_pin_v], video_w))
+        else:
+            video_seg = (va, vb, t_row[seg_t["video"]])
+        if audio_w is not None:
+            audio_seg = (aa, ab, (t_row[seg_t["audio"]], t_row[t_pin_a], audio_w))
+        else:
+            audio_seg = (aa, ab, t_row[seg_t["audio"]])
         v, a = self.final_layer(h, t_emb, video_seg, audio_seg)
 
         video_out = mm.unpatchify_video(v, latent_t, lat_h // 2, lat_w // 2, self.latents_dim, self.patch_size)
