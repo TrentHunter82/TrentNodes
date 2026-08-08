@@ -219,7 +219,7 @@ Returns the first frame from a batch of images. One input, one output, zero sett
 **Just Pad or Crop It**
 Pad or crop an image to match a reference image's dimensions. Each axis is handled independently: axes smaller than the target are padded with configurable gray fill, axes larger are center-cropped. Outputs a binary mask (1.0 = real pixel, 0.0 = padded region). Supports center or top-left alignment.
 
-### 🔧 Trent/Utilities (10 nodes)
+### 🔧 Trent/Utilities (11 nodes)
 
 **Smart File Transfer (Auto-Rename)**
 Intelligent file management with automatic conflict resolution, checksums, and organized directory structures. Safely transfers files with duplicate detection.
@@ -250,6 +250,9 @@ Creates text files with custom content. Specify a file path and content to write
 
 **Wan2.1 Frame Adjuster**
 Adjusts frame amount to always satisfy Wan 4x+1 requirements by adding gray frames to the end of a batch; use a Get Frame Range from Batch node before combining video with the original amount of frames for less headaches when using Wan.
+
+**MiniH3 Magic (Frame Adjuster)**
+MiniMax H3 counterpart of the Wan2.1 Frame Adjuster. Rounds a batch up to the next valid H3 frame count (17n+5: 5, 22, 39, 56, ...) by adding gray frames to the end, and also outputs the resulting duration in seconds at H3's native 24 fps. H3 can pad up to 16 frames (~0.67 s), so trim back to the original frame count after generation.
 
 ### 🎭 Trent/Masks (4 nodes)
 
