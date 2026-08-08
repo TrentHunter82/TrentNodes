@@ -4,7 +4,12 @@ import { app } from "/scripts/app.js";
  * VidScribe MiniCPM Beta - Dynamic Widget Extension
  *
  * Hides custom_system_prompt unless system_prompt == "custom".
- * Uses DA3 pattern (array removal) matching frame_ramp_boogie.
+ *
+ * The widget is hidden IN PLACE (hidden flag + zero computeSize + DOM
+ * element display), never removed from node.widgets: multiline STRING
+ * widgets are DOM overlays whose element survives array removal, and
+ * removal also reorders widgets_values so saved workflows reload with
+ * values in the wrong widgets.
  */
 app.registerExtension({
     name: "Trent.VidScribeMiniCPM",
@@ -18,39 +23,36 @@ app.registerExtension({
             node.widgets?.find((w) => w.name === name);
 
         const setup = () => {
-            // Capture ref before any removal
             const customWidget = findWidget("custom_system_prompt");
-            if (!customWidget) return false;
+            const sysWidget = findWidget("system_prompt");
+            if (!customWidget || !sysWidget) return false;
 
-            // Set of managed widgets (just one for now)
-            const optSet = new Set([customWidget]);
+            if (customWidget._trentOrigType === undefined) {
+                customWidget._trentOrigType = customWidget.type;
+                customWidget._trentOrigComputeSize = customWidget.computeSize;
+            }
 
             const updateVisibility = () => {
-                const sysVal =
-                    findWidget("system_prompt")?.value;
-                const shouldShow = sysVal === "custom";
+                const show = sysWidget.value === "custom";
 
-                // Build list of widgets to show
-                const toShow = [];
-                if (shouldShow) {
-                    toShow.push(customWidget);
+                // New (Vue) frontend respects the hidden flag for both
+                // canvas layout and the DOM overlay position.
+                customWidget.hidden = !show;
+
+                // Legacy canvas fallback: take no vertical space and
+                // skip drawing when hidden.
+                customWidget.type = show
+                    ? customWidget._trentOrigType
+                    : "hidden";
+                customWidget.computeSize = show
+                    ? customWidget._trentOrigComputeSize
+                    : () => [0, -4];
+
+                // Belt and braces for the DOM overlay itself.
+                if (customWidget.element) {
+                    customWidget.element.style.display = show ? "" : "none";
                 }
 
-                // Remove ALL optional widgets from array
-                node.widgets = node.widgets.filter(
-                    (w) => !optSet.has(w)
-                );
-
-                // Re-insert visible ones at end (before
-                // any preview widget, or just at end)
-                const insertAt = node.widgets.length;
-                for (let i = 0; i < toShow.length; i++) {
-                    node.widgets.splice(
-                        insertAt + i, 0, toShow[i]
-                    );
-                }
-
-                // Resize
                 requestAnimationFrame(() => {
                     const sz = node.computeSize();
                     node.setSize([node.size[0], sz[1]]);
@@ -60,14 +62,11 @@ app.registerExtension({
             };
 
             // Hook system_prompt dropdown
-            const sysWidget = findWidget("system_prompt");
-            if (sysWidget) {
-                const orig = sysWidget.callback;
-                sysWidget.callback = function () {
-                    if (orig) orig.apply(this, arguments);
-                    updateVisibility();
-                };
-            }
+            const orig = sysWidget.callback;
+            sysWidget.callback = function () {
+                if (orig) orig.apply(this, arguments);
+                updateVisibility();
+            };
 
             // Initial apply
             updateVisibility();
