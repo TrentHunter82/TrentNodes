@@ -157,6 +157,7 @@ class MapLinks {
         this.paths = [];
         this.config = config;
         this.lastCalcTime = 0;
+        this.calcTopLeft = {}; // node.id -> top-left at plan time, to spot moves
     }
 
     // find which node is in the way of the output-to-input segment
@@ -380,9 +381,11 @@ class MapLinks {
         const startCalcTime = performance.now();
         this.paths = [];
         this.nodesById = {};
+        this.calcTopLeft = {};
         this.nodesByRight = nodesByExecution.map((node) => {
             const barea = new Float32Array(4);
             node.getBounding(barea);
+            this.calcTopLeft[node.id] = [barea[0], barea[1]];
             const area = [barea[0], barea[1], barea[0] + barea[2], barea[1] + barea[3]];
             const linesArea = Array.from(area);
             linesArea[0] += this.config.nodeSpace[0];
@@ -410,7 +413,7 @@ class MapLinks {
                 let outputXY = Array.from(outputXYConnection);
                 for (const linkId of links) {
                     outputXY[0] = outputNodeInfo.linesArea[2];
-                    const link = graphLinks[linkId];
+                    const link = graphLinks.get ? graphLinks.get(linkId) : graphLinks[linkId];
                     if (!link) continue;
                     let targetNode = this.canvas.graph.getNodeById(link.target_id);
                     if (!targetNode) {
@@ -446,30 +449,66 @@ class MapLinks {
                         path = [outputXYConnection, outputXY, inputXY, inputXYConnection];
                     }
                     this.expandSourceNodeLinesArea(nodeI, path);
-                    this.paths.push({ path, node, targetNode, slot });
+                    this.paths.push({ path, node, targetNode, slot, targetSlot: link.target_slot });
                     outputXY = [outputXY[0] + this.config.lineSpace, outputXY[1]];
                 }
             });
         }
-        this.lastCalcTime = Math.min(performance.now() - startCalcTime, 30000);
+        // Cap the measurement: one janky frame (GC, VRAM hitch) must not
+        // inflate the debounce below into a multi-second path freeze.
+        this.lastCalcTime = Math.min(performance.now() - startCalcTime, 2000);
+    }
+
+    // Did this node move since the paths were planned? Matters when the
+    // plan is debounced (big graph): stale traces must not stay pinned to
+    // the node's old position while it is being dragged.
+    nodeMovedSincePlan(node, scratch) {
+        const p0 = this.calcTopLeft[node.id];
+        if (!p0) return false;
+        node.getBounding(scratch);
+        return Math.abs(scratch[0] - p0[0]) > 0.5 || Math.abs(scratch[1] - p0[1]) > 0.5;
     }
 
     drawLinks(ctx) {
-        const byType = this.canvas.default_connection_color_byType;
-        const defaults = this.canvas.default_connection_color;
-        if (!byType || !defaults) return;
+        const byType = this.canvas.default_connection_color_byType || {};
+        const defaults = this.canvas.default_connection_color || {};
 
         ctx.save();
         const currentNodeIds = this.canvas.selected_nodes || {};
         const lineWidth = this.canvas.connections_width || 3;
         const cornerRadius = this.config.lineSpace;
+        const scratch = new Float32Array(4);
 
         for (const pathI of this.paths) {
-            const path = pathI.path;
-            const connection = pathI.node.outputs[pathI.slot];
+            // dynamic nodes (e.g. the Trent Bus) can remove slots between
+            // plans — skip dead entries instead of crashing the draw loop
+            const connection = pathI.node.outputs?.[pathI.slot];
+            const targetInput = pathI.targetNode.inputs?.[pathI.targetSlot];
+            if (!connection || !targetInput) continue;
+
+            let path = pathI.path;
+            // an endpoint node moved since the (debounced) plan — re-anchor
+            // the trace live so it never detaches from the node mid-drag
+            if (this.nodeMovedSincePlan(pathI.node, scratch)
+                || this.nodeMovedSincePlan(pathI.targetNode, scratch)) {
+                try {
+                    const o = slotOutPos(pathI.node, pathI.slot);
+                    const t = slotInPos(pathI.targetNode, pathI.targetSlot);
+                    const midX = (o[0] + t[0]) / 2;
+                    path = [
+                        [o[0], o[1]],
+                        [midX, o[1]],
+                        [midX, t[1]],
+                        [t[0], t[1]],
+                    ];
+                } catch (e) {
+                    continue; // odd slot state — the pending replan fixes it
+                }
+            }
+
             if (path.length <= 1) continue;
             ctx.beginPath();
-            const slotColor = byType[connection.type] || defaults.input_on;
+            const slotColor = byType[connection.type] || defaults.input_on || "#AFA";
             ctx.strokeStyle =
                 (currentNodeIds[pathI.node.id] || currentNodeIds[pathI.targetNode.id])
                     ? "white" : slotColor;
@@ -592,19 +631,26 @@ class CircuitBoard {
         }
     }
 
+    // Returns true when circuit traces were drawn; false tells the caller
+    // to fall back to native spline rendering for this frame.
     draw(canvas, ctx) {
         this.canvas = canvas;
         if (!this.mapLinks || this.mapLinks.lastCalcTime <= 100) {
             this.recalc();
         } else if (!this.recalcTimeout) {
-            // big graph: recalc off the draw path, then ask for a redraw
+            // big graph: recalc off the draw path, then ask for a redraw.
+            // Hard 1.5s ceiling — stale paths are live-re-anchored in
+            // drawLinks, but the full replan must still come soon.
+            const delay = Math.min(this.mapLinks.lastCalcTime * 2, 1500);
             this.recalcTimeout = setTimeout(() => {
                 this.recalcTimeout = null;
                 this.recalc();
                 redrawCanvas();
-            }, this.mapLinks.lastCalcTime * 2);
+            }, delay);
         }
-        if (this.mapLinks) this.mapLinks.drawLinks(ctx);
+        if (!this.mapLinks) return false;
+        this.mapLinks.drawLinks(ctx);
+        return true;
     }
 }
 
@@ -903,8 +949,9 @@ function installPatches() {
                 // clear it so no stale spline hotspots linger under our traces
                 this.renderedPaths?.clear?.();
                 if (this.links_render_mode === hiddenLinkMode()) return;
-                board.draw(this, ctx);
-                return;
+                if (board.draw(this, ctx)) return;
+                // board has no usable plan (first recalc failed) — draw
+                // native splines instead of leaving every link invisible
             } catch (e) {
                 console.error("[TrentNoodles] circuit draw failed, falling back", e);
             }
