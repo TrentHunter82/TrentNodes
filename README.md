@@ -7,6 +7,22 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
+### NEW: Batch Loader Cowboys (Text File / Ref Folder / Ref Preview)
+
+> Filename-keyed batch loading for per-clip render pipelines. Wire
+> **VideoFolderCowboy**'s `filename` output into the new
+> **TextFileCowboy** and **RefFolderCowboy**, and clip `000.mp4`
+> automatically pairs with `prompts/000.txt` and `refs/000/`.
+> TextFileCowboy loads one prompt file per clip (natural sort,
+> wrap/clamp/error index modes, mtime cache-busting).
+> RefFolderCowboy loads up to six reference images onto six fixed
+> IMAGE outputs — empty slots emit None, which optional inputs like
+> the MiniMax H3 `ref_image` sockets silently skip, so all six stay
+> wired and empty folders run ref-less instead of erroring.
+> **RefPreviewCowboy** previews whichever slots actually hold images
+> (None-tolerant, mixed sizes OK).
+> Find them under **Trent/Text** and **Trent/Image**.
+
 ### NEW: Organize Group as Grid (Canvas Tool)
 
 > One-hotkey cleanup for messy groups. Select any group(s), hit
@@ -184,7 +200,7 @@ Analyzes animation sequences to detect duplicate frames and replaces them with g
 **Animation Frame Remover**
 Removes padding frames inserted by the Enhanced Animation Timing Processor. Connect the `removal_indices` output from the processor to automatically strip the temporary padding frames after video generation, returning to the original frame count while preserving the generated content.
 
-### 🖼️ Trent/Image (11 nodes)
+### 🖼️ Trent/Image (13 nodes)
 
 **Image+Text Grid**
 Creates a grid layout of images with text captions below each. Features auto-grid layout (set images_per_row to 0) that picks optimal columns via ceil(sqrt(n)), aspect-aware cell sizing based on median batch aspect ratio, and automatic centering of the last row when it has fewer images. Configure grid layout with images per row, image size, caption height, font size, padding, and background color. Note: when receiving images from a list-based node (e.g. StringListCowboy), use an ImageListToImageBatch node upstream to collect all images into a single batch before the grid. Perfect for contact sheets, comparison grids, or captioned image galleries.
@@ -218,6 +234,12 @@ Returns the first frame from a batch of images. One input, one output, zero sett
 
 **Just Pad or Crop It**
 Pad or crop an image to match a reference image's dimensions. Each axis is handled independently: axes smaller than the target are padded with configurable gray fill, axes larger are center-cropped. Outputs a binary mask (1.0 = real pixel, 0.0 = padded region). Supports center or top-left alignment.
+
+**Ref Folder Cowboy**
+Loads up to six reference images from a folder (or folder/<filename_key>/) onto six fixed IMAGE outputs in natural-sort order. Empty slots output None, which optional inputs - like the MiniMax H3 ref_image sockets - treat as not connected, so all six outputs stay wired and nothing needs muting. An empty or missing folder is not an error: every slot passes None and the run continues ref-less. Also outputs the image count and the slot-order filenames. Replaced ref files bust the cache via mtime.
+
+**Ref Preview Cowboy**
+None-tolerant multi-image preview, the companion to Ref Folder Cowboy. Six optional IMAGE inputs; previews whichever slots hold images, in slot order, and silently skips None or unconnected inputs - so an empty or partial ref folder never aborts the run. Each slot is saved separately, so mixed image sizes are fine.
 
 ### 🔧 Trent/Utilities (11 nodes)
 
@@ -276,13 +298,16 @@ Dynamic keyframe sequencing for Wan Vace video generation. Features interactive 
 **Vace Mask AutoComping**
 Composites solid gray over masked areas of input images for Wan VACE inpainting workflows. Feed in an image batch and a mask batch (e.g. from SAM3), and it outputs the original video with gray overlaid on the masked regions plus a matching clean binary mask -- saving you from manually compositing the gray-over-original setup that VACE expects. Features adjustable mask expansion (hard edge, no feather) to grow the inpaint region, and a configurable gray level (default 0.5 matches VACE filler). Handles single-mask-to-batch broadcast, automatic spatial resizing, and GPU-accelerated dilation.
 
-### 📝 Trent/Text (2 nodes)
+### 📝 Trent/Text (3 nodes)
 
 **Auto Style Dataset**
 Generates 35 prompt strings for synthetic dataset creation. Reads prompts from an external config file and applies optional prepend/append text to each output. Perfect for batch generation of training data with consistent formatting.
 
 **String List Cowboy**
 Lassos strings together into a list with optional prefix/suffix branding. Works like Impact Pack's MakeAnyList but specialized for strings - connect any inputs and they get collected into a string list. Each string gets the prefix prepended and suffix appended. Dynamic inputs expand as you connect more values.
+
+**Text File Cowboy**
+Directory iterator for text files - the prompt-side companion to Video/Image Folder Cowboy. Loads one file selected by index (natural-sorted, with wrap/clamp/error overflow modes) or by a filename_key input: wire VideoFolderCowboy's filename output in and clip 000.mp4 loads prompts/000.txt. Outputs the file text, the bare filename, and the total file count. Edits to the file bust the cache automatically via mtime.
 
 ### 🔀 Trent/Flow (2 nodes)
 
