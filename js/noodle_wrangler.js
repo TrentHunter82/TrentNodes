@@ -26,7 +26,7 @@ const LS_CIRCUIT = "TrentNoodles.circuit";
 const LS_MAGNET = "TrentNoodles.magnet";
 
 const state = {
-    circuit: localStorage.getItem(LS_CIRCUIT) !== "0", // default ON
+    circuit: localStorage.getItem(LS_CIRCUIT) === "1", // default OFF
     magnet: localStorage.getItem(LS_MAGNET) === "1",   // default OFF
 };
 
