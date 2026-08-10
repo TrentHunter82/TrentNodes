@@ -331,7 +331,7 @@ Outputs 10 individual prompt strings plus a combined `all_prompts` output for ea
 ### 👁️ Trent/VLM (6 nodes)
 
 **VidScribe MiniCPM Beta**
-GPU-accelerated vision-language model for describing images and video frames using MiniCPM-V 4.5. Features:
+GPU-accelerated vision-language model for describing images and video frames. Two selectable backends: MiniCPM-V 4.5 int4 (default) and Microsoft Mage-VL 4B (Jul 2026, stronger on video; ~10GB bf16, auto-downloads to models/magevl; thinking_mode is MiniCPM-only). Features:
 - int4 quantization (~6-8GB VRAM)
 - Smart frame sampling (auto-selects ~32 frames from longer videos)
 - Auto-unload after 60s idle to free VRAM

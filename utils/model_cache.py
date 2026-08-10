@@ -202,6 +202,13 @@ def clear_model_cache():
     except ImportError:
         pass  # MiniCPM wrapper not available
 
+    # Also clear Mage-VL cache
+    try:
+        from .magevl_wrapper import clear_magevl_cache
+        clear_magevl_cache()
+    except ImportError:
+        pass  # Mage-VL wrapper not available
+
     # Also clear CorridorKey cache
     try:
         from .corridorkey_wrapper import (

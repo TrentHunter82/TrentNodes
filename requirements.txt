@@ -32,3 +32,13 @@ einops>=0.8.0
 
 # For PSD layer decomposition (PSD Layer Splitter node)
 psd-tools>=1.9.0
+
+# For H3 Auto Prompt Generator (Trent/VLM) - hosted VLM providers.
+# Each provider is optional; the node registers regardless and raises
+# an actionable error only when a missing provider is selected.
+# The openai package also serves the OpenAI-compatible providers:
+# kimi (Moonshot Kimi K3), glm (Z.ai), qwen_api (DashScope intl).
+anthropic>=0.119.0
+openai>=2.0.0
+# ollama>=0.6.0        # optional local provider (needs an ollama server)
+# Local Qwen3-VL needs transformers>=5.0 + accelerate (in the ComfyUI venv)

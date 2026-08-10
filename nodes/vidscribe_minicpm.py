@@ -1,10 +1,10 @@
 """
 VidScribe MiniCPM Beta - Vision-language node for ComfyUI.
 
-GPU-accelerated video/image description using MiniCPM-V 4.5 with:
-- int4 quantization (~6-8GB VRAM)
-- Smart frame sampling
-- Auto-unload after idle
+GPU-accelerated video/image description with a model choice:
+- MiniCPM-V 4.5 int4 (~6-8GB VRAM), the original backend
+- Mage-VL 4B bf16 (~10GB VRAM), Microsoft's Jul-2026 video-strong VLM
+Smart frame sampling and auto-unload after idle for both.
 """
 
 import torch
@@ -21,6 +21,14 @@ from ..utils.minicpm_wrapper import (
     SYSTEM_PROMPTS,
     SYSTEM_PROMPT_CHOICES,
 )
+from ..utils.magevl_wrapper import (
+    is_magevl_available,
+    run_magevl_inference,
+    clear_magevl_cache,
+    complete_magevl_inference,
+)
+
+MODEL_CHOICES = ["minicpm_v4.5_int4", "mage_vl_4b"]
 
 
 class VidScribeMiniCPMBeta:
@@ -149,6 +157,20 @@ class VidScribeMiniCPMBeta:
                         )
                     }
                 ),
+                # New widgets go at the END so saved workflows keep their
+                # widget-value order.
+                "model": (
+                    MODEL_CHOICES,
+                    {
+                        "default": "minicpm_v4.5_int4",
+                        "tooltip": (
+                            "minicpm_v4.5_int4: original backend, ~6-8GB. "
+                            "mage_vl_4b: Microsoft Mage-VL (Jul 2026), "
+                            "~10GB bf16, stronger on video; ignores "
+                            "thinking_mode."
+                        )
+                    }
+                ),
             }
         }
 
@@ -158,8 +180,8 @@ class VidScribeMiniCPMBeta:
     CATEGORY = "Trent/VLM"
     DESCRIPTION = (
         "Vision-language model for describing images and video frames. "
-        "Uses MiniCPM-V 4.5 with int4 quantization (~6-8GB VRAM). "
-        "Auto-downloads model on first use."
+        "Backends: MiniCPM-V 4.5 int4 (~6-8GB VRAM) or Mage-VL 4B "
+        "(~10GB, stronger on video). Auto-downloads model on first use."
     )
 
     def describe(
@@ -174,7 +196,8 @@ class VidScribeMiniCPMBeta:
         temperature: float = 0.7,
         seed: int = 0,
         custom_system_prompt: str = "",
-        lock_output: bool = False
+        lock_output: bool = False,
+        model: str = "minicpm_v4.5_int4"
     ):
         """
         Run vision-language inference on images.
@@ -199,8 +222,18 @@ class VidScribeMiniCPMBeta:
             print("[TrentNodes] VidScribe: Using locked/cached output")
             return VidScribeMiniCPMBeta._cached_output
 
+        use_magevl = model == "mage_vl_4b"
+
         # Check dependencies
-        if not is_minicpm_available():
+        if use_magevl:
+            if not is_magevl_available():
+                return (
+                    "[Error] Mage-VL needs transformers >= 5.7 and "
+                    "accelerate installed.",
+                    images,
+                    ""
+                )
+        elif not is_minicpm_available():
             return (
                 "[Error] MiniCPM dependencies not installed. "
                 "Run: pip install transformers accelerate bitsandbytes",
@@ -216,7 +249,8 @@ class VidScribeMiniCPMBeta:
 
         # Get frame count for logging
         n_frames = images.shape[0]
-        print(f"[TrentNodes] VidScribe: {n_frames} frames, mode={mode}")
+        print(f"[TrentNodes] VidScribe: {n_frames} frames, mode={mode}, "
+              f"model={model}")
 
         # Smart frame sampling (unless disabled)
         sampled_images, indices = sample_frames(images, use_all_frames)
@@ -231,20 +265,30 @@ class VidScribeMiniCPMBeta:
         # Convert tensors to PIL images
         pil_images = tensors_to_pil(sampled_images)
 
-        # Run inference
-        response = run_inference(
-            images=pil_images,
-            prompt=prompt,
-            mode=mode,
-            system_prompt=resolved_system_prompt,
-            thinking_mode=thinking_mode,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            seed=seed
-        )
-
-        # Immediately unload MiniCPM and clear VRAM
-        vram_status = complete_minicpm_inference()
+        # Run inference, then immediately unload and clear VRAM
+        if use_magevl:
+            response = run_magevl_inference(
+                images=pil_images,
+                prompt=prompt,
+                mode=mode,
+                system_prompt=resolved_system_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                seed=seed
+            )
+            vram_status = complete_magevl_inference()
+        else:
+            response = run_inference(
+                images=pil_images,
+                prompt=prompt,
+                mode=mode,
+                system_prompt=resolved_system_prompt,
+                thinking_mode=thinking_mode,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                seed=seed
+            )
+            vram_status = complete_minicpm_inference()
 
         print(f"[TrentNodes] VidScribe response: {len(response)} chars")
 
@@ -283,9 +327,10 @@ class UnloadMiniCPM:
     )
 
     def unload(self, trigger=None):
-        """Unload the MiniCPM model."""
+        """Unload the VidScribe backends (MiniCPM and Mage-VL)."""
         clear_minicpm_cache()
-        return ("MiniCPM model unloaded",)
+        clear_magevl_cache()
+        return ("VidScribe models unloaded",)
 
 
 # Node registration
