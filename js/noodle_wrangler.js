@@ -481,10 +481,13 @@ class MapLinks {
 
         for (const pathI of this.paths) {
             // dynamic nodes (e.g. the Trent Bus) can remove slots between
-            // plans — skip dead entries instead of crashing the draw loop
-            const connection = pathI.node.outputs?.[pathI.slot];
-            const targetInput = pathI.targetNode.inputs?.[pathI.targetSlot];
-            if (!connection || !targetInput) continue;
+            // plans — skip dead entries instead of crashing the draw loop.
+            // Subgraph in/out panel proxies keep their slots in .slots
+            // (no .inputs/.outputs arrays), so fall through to those.
+            const outSlots = pathI.node.outputs || pathI.node.slots;
+            const connection = outSlots?.[pathI.slot];
+            const inSlots = pathI.targetNode.inputs || pathI.targetNode.slots;
+            if (!connection || !inSlots?.[pathI.targetSlot]) continue;
 
             let path = pathI.path;
             // an endpoint node moved since the (debounced) plan — re-anchor
