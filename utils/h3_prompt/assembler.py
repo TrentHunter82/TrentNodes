@@ -21,6 +21,7 @@ from .prompts import (
     SECTION_ORDER,
     STOCK_EXCLUSIONS,
     DETAILED_DESCRIPTION_WORDS,
+    UPGRADED_DESCRIPTION_WORDS,
 )
 
 
@@ -30,6 +31,9 @@ class AssemblyContext:
     subject_wardrobe: str
     duration_seconds: float
     enable_audio_prompt: bool = True
+    # "official": trailing "No..." block padded to MIN_EXCLUSIONS.
+    # "upgraded": positive assertions inline; no padding, no block target.
+    profile: str = "official"
 
 
 @dataclass
@@ -488,7 +492,12 @@ def check_camera_moves(detailed: str, warnings: List[str]) -> None:
 def finalize_exclusions(
     exclusions: List[str], ctx: AssemblyContext, fixes: List[str]
 ) -> List[str]:
-    """Clean, dedupe, and pad the exclusion sentences to MIN_EXCLUSIONS."""
+    """
+    Clean and dedupe the exclusion sentences. The official profile pads
+    to MIN_EXCLUSIONS from the stock pool; the upgraded profile keeps
+    whatever the model wrote (constraints live inline as positive
+    assertions there).
+    """
     cleaned: List[str] = []
     seen = set()
     for raw in exclusions:
@@ -501,6 +510,9 @@ def finalize_exclusions(
         if key not in seen:
             seen.add(key)
             cleaned.append(sentence)
+
+    if ctx.profile == "upgraded":
+        return cleaned
 
     if len(cleaned) < MIN_EXCLUSIONS:
         for stock in STOCK_EXCLUSIONS:
@@ -606,11 +618,14 @@ def process(raw_text: str, ctx: AssemblyContext) -> AssemblyResult:
 
         words = len(sections["detailed_description"].split())
         result.detailed_word_count = words
-        lo, hi = DETAILED_DESCRIPTION_WORDS
+        lo, hi = (
+            UPGRADED_DESCRIPTION_WORDS if ctx.profile == "upgraded"
+            else DETAILED_DESCRIPTION_WORDS
+        )
         if words and (words < lo * 0.6 or words > hi * 1.4):
             warnings.append(
                 f"detailed_description is {words} words "
-                f"(official target {lo}-{hi})"
+                f"({ctx.profile} target {lo}-{hi})"
             )
 
     if not ctx.enable_audio_prompt:
@@ -622,6 +637,11 @@ def process(raw_text: str, ctx: AssemblyContext) -> AssemblyResult:
 
     enforce_wardrobe(sections, ctx.subject_wardrobe, fixes, warnings)
     exclusions = finalize_exclusions(exclusions, ctx, fixes)
+    if ctx.profile == "upgraded" and len(exclusions) > 3:
+        warnings.append(
+            f"upgraded profile expects inline positive assertions but "
+            f"the model wrote {len(exclusions)} trailing 'No...' sentences"
+        )
     sections, exclusions = apply_trim_ladder(
         sections, exclusions, fixes, retry_errors
     )

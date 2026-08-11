@@ -104,6 +104,18 @@ class H3AutoPromptGenerator:
                         "music N/A"
                     )
                 }),
+                "prompt_profile": (["official", "upgraded", "both_ab"], {
+                    "default": "official",
+                    "tooltip": (
+                        "official: HF-guide format with a trailing 'No...' "
+                        "exclusion block. upgraded: same sections + merged "
+                        "battle-tested practices (positive assertions, "
+                        "~3000-char budget, camera speed words, cut "
+                        "re-anchoring, resolved ending). both_ab: two "
+                        "separate VLM calls; official -> h3_prompt, "
+                        "upgraded -> h3_prompt_b, for A/B testing."
+                    )
+                }),
             },
             "optional": {
                 "video": ("VIDEO", {
@@ -150,8 +162,8 @@ class H3AutoPromptGenerator:
             },
         }
 
-    RETURN_TYPES = ("STRING", "FLOAT", "INT", "STRING")
-    RETURN_NAMES = ("h3_prompt", "duration_seconds", "fps",
+    RETURN_TYPES = ("STRING", "STRING", "FLOAT", "INT", "STRING")
+    RETURN_NAMES = ("h3_prompt", "h3_prompt_b", "duration_seconds", "fps",
                     "frame_analysis_json")
     FUNCTION = "generate"
     CATEGORY = "Trent/VLM"
@@ -176,6 +188,7 @@ class H3AutoPromptGenerator:
         model: str,
         max_frames_to_analyze: int,
         enable_audio_prompt: bool,
+        prompt_profile: str = "official",
         video=None,
         frames: Optional[torch.Tensor] = None,
         fps: float = 24.0,
@@ -183,7 +196,7 @@ class H3AutoPromptGenerator:
         dialogue: str = "",
         duration_override: float = 0.0,
         seed: int = 0,
-    ) -> Tuple[str, float, int, str]:
+    ) -> Tuple[str, str, float, int, str]:
         warnings = []
 
         images, real_fps, duration_source = self._resolve_frames(
@@ -247,49 +260,46 @@ class H3AutoPromptGenerator:
         )
 
         backend = get_backend(vlm_provider, model, api_key)
-        ctx = assembler.AssemblyContext(
-            subject_name=subject_name,
-            subject_wardrobe=subject_wardrobe,
-            duration_seconds=duration,
-            enable_audio_prompt=enable_audio_prompt,
+
+        profiles = (
+            ["official", "upgraded"] if prompt_profile == "both_ab"
+            else [prompt_profile]
         )
-
-        attempts = []
-        result = None
-        usage = {}
-        raw_text = ""
-        for attempt in range(MAX_RETRIES + 1):
-            if attempt == 0:
-                prompt_text = user_context
-            else:
-                print(
-                    f"{LOG_PREFIX} retrying with {len(result.retry_errors)} "
-                    "validation error(s)"
-                )
-                prompt_text = (
-                    user_context
-                    + "\n\nYOUR PREVIOUS ATTEMPT:\n" + raw_text
-                    + "\n\n" + prompts.build_retry_message(result.retry_errors)
-                )
-            vlm_result = backend.generate(
-                prompts.SYSTEM_PROMPT, vlm_images, prompt_text, seed=seed
+        variants = {}
+        prompts_out = []
+        last_usage = {}
+        for profile in profiles:
+            print(
+                f"{LOG_PREFIX} generating '{profile}' variant via "
+                f"{vlm_provider}"
             )
-            raw_text = vlm_result.text
-            usage = vlm_result.usage
-            result = assembler.process(raw_text, ctx)
-            attempts.append({
-                "errors": list(result.retry_errors),
-                "warnings": list(result.warnings),
-                "chars": result.char_count,
-            })
-            if not result.retry_errors:
-                break
-
-        warnings.extend(result.warnings)
-        if result.retry_errors:
+            ctx = assembler.AssemblyContext(
+                subject_name=subject_name,
+                subject_wardrobe=subject_wardrobe,
+                duration_seconds=duration,
+                enable_audio_prompt=enable_audio_prompt,
+                profile=profile,
+            )
+            result, attempts, usage = self._run_variant(
+                backend, profile, vlm_images, user_context, ctx, seed
+            )
+            last_usage = usage
+            prompts_out.append(result.prompt)
+            variants[profile] = {
+                "attempts": attempts,
+                "usage": usage,
+                "applied_fixes": result.applied_fixes,
+                "warnings": result.warnings,
+                "unresolved_errors": result.retry_errors,
+                "char_count": result.char_count,
+                "detailed_word_count": result.detailed_word_count,
+            }
+            warnings.extend(f"[{profile}] {w}" for w in result.warnings)
             warnings.extend(
-                f"unresolved after retry: {e}" for e in result.retry_errors
+                f"[{profile}] unresolved after retry: {e}"
+                for e in result.retry_errors
             )
+
         for w in warnings:
             print(f"{LOG_PREFIX} warning: {w}")
 
@@ -301,22 +311,58 @@ class H3AutoPromptGenerator:
             "diff_stats": keyframes.diff_stats,
             "detection_method": keyframes.method,
             "provider": vlm_provider,
-            "model": usage.get("model", model),
-            "usage": usage,
-            "attempts": attempts,
-            "applied_fixes": result.applied_fixes,
+            "model": last_usage.get("model", model),
+            "profile_mode": prompt_profile,
+            "variants": variants,
             "warnings": warnings,
             "duration_source": duration_source,
-            "char_count": result.char_count,
-            "detailed_word_count": result.detailed_word_count,
         }
 
         return (
-            result.prompt,
+            prompts_out[0],
+            prompts_out[1] if len(prompts_out) > 1 else "",
             round(duration, 3),
             int(round(real_fps)),
             json.dumps(analysis, indent=2),
         )
+
+    def _run_variant(
+        self, backend, profile: str, vlm_images, user_context: str,
+        ctx: "assembler.AssemblyContext", seed: int,
+    ):
+        """One profile's generate -> assemble -> retry loop."""
+        system = prompts.get_system_prompt(profile)
+        attempts = []
+        result = None
+        usage = {}
+        raw_text = ""
+        for attempt in range(MAX_RETRIES + 1):
+            if attempt == 0:
+                prompt_text = user_context
+            else:
+                print(
+                    f"{LOG_PREFIX} [{profile}] retrying with "
+                    f"{len(result.retry_errors)} validation error(s)"
+                )
+                prompt_text = (
+                    user_context
+                    + "\n\nYOUR PREVIOUS ATTEMPT:\n" + raw_text
+                    + "\n\n" + prompts.build_retry_message(result.retry_errors)
+                )
+            vlm_result = backend.generate(
+                system, vlm_images, prompt_text, seed=seed
+            )
+            raw_text = vlm_result.text
+            usage = vlm_result.usage
+            result = assembler.process(raw_text, ctx)
+            attempts.append({
+                "errors": list(result.retry_errors),
+                "warnings": list(result.warnings),
+                "chars": result.char_count,
+            })
+            if not result.retry_errors:
+                break
+        return result, attempts, usage
 
     def _resolve_frames(
         self, video, frames, fps: float, warnings: list

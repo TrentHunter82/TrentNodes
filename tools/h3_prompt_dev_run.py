@@ -89,6 +89,12 @@ def main():
                  "qwen_local", "minicpm_local", "ollama"],
     )
     parser.add_argument("--model", default="auto")
+    parser.add_argument(
+        "--profile", default="official",
+        choices=["official", "upgraded", "both_ab"],
+        help="both_ab = two calls; prints the official and upgraded "
+             "prompts for A/B testing",
+    )
     parser.add_argument("--api-key", default="")
     parser.add_argument("--max-frames", type=int, default=8)
     parser.add_argument("--dialogue", default="")
@@ -104,7 +110,7 @@ def main():
     print(f"Loaded {frames.shape[0]} frames @ {fps:.3f} fps")
 
     node = H3AutoPromptGenerator()
-    prompt, duration, out_fps, analysis = node.generate(
+    prompt, prompt_b, duration, out_fps, analysis = node.generate(
         reference_image=reference,
         subject_name=args.subject,
         subject_wardrobe=args.wardrobe,
@@ -114,16 +120,23 @@ def main():
         model=args.model,
         max_frames_to_analyze=args.max_frames,
         enable_audio_prompt=not args.no_audio,
+        prompt_profile=args.profile,
         frames=frames,
         fps=fps,
         api_key=args.api_key,
         dialogue=args.dialogue,
     )
 
+    label_a = "official" if args.profile in ("official", "both_ab") else args.profile
     print("\n" + "=" * 72)
+    print(f"--- {label_a} ({len(prompt)} chars) ---")
     print(prompt)
+    if prompt_b:
+        print("\n" + "-" * 72)
+        print(f"--- upgraded ({len(prompt_b)} chars) ---")
+        print(prompt_b)
     print("=" * 72)
-    print(f"\nduration={duration}s fps={out_fps} chars={len(prompt)}")
+    print(f"\nduration={duration}s fps={out_fps}")
     if args.json:
         print("\n" + analysis)
 

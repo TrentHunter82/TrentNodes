@@ -45,6 +45,14 @@ MAX_PROMPT_CHARS = 7000
 TARGET_PROMPT_CHARS = 5500
 DETAILED_DESCRIPTION_WORDS = (350, 500)
 
+# "upgraded" profile: practices merged 2026-08 from a battle-tested
+# API-side prompt (positive assertions, tight budget, speed-worded
+# camera, cut re-anchoring, resolved ending). Section format and
+# <Picture 1>/<Video 1> tags stay official.
+PROFILES = ("official", "upgraded")
+UPGRADED_DESCRIPTION_WORDS = (120, 300)
+UPGRADED_TARGET_CHARS = 3000
+
 SOUNDSCAPE_GUIDANCE = {
     "fight": (
         "Physical combat audio tied to visible action: body impacts, cloth "
@@ -123,6 +131,26 @@ No face morphing or identity drift of Aria Voss in any frame. No changes to the 
 3. If motion between frames is very small, treat it as slow or deliberate movement and say so; do not describe the subject as frozen.
 4. Build the six sections. Target under 5500 characters total.
 5. Self-check against every unbreakable rule, then output the prompt text only."""
+
+
+UPGRADE_OVERRIDES = """
+
+## UPGRADED PROFILE OVERRIDES
+
+These overrides replace the numbered rules above wherever they conflict. Every other rule stands, including the six-section format and the <Picture 1> / <Video 1> / <Subject 1> tags.
+
+A. Exclusions: write NO trailing "No ..." sentence block. Express every constraint as a positive assertion of the state you want, woven into retention_analysis or detailed_description: "the aisle stays completely empty of other people", "her charcoal utility jacket remains exactly as shown in <Picture 1> through every frame", "her face holds the exact likeness from <Picture 1> even while she is back-turned". The output ends with the non_diegetic_music section.
+B. Length: target 1,800-3,000 characters total. detailed_description is 120-300 words. Compress secondary environmental detail first; never compress the central action, the camera work, or the ending.
+C. Camera: every camera move carries a speed word (slow, steady, brisk, rapid) and names the physical operation rather than trusting the term: "the camera pushes in slowly at walking pace, keeping her face the same size in frame" rather than "push in". Name the shot size plainly (wide, medium, medium close-up, close-up).
+D. Carry across cuts: when a shot reuses the subject, a prop, a garment, or the setting from an earlier shot, say so explicitly: "the same pallet stack from Shot 1", "still wearing the charcoal jacket from <Picture 1>". Re-anchoring is what holds identity steady across a cut.
+E. Ending: the final sentences of detailed_description resolve the scene completely: final pose, the subject's position in frame, camera framing, environmental state, and whether the last image holds."""
+
+
+def get_system_prompt(profile: str = "official") -> str:
+    """System prompt for a profile: 'official' or 'upgraded'."""
+    if profile == "upgraded":
+        return SYSTEM_PROMPT + UPGRADE_OVERRIDES
+    return SYSTEM_PROMPT
 
 
 def build_user_context(

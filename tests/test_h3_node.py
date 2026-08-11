@@ -63,16 +63,13 @@ class FakeBackend:
         return VLMResult(text=CANNED, usage={"model": "fake-model"})
 
 
-def test_node_end_to_end():
-    fake = FakeBackend()
+def _run_node(fake, **overrides):
     original = h3_auto_prompt.get_backend
     h3_auto_prompt.get_backend = lambda *a, **k: fake
     try:
         node = h3_auto_prompt.H3AutoPromptGenerator()
-        frames = torch.rand((24, 64, 64, 3))
-        reference = torch.rand((1, 96, 96, 3))
-        prompt, duration, fps, analysis_json = node.generate(
-            reference_image=reference,
+        kwargs = dict(
+            reference_image=torch.rand((1, 96, 96, 3)),
             subject_name="Aria Voss",
             subject_wardrobe="charcoal utility jacket, black cargo pants, combat boots",
             scene_style="gritty thriller",
@@ -81,15 +78,23 @@ def test_node_end_to_end():
             model="auto",
             max_frames_to_analyze=4,
             enable_audio_prompt=True,
-            frames=frames,
+            frames=torch.rand((24, 64, 64, 3)),
             fps=12.0,
         )
+        kwargs.update(overrides)
+        return node.generate(**kwargs)
     finally:
         h3_auto_prompt.get_backend = original
+
+
+def test_node_end_to_end():
+    fake = FakeBackend()
+    prompt, prompt_b, duration, fps, analysis_json = _run_node(fake)
 
     assert fake.calls == 1
     assert prompt.startswith("subject_definitions:")
     assert "Aria Voss <Subject 1>" in prompt
+    assert prompt_b == ""
     assert abs(duration - 2.0) < 1e-6
     assert fps == 12
 
@@ -97,8 +102,45 @@ def test_node_end_to_end():
     assert analysis["provider"] == "anthropic"
     assert analysis["model"] == "fake-model"
     assert analysis["duration_source"] == "frames+fps"
+    assert analysis["profile_mode"] == "official"
     assert len(analysis["selected_frame_indices"]) <= 4
-    assert analysis["attempts"][0]["errors"] == []
+    official = analysis["variants"]["official"]
+    assert official["attempts"][0]["errors"] == []
+
+
+def test_node_both_ab():
+    fake = FakeBackend()
+    prompt, prompt_b, _duration, _fps, analysis_json = _run_node(
+        fake, prompt_profile="both_ab"
+    )
+
+    assert fake.calls == 2
+    assert prompt.startswith("subject_definitions:")
+    assert prompt_b.startswith("subject_definitions:")
+
+    analysis = json.loads(analysis_json)
+    assert analysis["profile_mode"] == "both_ab"
+    assert set(analysis["variants"]) == {"official", "upgraded"}
+    assert analysis["variants"]["upgraded"]["attempts"][0]["errors"] == []
+    # The canned text carries an 8-sentence No-block; the upgraded
+    # profile keeps it but flags it as off-profile
+    assert any(
+        "positive assertions" in w
+        for w in analysis["variants"]["upgraded"]["warnings"]
+    )
+
+
+def test_upgraded_profile_no_padding():
+    fake = FakeBackend()
+    prompt, prompt_b, _d, _f, analysis_json = _run_node(
+        fake, prompt_profile="upgraded"
+    )
+    assert prompt_b == ""
+    analysis = json.loads(analysis_json)
+    upgraded = analysis["variants"]["upgraded"]
+    assert not any(
+        "padded exclusions" in f for f in upgraded["applied_fixes"]
+    )
 
 
 def test_node_requires_an_input():
@@ -124,11 +166,15 @@ def test_node_requires_an_input():
 def test_node_class_contract():
     cls = h3_auto_prompt.H3AutoPromptGenerator
     assert cls.CATEGORY == "Trent/VLM"
-    assert cls.RETURN_TYPES == ("STRING", "FLOAT", "INT", "STRING")
+    assert cls.RETURN_TYPES == ("STRING", "STRING", "FLOAT", "INT", "STRING")
+    assert cls.RETURN_NAMES[1] == "h3_prompt_b"
     assert cls.FUNCTION == "generate"
     inputs = cls.INPUT_TYPES()
     assert "video" in inputs["optional"]
     assert inputs["optional"]["video"][0] == "VIDEO"
+    assert inputs["required"]["prompt_profile"][0] == [
+        "official", "upgraded", "both_ab"
+    ]
     providers = inputs["required"]["vlm_provider"][0]
     for expected in ("anthropic", "openai", "kimi", "glm", "qwen_api",
                      "qwen_local", "minicpm_local", "ollama"):
