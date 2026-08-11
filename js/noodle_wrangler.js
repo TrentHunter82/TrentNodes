@@ -910,6 +910,7 @@ function applyResizeAlign(canvas, altFree) {
     const node = canvas.resizing_node || null;
     const group = node ? null : (canvas.resizingGroup || null);
     if (!node && !group) return;
+    if (group?.pinned) return; // group.resize() refuses pinned groups
 
     sim.off[0] = 0;
     sim.off[1] = 0;
@@ -925,8 +926,32 @@ function applyResizeAlign(canvas, altFree) {
             top: dir.includes("N"), bottom: dir.includes("S"),
         };
         const target = node || group;
-        const ub = node ? nodeBox(node) : groupBox(group);
-        const min = node?.computeSize ? node.computeSize() : [64, 64];
+        // Build the box from LIVE pos/size, not getBounding(): the node's
+        // _boundingRect cache is only refreshed by updateArea() during the
+        // draw loop, so mid-drag it lags one pointer event behind and a
+        // correction measured from it oscillates around the snap target
+        // instead of locking on.
+        const LG = window.LiteGraph || {};
+        let ub;
+        if (node) {
+            const titleH =
+                (node.title_mode === LG.NO_TITLE ||
+                 node.title_mode === LG.TRANSPARENT_TITLE)
+                    ? 0 : (LG.NODE_TITLE_HEIGHT || 30);
+            ub = {
+                x1: node.pos[0], y1: node.pos[1] - titleH,
+                x2: node.pos[0] + node.size[0], y2: node.pos[1] + node.size[1],
+            };
+        } else {
+            ub = groupBox(group);
+        }
+        // groups clamp to LGraphGroup.minWidth/minHeight (140x80) inside
+        // resize(); filter with the real minimums so we never draw a guide
+        // for a snap the clamp will reject
+        const min = node
+            ? (node.computeSize ? node.computeSize() : [64, 64])
+            : [group.constructor?.minWidth ?? 140,
+               group.constructor?.minHeight ?? 80];
         const zoom = canvas.ds?.scale || 1;
         const { xs, ys } = collectResizeCandidates(
             canvas, ub, moving, node, group, target.size, min);
@@ -943,11 +968,16 @@ function applyResizeAlign(canvas, altFree) {
                 else if (moving.bottom) ns[1] += dy;
                 if (node.setSize) node.setSize(ns);
                 else { node.size[0] = ns[0]; node.size[1] = ns[1]; }
-            } else if (!group.resize(group.size[0] + dx, group.size[1] + dy)) {
-                // group.resize clamps internally; if it rejected the
-                // correction, don't show guides for a snap that didn't happen
-                applied = false;
-                sim.guides = [];
+            } else {
+                // resize() returns true even when it clamps, so compare the
+                // resulting size to what we asked for; a rejected or clamped
+                // correction must not show guides for a snap that didn't land
+                const reqW = group.size[0] + dx, reqH = group.size[1] + dy;
+                const ok = group.resize(reqW, reqH);
+                if (!ok || group.size[0] !== reqW || group.size[1] !== reqH) {
+                    applied = false;
+                    sim.guides = [];
+                }
             }
         }
     }
