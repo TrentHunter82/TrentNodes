@@ -36,9 +36,10 @@ WIDGET_TYPES = {"INT", "FLOAT", "STRING", "BOOLEAN"}
 
 S = 2  # supersample scale; embed at half the PNG width for crisp text
 
-BODY = (53, 53, 53, 255)
-TITLE_BG = (48, 48, 48, 255)
-OUTLINE = (24, 24, 24, 255)
+# TrentNodes theme from js/trent_appearance.js: bgcolor #0a1218, color #0c1b21
+BODY = (10, 18, 24, 255)
+TITLE_BG = (12, 27, 33, 255)
+OUTLINE = (16, 16, 16, 255)
 TITLE_TEXT = (222, 222, 222, 255)
 SLOT_TEXT = (170, 170, 170, 255)
 WIDGET_BG = (34, 34, 34, 255)
@@ -256,7 +257,7 @@ def render(node):
     d.rounded_rectangle([x0, y0, x0 + W, y0 + TITLE_H + RADIUS], radius=RADIUS,
                         fill=TITLE_BG)
     d.rectangle([x0, y0 + TITLE_H, x0 + W, y0 + TITLE_H + RADIUS], fill=BODY)
-    d.line([x0, y0 + TITLE_H, x0 + W, y0 + TITLE_H], fill=(43, 43, 43, 255),
+    d.line([x0, y0 + TITLE_H, x0 + W, y0 + TITLE_H], fill=(26, 42, 50, 255),
            width=S)
     d.rounded_rectangle([x0, y0, x0 + W, y0 + H], radius=RADIUS,
                         outline=OUTLINE, width=S)
