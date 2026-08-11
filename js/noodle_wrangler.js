@@ -625,6 +625,7 @@ class CircuitBoard {
             lineSpace,
             nodeSpace: [-8, -4, 12, 4],
         });
+        this.mapLinks.forGraph = this.canvas.graph;
         const nodesByExecution = this.canvas.graph.computeExecutionOrder() || [];
         if (this.canvas.subgraph) {
             nodesByExecution.push(new SubgraphInOutNodeProxy(this.canvas.subgraph.inputNode, true));
@@ -634,7 +635,11 @@ class CircuitBoard {
             this.mapLinks.mapLinks(nodesByExecution);
         } catch (e) {
             console.error("[TrentNoodles] mapLinks error", e);
-            this.mapLinks = prev;
+            // only fall back to the previous plan if it belongs to THIS
+            // graph — restoring another graph's plan paints its traces
+            // into the current view (the exact ghosting we invalidate for)
+            this.mapLinks =
+                (prev && prev.forGraph === this.canvas.graph) ? prev : null;
         }
     }
 
@@ -642,6 +647,17 @@ class CircuitBoard {
     // to fall back to native spline rendering for this frame.
     draw(canvas, ctx) {
         this.canvas = canvas;
+        // workflow loads mutate the SAME LGraph instance (configure()), so
+        // the identity check below never sees them — the graph dispatches
+        // "configured" at the end of configure(); invalidate on it
+        const g = canvas.graph;
+        if (g?.events?.addEventListener && !g.__trentCircuitCfgHook) {
+            g.__trentCircuitCfgHook = true;
+            g.events.addEventListener("configured", () => {
+                this.lastGraph = null;
+                redrawCanvas();
+            });
+        }
         if (this.lastGraph !== canvas.graph) {
             // graph switch (enter/leave subgraph, workflow change): the old
             // plan belongs to another graph — replan NOW, or its traces
@@ -1134,13 +1150,26 @@ function installPatches() {
                 if (this.links_render_mode === hiddenLinkMode()) return;
                 if (board.draw(this, ctx)) {
                     // native drawConnections is the frontend's ONLY place
-                    // that draws reroute dots — skipping it made reroutes
-                    // invisible (yet still grabbable). Draw the dots on
-                    // top of the traces.
+                    // that draws reroute dots AND the only writer of
+                    // _visibleReroutes, which every piece of reroute
+                    // interactivity reads (click, drag, link-drop, hover).
+                    // Skipping it made reroutes invisible; drawing without
+                    // the bookkeeping would make them visible but dead.
                     try {
+                        this._visibleReroutes?.clear?.();
                         const reroutes = this.graph?.reroutes;
                         if (reroutes?.values) {
                             for (const r of reroutes.values()) {
+                                // native sets _colour per link segment;
+                                // derive it from the first link so dots
+                                // keep their type color under circuit mode
+                                const l = r.firstLink;
+                                if (l) {
+                                    r._colour = l.color
+                                        || window.LGraphCanvas?.link_type_colors?.[l.type]
+                                        || this.default_link_color;
+                                }
+                                this._visibleReroutes?.add?.(r);
                                 r.draw(ctx, this._pattern);
                             }
                         }

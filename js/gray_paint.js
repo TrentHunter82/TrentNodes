@@ -382,6 +382,9 @@ app.registerExtension({
 
             canvas.addEventListener("pointermove", (e) => {
                 if (!S.drawing) return;
+                // lost pointerup (failed capture, chorded buttons): the
+                // left button is no longer down — end, don't keep painting
+                if (!(e.buttons & 1)) { endStroke(); return; }
                 const pc = toPaintCoords(e);
                 if (!pc) return;
                 const { x, y } = pc;
@@ -402,6 +405,7 @@ app.registerExtension({
             };
             canvas.addEventListener("pointerup", endStroke);
             canvas.addEventListener("pointercancel", endStroke);
+            canvas.addEventListener("lostpointercapture", endStroke);
 
             // Wheel over canvas adjusts brush size.
             canvas.addEventListener(
@@ -488,6 +492,16 @@ app.registerExtension({
                 // keep the user's node size when the frame is unchanged
                 if (!dimsChanged) return;
 
+                if (!clearMask) {
+                    // restore path (workflow load): the node carries a saved
+                    // size — fit the widget into it instead of resizing the
+                    // node to the mask aspect, or every open stomps the size
+                    const chrome = chromeHeight();
+                    S.widgetHeight = Math.max(160, (this.size[1] || 0) - chrome);
+                    container.style.height = S.widgetHeight + "px";
+                    return;
+                }
+
                 const nodeWidth = this.size[0] || 400;
                 const avail = nodeWidth - 20;
                 const aspect = h / w;
@@ -533,16 +547,11 @@ app.registerExtension({
                 if (maskWidget && maskWidget.value) {
                     const img = new Image();
                     img.onload = () => {
-                        if (!S.imgW) {
-                            // no frame yet (fresh reload): size the widget
-                            // to the mask like a frame arrival would, and
-                            // keep the serialized mask (clearMask=false)
-                            resizeToImage(img.width, img.height, false);
-                        } else if (paint.width !== img.width ||
-                            paint.height !== img.height) {
-                            paint.width = img.width;
-                            paint.height = img.height;
-                        }
+                        // Always route through resizeToImage so paint,
+                        // canvas, and S.imgW change together — a partial
+                        // resize here desyncs the dims that the wipe/clear
+                        // logic compares. clearMask=false keeps mask_data.
+                        resizeToImage(img.width, img.height, false);
                         pctx.save();
                         pctx.globalCompositeOperation = "source-over";
                         pctx.clearRect(0, 0, paint.width, paint.height);

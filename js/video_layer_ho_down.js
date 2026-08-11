@@ -313,12 +313,15 @@ app.registerExtension({
             }
 
             sortLayerWidgets();
-            // grow-only: make room for new widget rows without shrinking
-            // a node the user sized themselves
+            // Width is grow-only; height tracks computeSize in BOTH
+            // directions. The user's sizing lives in state.widgetHeight
+            // (which computeSize includes), so this follows widget-row
+            // changes without stomping the user — a grow-only height
+            // would ratchet upward on every disconnect/reconnect cycle.
             const minSize = node.computeSize();
             node.setSize([
                 Math.max(node.size[0], minSize[0]),
-                Math.max(node.size[1], minSize[1]),
+                minSize[1],
             ]);
             app.graph.setDirtyCanvas(true, true);
         };
@@ -703,23 +706,30 @@ app.registerExtension({
 
             const bgImg = new Image();
             bgImg.onload = () => {
+                // only re-derive the canvas/widget size when the bg
+                // resolution actually changed — same-size reruns keep
+                // the user's node size (mirrors gray_paint)
+                const dimsChanged =
+                    s.bgW !== message.bg_size[0] ||
+                    s.bgH !== message.bg_size[1];
                 s.bgImage = bgImg;
                 s.bgW = message.bg_size[0];
                 s.bgH = message.bg_size[1];
 
-                const nodeW = node.size[0] || 450;
-                const availW = nodeW - 20;
-                const aspect = s.bgH / s.bgW;
-                const newH = Math.min(
-                    350,
-                    Math.round(availW * aspect)
-                );
-
-                canvas.width = Math.round(availW);
-                canvas.height = newH;
-                s.widgetHeight = newH;
-                container.style.height =
-                    newH + "px";
+                if (dimsChanged) {
+                    const nodeW = node.size[0] || 450;
+                    const availW = nodeW - 20;
+                    const aspect = s.bgH / s.bgW;
+                    const newH = Math.min(
+                        350,
+                        Math.round(availW * aspect)
+                    );
+                    canvas.width = Math.round(availW);
+                    canvas.height = newH;
+                    s.widgetHeight = newH;
+                    container.style.height =
+                        newH + "px";
+                }
 
                 // Load layer previews
                 const previews =
@@ -730,50 +740,61 @@ app.registerExtension({
                 // Clear old layer preview data
                 s.layers = {};
 
-                let loaded = 0;
-                const total = previews.length;
-
-                if (total === 0) {
+                // width grows for new widget rows; height follows
+                // computeSize (widgetHeight carries the user's sizing)
+                const fitNode = () => {
                     node._isResizing = true;
-                    node.setSize(
-                        node.computeSize()
-                    );
+                    const min = node.computeSize();
+                    node.setSize([
+                        Math.max(node.size[0], min[0]),
+                        min[1],
+                    ]);
                     setTimeout(() => {
                         node._isResizing = false;
                     }, 50);
                     redrawCanvas();
+                };
+
+                // pair previews with the slots captured at message time;
+                // drop extras (a layer disconnected while the job ran)
+                // instead of guessing an index for them
+                const pairs = [];
+                for (let i = 0; i < previews.length; i++) {
+                    if (connectedIndices[i] !== undefined) {
+                        pairs.push({
+                            b64: previews[i],
+                            size: sizes[i],
+                            idx: connectedIndices[i],
+                        });
+                    }
+                }
+
+                let loaded = 0;
+                const total = pairs.length;
+
+                if (total === 0) {
+                    fitNode();
                     return;
                 }
 
-                for (let i = 0; i < total; i++) {
-                    const idx =
-                        connectedIndices[i] || (i + 1);
+                for (const pair of pairs) {
                     const lyrImg = new Image();
-                    const capturedIdx = idx;
                     lyrImg.onload = () => {
-                        s.layers[capturedIdx] = {
+                        s.layers[pair.idx] = {
                             image: lyrImg,
-                            w: sizes[i]?.[0] ||
+                            w: pair.size?.[0] ||
                                 lyrImg.width,
-                            h: sizes[i]?.[1] ||
+                            h: pair.size?.[1] ||
                                 lyrImg.height,
                         };
                         loaded++;
                         if (loaded >= total) {
-                            node._isResizing = true;
-                            node.setSize(
-                                node.computeSize()
-                            );
-                            setTimeout(() => {
-                                node._isResizing =
-                                    false;
-                            }, 50);
-                            redrawCanvas();
+                            fitNode();
                         }
                     };
                     lyrImg.src =
                         "data:image/png;base64," +
-                        previews[i];
+                        pair.b64;
                 }
             };
             bgImg.src =
@@ -804,6 +825,7 @@ app.registerExtension({
             // configured nodes carry a saved size — the init timer must
             // not stomp it
             node.__vlhConfigured = true;
+            const savedH = config?.size?.[1];
             if (config.inputs) {
                 for (const inp of config.inputs) {
                     const m = inp.name.match(
@@ -816,6 +838,20 @@ app.registerExtension({
             }
             setTimeout(() => {
                 updateDynamicInputs();
+                if (savedH) {
+                    // widgetHeight is not serialized and configure never
+                    // fires onResize — recover it from the saved height
+                    // now that all layer widgets exist, or the next
+                    // computeSize-based setSize inflates small nodes
+                    const chrome = Math.max(
+                        0,
+                        node.computeSize()[1] - state.widgetHeight
+                    );
+                    state.widgetHeight = Math.max(120, savedH - chrome);
+                    container.style.height =
+                        state.widgetHeight + "px";
+                    node.setSize([node.size[0], savedH]);
+                }
                 redrawCanvas();
             }, 100);
         };
