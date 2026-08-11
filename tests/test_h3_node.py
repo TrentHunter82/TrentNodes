@@ -177,8 +177,14 @@ def test_node_class_contract():
     ]
     providers = inputs["required"]["vlm_provider"][0]
     for expected in ("anthropic", "openai", "kimi", "glm", "qwen_api",
-                     "qwen_local", "minicpm_local", "ollama"):
+                     "qwen_local", "minicpm_local", "magevl_local",
+                     "ollama"):
         assert expected in providers, expected
+
+    from TrentNodes.utils.h3_prompt import backends
+    assert set(providers) == set(backends.DEFAULT_MODELS), (
+        "node COMBO and backend registry drifted apart"
+    )
     assert "TrentH3AutoPromptGenerator" in h3_auto_prompt.NODE_CLASS_MAPPINGS
 
 

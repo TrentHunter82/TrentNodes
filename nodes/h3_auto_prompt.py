@@ -71,15 +71,17 @@ class H3AutoPromptGenerator:
                 }),
                 "vlm_provider": (
                     ["anthropic", "openai", "kimi", "glm", "qwen_api",
-                     "qwen_local", "minicpm_local", "ollama"],
+                     "qwen_local", "minicpm_local", "magevl_local",
+                     "ollama"],
                     {
                         "default": "anthropic",
                         "tooltip": (
                             "Hosted APIs: anthropic, openai, kimi "
                             "(Moonshot Kimi K3), glm (Z.ai GLM vision), "
                             "qwen_api (DashScope intl). Local: qwen_local/"
-                            "minicpm_local run on this GPU; ollama needs "
-                            "an ollama server."
+                            "minicpm_local/magevl_local (Microsoft "
+                            "Mage-VL 4B, shared with VidScribe) run on "
+                            "this GPU; ollama needs an ollama server."
                         )
                     }
                 ),

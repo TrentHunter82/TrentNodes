@@ -86,7 +86,9 @@ def main():
     parser.add_argument(
         "--provider", default="anthropic",
         choices=["anthropic", "openai", "kimi", "glm", "qwen_api",
-                 "qwen_local", "minicpm_local", "ollama"],
+                 "qwen_local", "minicpm_local", "magevl_local", "ollama"],
+        help="magevl_local needs the ComfyUI environment (its wrapper "
+             "imports comfy modules); use it from the node, not here",
     )
     parser.add_argument("--model", default="auto")
     parser.add_argument(

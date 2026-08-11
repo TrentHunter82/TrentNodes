@@ -27,6 +27,7 @@ DEFAULT_MODELS = {
     "qwen_api": "qwen3-vl-plus",
     "qwen_local": "Qwen/Qwen3-VL-8B-Instruct",
     "minicpm_local": "minicpm-v-4.5",
+    "magevl_local": "microsoft/Mage-VL",
     "ollama": "qwen3-vl",
 }
 
@@ -300,6 +301,56 @@ class MiniCPMBackend(VLMBackend):
         )
 
 
+class MageVLBackend(VLMBackend):
+    """
+    Microsoft Mage-VL 4B via utils/magevl_wrapper.py (shared with the
+    VidScribe node, including its cache and idle auto-unload). The
+    wrapper imports folder_paths/comfy, so this backend only works
+    inside the ComfyUI environment - not from the standalone dev CLI.
+    """
+
+    name = "magevl_local"
+
+    def __init__(self, model: str, api_key: str = ""):
+        try:
+            from .. import magevl_wrapper
+        except ImportError as exc:
+            raise RuntimeError(
+                "The Mage-VL wrapper is unavailable. It needs the "
+                "ComfyUI environment and transformers >= 5.7."
+            ) from exc
+        if not magevl_wrapper.is_magevl_available():
+            raise RuntimeError(
+                "Mage-VL needs transformers >= 5.7 and accelerate. "
+                "Update the ComfyUI venv requirements."
+            )
+        self._wrapper = magevl_wrapper
+        self.model = model
+
+    def generate(self, system, images, user_text, max_tokens=4096, seed=0):
+        pils = [img.to_pil() for img in images]
+        prompt = _legend_prompt(images, user_text)
+        start = time.time()
+        text = self._wrapper.run_magevl_inference(
+            pils,
+            prompt,
+            mode="multi_image",
+            system_prompt=system,
+            max_tokens=min(max_tokens, 4096),
+            temperature=0.0,
+            seed=seed,
+        )
+        if text.startswith("[Error]"):
+            raise RuntimeError(f"Mage-VL backend failed: {text}")
+        return VLMResult(
+            text=text,
+            usage={
+                "model": self.model,
+                "latency_s": round(time.time() - start, 2),
+            },
+        )
+
+
 class OllamaBackend(VLMBackend):
     name = "ollama"
 
@@ -348,6 +399,7 @@ _BACKEND_CLASSES = {
     **{name: _compat_factory(name) for name in OPENAI_COMPAT_PROVIDERS},
     "qwen_local": QwenVLBackend,
     "minicpm_local": MiniCPMBackend,
+    "magevl_local": MageVLBackend,
     "ollama": OllamaBackend,
 }
 
