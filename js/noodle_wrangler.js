@@ -614,6 +614,7 @@ class CircuitBoard {
         this.mapLinks = null;
         this.recalcTimeout = null;
         this.canvas = null;
+        this.lastGraph = null;
     }
 
     recalc() {
@@ -641,7 +642,19 @@ class CircuitBoard {
     // to fall back to native spline rendering for this frame.
     draw(canvas, ctx) {
         this.canvas = canvas;
-        if (!this.mapLinks || this.mapLinks.lastCalcTime <= 100) {
+        if (this.lastGraph !== canvas.graph) {
+            // graph switch (enter/leave subgraph, workflow change): the old
+            // plan belongs to another graph — replan NOW, or its traces
+            // ghost into the new view for up to the debounce window
+            this.lastGraph = canvas.graph;
+            if (this.recalcTimeout) {
+                clearTimeout(this.recalcTimeout);
+                this.recalcTimeout = null;
+            }
+            this.recalc();
+        } else if (!this.mapLinks || this.mapLinks.lastCalcTime <= 25) {
+            // replanning every frame is only acceptable while it's cheap;
+            // the old 100ms ceiling let mid-size graphs redraw at ~10fps
             this.recalc();
         } else if (!this.recalcTimeout) {
             // big graph: recalc off the draw path, then ask for a redraw.
@@ -1119,7 +1132,21 @@ function installPatches() {
                 // clear it so no stale spline hotspots linger under our traces
                 this.renderedPaths?.clear?.();
                 if (this.links_render_mode === hiddenLinkMode()) return;
-                if (board.draw(this, ctx)) return;
+                if (board.draw(this, ctx)) {
+                    // native drawConnections is the frontend's ONLY place
+                    // that draws reroute dots — skipping it made reroutes
+                    // invisible (yet still grabbable). Draw the dots on
+                    // top of the traces.
+                    try {
+                        const reroutes = this.graph?.reroutes;
+                        if (reroutes?.values) {
+                            for (const r of reroutes.values()) {
+                                r.draw(ctx, this._pattern);
+                            }
+                        }
+                    } catch (e) { /* dots are cosmetic — never break drawing */ }
+                    return;
+                }
                 // board has no usable plan (first recalc failed) — draw
                 // native splines instead of leaving every link invisible
             } catch (e) {
