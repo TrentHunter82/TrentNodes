@@ -313,7 +313,13 @@ app.registerExtension({
             }
 
             sortLayerWidgets();
-            node.setSize(node.computeSize());
+            // grow-only: make room for new widget rows without shrinking
+            // a node the user sized themselves
+            const minSize = node.computeSize();
+            node.setSize([
+                Math.max(node.size[0], minSize[0]),
+                Math.max(node.size[1], minSize[1]),
+            ]);
             app.graph.setDirtyCanvas(true, true);
         };
 
@@ -379,6 +385,8 @@ app.registerExtension({
         canvas.style.cssText = `
             display: block;
             max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
             cursor: default;
             margin: 0 auto;
         `;
@@ -669,10 +677,20 @@ app.registerExtension({
         // 7. LIFECYCLE HOOKS
         // =============================================
 
+        const prevOnExecuted = node.onExecuted;
         node.onExecuted = (message) => {
+            if (prevOnExecuted) prevOnExecuted.call(node, message);
             const s = state;
 
             if (!message.bg_preview?.[0]) return;
+
+            // capture the slot mapping NOW — by the time the async image
+            // loads fire, the user may have disconnected a layer and the
+            // previews would attach to the wrong slots
+            const connectedIndices =
+                getLayerIndices().filter(
+                    (i) => isLayerConnected(i)
+                );
 
             const bgImg = new Image();
             bgImg.onload = () => {
@@ -699,12 +717,6 @@ app.registerExtension({
                     message.layer_previews || [];
                 const sizes =
                     message.layer_sizes || [];
-
-                // Map to connected layer indices
-                const connectedIndices =
-                    getLayerIndices().filter(
-                        (i) => isLayerConnected(i)
-                    );
 
                 // Clear old layer preview data
                 s.layers = {};
@@ -780,6 +792,9 @@ app.registerExtension({
             if (origOnCfg) {
                 origOnCfg.apply(this, arguments);
             }
+            // configured nodes carry a saved size — the init timer must
+            // not stomp it
+            node.__vlhConfigured = true;
             if (config.inputs) {
                 for (const inp of config.inputs) {
                     const m = inp.name.match(
@@ -804,8 +819,14 @@ app.registerExtension({
             }
             if (node._isResizing) return;
             node._isResizing = true;
+            // chrome (title + slots + layer widgets) is dynamic — derive
+            // it instead of assuming 200px, or resize fights auto-grow
+            const chrome = Math.max(
+                0,
+                node.computeSize()[1] - state.widgetHeight
+            );
             const newH = Math.max(
-                120, size[1] - 200
+                120, size[1] - chrome
             );
             if (
                 Math.abs(
@@ -826,6 +847,12 @@ app.registerExtension({
             redrawCanvas();
         });
         observer.observe(container);
+
+        const prevOnRemoved = node.onRemoved;
+        node.onRemoved = function () {
+            if (prevOnRemoved) prevOnRemoved.apply(this, arguments);
+            observer.disconnect();
+        };
 
         // =============================================
         // 8. INITIAL SETUP
@@ -851,11 +878,14 @@ app.registerExtension({
 
             updateDynamicInputs();
 
-            container.style.height = "250px";
-            node.setSize([
-                Math.max(450, node.size[0] || 450),
-                node.computeSize()[1],
-            ]);
+            if (!node.__vlhConfigured) {
+                // fresh node only — a loaded workflow keeps its saved size
+                container.style.height = "250px";
+                node.setSize([
+                    Math.max(450, node.size[0] || 450),
+                    node.computeSize()[1],
+                ]);
+            }
             redrawCanvas();
         }, 100);
     },
