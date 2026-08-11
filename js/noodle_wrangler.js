@@ -15,8 +15,11 @@ import { app } from "../../scripts/app.js";
  *   2. Magnet (smart align) — Figma/Excalidraw-style alignment while
  *      dragging nodes: hard snap + dashed guide lines when an edge lines
  *      up, a 32px dock gap is hit, or connected slots sit level (straight
- *      noodle). Instant in, instant out — no attraction physics.
- *      Hold Alt while dragging to suppress it.
+ *      noodle). Also snaps while RESIZING (corner drag): the moving edges
+ *      align to neighbouring edges / dock gaps, and width or height snaps
+ *      to match a neighbour (dashed outline marks the matched box).
+ *      Instant in, instant out — no attraction physics.
+ *      Hold Alt while dragging or resizing to suppress it.
  *
  * State persists in localStorage. Other TrentNodes scripts can subscribe to
  * toggle changes via onNoodleChange(fn) to keep their UI in sync.
@@ -823,6 +826,138 @@ function collectCandidates(canvas, ub, draggedIds, excludedGroups, includeSlots)
     return { xs, ys };
 }
 
+/*
+ * Resize snapping. Unlike moves (incremental pointer deltas), the canvas
+ * rebuilds the resized rect from the drag-start rect plus the TOTAL mouse
+ * delta on every event, so any correction we apply is wiped by the next
+ * pointer move. That makes resize alignment stateless: no sim.off
+ * bookkeeping, just a fresh correction after every event.
+ *
+ * Only the edges the grabbed corner moves may snap (E/W -> x, N/S -> y):
+ *   - edge alignment with a parked box's edges
+ *   - gap docking (edge lands MAGNET.gap away from a parked box)
+ *   - dimension match (width/height equals a parked box's — Figma style),
+ *     shown as a dashed outline around the matched box
+ * Candidates that would push the node below its computeSize() minimum are
+ * dropped so we never fight the canvas's own clamp.
+ */
+function collectResizeCandidates(canvas, ub, moving, excludeNode, excludeGroup, size, min) {
+    const xs = [], ys = [];
+    const graph = canvas.graph;
+    const gap = MAGNET.gap;
+
+    const targetBoxes = [];
+    for (const other of graph._nodes || []) {
+        if (other !== excludeNode) targetBoxes.push(nodeBox(other));
+    }
+    for (const g of graph._groups || []) {
+        if (g !== excludeGroup) targetBoxes.push(groupBox(g));
+    }
+
+    const w = ub.x2 - ub.x1, h = ub.y2 - ub.y1;
+    for (const ob of targetBoxes) {
+        if (!boxesNear(ub, ob, MAGNET.range)) continue;
+
+        const ySpan = [Math.min(ob.y1, ub.y1) - 16, Math.max(ob.y2, ub.y2) + 16];
+        const xSpan = [Math.min(ob.x1, ub.x1) - 16, Math.max(ob.x2, ub.x2) + 16];
+        const gx = (at) => ({ axis: "x", at, a: ySpan[0], b: ySpan[1] });
+        const gy = (at) => ({ axis: "y", at, a: xSpan[0], b: xSpan[1] });
+        const boxGuide = { axis: "box", x1: ob.x1, y1: ob.y1, x2: ob.x2, y2: ob.y2 };
+        const ow = ob.x2 - ob.x1, oh = ob.y2 - ob.y1;
+
+        // moving.right: +delta grows width; moving.left: +delta shrinks it
+        if (moving.right) {
+            for (const c of [
+                { delta: ob.x1 - ub.x2, weight: 1, snapR: MAGNET.snap, guide: gx(ob.x1) },
+                { delta: ob.x2 - ub.x2, weight: 1, snapR: MAGNET.snap, guide: gx(ob.x2) },
+                { delta: ob.x1 - gap - ub.x2, weight: 0.9, snapR: MAGNET.snap, guide: gx(ob.x1 - gap / 2) },
+                { delta: ow - w, weight: 1.1, snapR: MAGNET.snap, guide: boxGuide },
+            ]) if (size[0] + c.delta >= min[0] - 0.5) xs.push(c);
+        } else if (moving.left) {
+            for (const c of [
+                { delta: ob.x1 - ub.x1, weight: 1, snapR: MAGNET.snap, guide: gx(ob.x1) },
+                { delta: ob.x2 - ub.x1, weight: 1, snapR: MAGNET.snap, guide: gx(ob.x2) },
+                { delta: ob.x2 + gap - ub.x1, weight: 0.9, snapR: MAGNET.snap, guide: gx(ob.x2 + gap / 2) },
+                { delta: w - ow, weight: 1.1, snapR: MAGNET.snap, guide: boxGuide },
+            ]) if (size[0] - c.delta >= min[0] - 0.5) xs.push(c);
+        }
+        if (moving.bottom) {
+            for (const c of [
+                { delta: ob.y1 - ub.y2, weight: 1, snapR: MAGNET.snap, guide: gy(ob.y1) },
+                { delta: ob.y2 - ub.y2, weight: 1, snapR: MAGNET.snap, guide: gy(ob.y2) },
+                { delta: ob.y1 - gap - ub.y2, weight: 0.9, snapR: MAGNET.snap, guide: gy(ob.y1 - gap / 2) },
+                { delta: oh - h, weight: 1.1, snapR: MAGNET.snap, guide: boxGuide },
+            ]) if (size[1] + c.delta >= min[1] - 0.5) ys.push(c);
+        } else if (moving.top) {
+            for (const c of [
+                { delta: ob.y1 - ub.y1, weight: 1, snapR: MAGNET.snap, guide: gy(ob.y1) },
+                { delta: ob.y2 - ub.y1, weight: 1, snapR: MAGNET.snap, guide: gy(ob.y2) },
+                { delta: ob.y2 + gap - ub.y1, weight: 0.9, snapR: MAGNET.snap, guide: gy(ob.y2 + gap / 2) },
+                { delta: h - oh, weight: 1.1, snapR: MAGNET.snap, guide: boxGuide },
+            ]) if (size[1] - c.delta >= min[1] - 0.5) ys.push(c);
+        }
+    }
+    return { xs, ys };
+}
+
+// Runs after the canvas's own resize handler on each pointer move. The
+// node's current rect IS the free rect (see collectResizeCandidates), so
+// sim.off is forced to zero and the picked delta is applied directly to
+// whichever edges the grabbed corner moves.
+function applyResizeAlign(canvas, altFree) {
+    // the canvas's own onDrag refuses to resize in read-only mode; so must we
+    if (canvas.read_only) return;
+    const node = canvas.resizing_node || null;
+    const group = node ? null : (canvas.resizingGroup || null);
+    if (!node && !group) return;
+
+    sim.off[0] = 0;
+    sim.off[1] = 0;
+    const prevGuides = sim.guides.length;
+    sim.guides = [];
+
+    let applied = false;
+    if (!altFree) {
+        // groups only resize from the bottom-right corner
+        const dir = node ? (canvas.pointer?.resizeDirection || "SE") : "SE";
+        const moving = {
+            left: dir.includes("W"), right: dir.includes("E"),
+            top: dir.includes("N"), bottom: dir.includes("S"),
+        };
+        const target = node || group;
+        const ub = node ? nodeBox(node) : groupBox(group);
+        const min = node?.computeSize ? node.computeSize() : [64, 64];
+        const zoom = canvas.ds?.scale || 1;
+        const { xs, ys } = collectResizeCandidates(
+            canvas, ub, moving, node, group, target.size, min);
+        const dx = pickAxis(xs, 0, zoom);
+        const dy = pickAxis(ys, 1, zoom);
+
+        if (dx || dy) {
+            applied = true;
+            if (node) {
+                const ns = [node.size[0], node.size[1]];
+                if (moving.left) { node.pos[0] += dx; ns[0] -= dx; }
+                else if (moving.right) ns[0] += dx;
+                if (moving.top) { node.pos[1] += dy; ns[1] -= dy; }
+                else if (moving.bottom) ns[1] += dy;
+                if (node.setSize) node.setSize(ns);
+                else { node.size[0] = ns[0]; node.size[1] = ns[1]; }
+            } else if (!group.resize(group.size[0] + dx, group.size[1] + dy)) {
+                // group.resize clamps internally; if it rejected the
+                // correction, don't show guides for a snap that didn't happen
+                applied = false;
+                sim.guides = [];
+            }
+        }
+    }
+
+    if (applied || sim.guides.length !== prevGuides) {
+        canvas.dirty_canvas = true;
+        canvas.dirty_bgcanvas = true;
+    }
+}
+
 // One axis: pick the best candidate inside its snap radius, measured from
 // the FREE position (current pos minus the offset we already applied).
 // Returns the full correction, or 0 when nothing is in range.
@@ -915,9 +1050,11 @@ function drawMagnetGuides(canvas, ctx) {
         if (g.axis === "x") {
             ctx.moveTo(g.at, g.a);
             ctx.lineTo(g.at, g.b);
-        } else {
+        } else if (g.axis === "y") {
             ctx.moveTo(g.a, g.at);
             ctx.lineTo(g.b, g.at);
+        } else { // "box": dashed outline around a dimension-matched target
+            ctx.rect(g.x1, g.y1, g.x2 - g.x1, g.y2 - g.y1);
         }
         ctx.stroke();
     }
@@ -978,6 +1115,10 @@ function installPatches() {
                 chainGuideOverlay(canvas);
                 // Ctrl/Meta = LiteGraph's "move group frame without contents"
                 applySmartAlign(canvas, !!e.altKey, !!(e.ctrlKey || e.metaKey));
+            } else if (state.magnet && (canvas.resizing_node || canvas.resizingGroup)) {
+                sim.canvas = canvas;
+                chainGuideOverlay(canvas);
+                applyResizeAlign(canvas, !!e.altKey);
             } else if (sim.canvas) {
                 stopSim();
             }
