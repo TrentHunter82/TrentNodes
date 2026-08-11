@@ -58,3 +58,6 @@ test_outputs/
 debug/
 *:Zone.Identifier
 tests/_void_feasibility/
+
+# Local-only node (lihaoyun6 cache port, synced to local mask-core branch)
+nodes/minimax_h3_cache.py
