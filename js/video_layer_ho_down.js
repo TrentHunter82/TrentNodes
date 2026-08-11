@@ -570,18 +570,29 @@ app.registerExtension({
             return null;
         };
 
+        // Map a mouse event to canvas-bitmap coords. With object-fit:
+        // contain the painted content can letterbox inside the element
+        // box, so a plain rect-linear mapping would land offset — find
+        // the content box first.
+        const toCanvasCoords = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scale = Math.min(
+                rect.width / canvas.width,
+                rect.height / canvas.height
+            ) || 1;
+            const offX = (rect.width - canvas.width * scale) / 2;
+            const offY = (rect.height - canvas.height * scale) / 2;
+            return {
+                mx: (e.clientX - rect.left - offX) / scale,
+                my: (e.clientY - rect.top - offY) / scale,
+            };
+        };
+
         canvas.addEventListener("mousedown", (e) => {
             const s = state;
             if (!s.bgImage) return;
 
-            const rect =
-                canvas.getBoundingClientRect();
-            const mx =
-                ((e.clientX - rect.left) /
-                    rect.width) * canvas.width;
-            const my =
-                ((e.clientY - rect.top) /
-                    rect.height) * canvas.height;
+            const { mx, my } = toCanvasCoords(e);
 
             const hit = hitTestLayer(mx, my);
             s.selectedLayer = hit;
@@ -600,14 +611,7 @@ app.registerExtension({
 
         canvas.addEventListener("mousemove", (e) => {
             const s = state;
-            const rect =
-                canvas.getBoundingClientRect();
-            const mx =
-                ((e.clientX - rect.left) /
-                    rect.width) * canvas.width;
-            const my =
-                ((e.clientY - rect.top) /
-                    rect.height) * canvas.height;
+            const { mx, my } = toCanvasCoords(e);
 
             if (s.dragging && s.selectedLayer !== null) {
                 const dx =

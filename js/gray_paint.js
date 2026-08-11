@@ -284,12 +284,20 @@ app.registerExtension({
             // Map a pointer event to paint-canvas (== native frame) pixels.
             const toPaintCoords = (e) => {
                 const rect = canvas.getBoundingClientRect();
-                // clamp: with pointer capture the pointer can leave the
-                // canvas mid-stroke; keep the stroke pinned to the edge
+                // object-fit: contain can letterbox the bitmap inside the
+                // element box — map through the content box, not the rect.
+                // Clamp: with pointer capture the pointer can leave the
+                // canvas mid-stroke; keep the stroke pinned to the edge.
+                const scale = Math.min(
+                    rect.width / canvas.width,
+                    rect.height / canvas.height
+                ) || 1;
+                const offX = (rect.width - canvas.width * scale) / 2;
+                const offY = (rect.height - canvas.height * scale) / 2;
                 const x = Math.max(0, Math.min(canvas.width,
-                    ((e.clientX - rect.left) / rect.width) * canvas.width));
+                    (e.clientX - rect.left - offX) / scale));
                 const y = Math.max(0, Math.min(canvas.height,
-                    ((e.clientY - rect.top) / rect.height) * canvas.height));
+                    (e.clientY - rect.top - offY) / scale));
                 return { x, y };
             };
 
