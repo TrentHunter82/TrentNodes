@@ -284,6 +284,9 @@ app.registerExtension({
             // Map a pointer event to paint-canvas (== native frame) pixels.
             const toPaintCoords = (e) => {
                 const rect = canvas.getBoundingClientRect();
+                // hidden canvas (collapsed node mid-capture) → zero rect →
+                // garbage coords that would smear into a mask corner
+                if (!rect.width || !rect.height) return null;
                 // object-fit: contain can letterbox the bitmap inside the
                 // element box — map through the content box, not the rect.
                 // Clamp: with pointer capture the pointer can leave the
@@ -328,7 +331,9 @@ app.registerExtension({
             canvas.addEventListener("pointerdown", (e) => {
                 if (!S.imgW) return;
                 if (e.button !== 0) return;
-                const { x, y } = toPaintCoords(e);
+                const pc = toPaintCoords(e);
+                if (!pc) return;
+                const { x, y } = pc;
 
                 if (S.anchorMode) {
                     // Set anchor in native image coords.
@@ -377,7 +382,9 @@ app.registerExtension({
 
             canvas.addEventListener("pointermove", (e) => {
                 if (!S.drawing) return;
-                const { x, y } = toPaintCoords(e);
+                const pc = toPaintCoords(e);
+                if (!pc) return;
+                const { x, y } = pc;
                 applyBrush();
                 pctx.beginPath();
                 pctx.moveTo(S.lastX, S.lastY);

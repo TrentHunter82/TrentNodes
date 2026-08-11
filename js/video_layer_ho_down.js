@@ -576,6 +576,7 @@ app.registerExtension({
         // the content box first.
         const toCanvasCoords = (e) => {
             const rect = canvas.getBoundingClientRect();
+            if (!rect.width || !rect.height) return null;
             const scale = Math.min(
                 rect.width / canvas.width,
                 rect.height / canvas.height
@@ -592,7 +593,9 @@ app.registerExtension({
             const s = state;
             if (!s.bgImage) return;
 
-            const { mx, my } = toCanvasCoords(e);
+            const cc = toCanvasCoords(e);
+            if (!cc) return;
+            const { mx, my } = cc;
 
             const hit = hitTestLayer(mx, my);
             s.selectedLayer = hit;
@@ -611,7 +614,9 @@ app.registerExtension({
 
         canvas.addEventListener("mousemove", (e) => {
             const s = state;
-            const { mx, my } = toCanvasCoords(e);
+            const cc = toCanvasCoords(e);
+            if (!cc) return;
+            const { mx, my } = cc;
 
             if (s.dragging && s.selectedLayer !== null) {
                 const dx =
