@@ -64,6 +64,7 @@ app.registerExtension({
                 align-items: center;
                 font-family: monospace;
                 font-size: 11px;
+                pointer-events: none;
             `;
             container.appendChild(bar);
 
@@ -78,6 +79,7 @@ app.registerExtension({
                     border-radius: 3px;
                     cursor: pointer;
                     font-size: 11px;
+                    pointer-events: auto;
                 `;
                 return b;
             };
@@ -88,6 +90,7 @@ app.registerExtension({
                 background: rgba(0,0,0,0.7);
                 color: #0f0;
                 border-radius: 3px;
+                pointer-events: none;
             `;
             status.textContent = "Run once to load frame";
             bar.appendChild(status);
@@ -96,7 +99,8 @@ app.registerExtension({
             const brushWrap = document.createElement("label");
             brushWrap.style.cssText =
                 "color:#bbb;display:flex;align-items:center;gap:3px;" +
-                "background:rgba(0,0,0,0.6);padding:1px 5px;border-radius:3px;";
+                "background:rgba(0,0,0,0.6);padding:1px 5px;border-radius:3px;" +
+                "pointer-events:auto;";
             brushWrap.appendChild(document.createTextNode("brush"));
             const brush = document.createElement("input");
             brush.type = "range";
@@ -219,17 +223,21 @@ app.registerExtension({
                     ctx.fillStyle = "#222";
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
                     ctx.fillStyle = "#666";
-                    ctx.font = "14px sans-serif";
+                    // the bitmap can be native video resolution (restored
+                    // mask, no frame yet) — scale the caption with it so it
+                    // stays readable at the displayed size
+                    const fs = Math.max(14, Math.round(canvas.width / 28));
+                    ctx.font = `${fs}px sans-serif`;
                     ctx.textAlign = "center";
                     ctx.fillText(
                         "Run once to load the first frame",
                         canvas.width / 2,
-                        canvas.height / 2 - 8
+                        canvas.height / 2 - fs * 0.6
                     );
                     ctx.fillText(
                         "then paint a gray region",
                         canvas.width / 2,
-                        canvas.height / 2 + 14
+                        canvas.height / 2 + fs
                     );
                 }
 
@@ -239,8 +247,11 @@ app.registerExtension({
                 ctx.drawImage(paint, 0, 0, canvas.width, canvas.height);
                 ctx.restore();
 
-                // anchor crosshair (in image space -> display space)
-                if (S.imgW > 0) {
+                // anchor crosshair (in image space -> display space).
+                // Only meaningful in manual anchor mode — in centroid mode
+                // the backend ignores anchor_x/y, so drawing a mark at the
+                // default (0,0) would just be a phantom in the corner.
+                if (S.imgW > 0 && getW("anchor_mode")?.value === "manual") {
                     const sx = canvas.width / S.imgW;
                     const sy = canvas.height / S.imgH;
                     const dx = S.anchorX * sx;
@@ -273,9 +284,12 @@ app.registerExtension({
             // Map a pointer event to paint-canvas (== native frame) pixels.
             const toPaintCoords = (e) => {
                 const rect = canvas.getBoundingClientRect();
-                const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
-                const y =
-                    ((e.clientY - rect.top) / rect.height) * canvas.height;
+                // clamp: with pointer capture the pointer can leave the
+                // canvas mid-stroke; keep the stroke pinned to the edge
+                const x = Math.max(0, Math.min(canvas.width,
+                    ((e.clientX - rect.left) / rect.width) * canvas.width));
+                const y = Math.max(0, Math.min(canvas.height,
+                    ((e.clientY - rect.top) / rect.height) * canvas.height));
                 return { x, y };
             };
 
@@ -303,7 +317,7 @@ app.registerExtension({
             // ---------------------------------------------------------
             // Pointer interaction
             // ---------------------------------------------------------
-            canvas.addEventListener("mousedown", (e) => {
+            canvas.addEventListener("pointerdown", (e) => {
                 if (!S.imgW) return;
                 if (e.button !== 0) return;
                 const { x, y } = toPaintCoords(e);
@@ -339,8 +353,11 @@ app.registerExtension({
                     return;
                 }
 
-                // Paint mode: begin stroke with a dot.
+                // Paint mode: begin stroke with a dot. Capture the pointer
+                // so the stroke survives crossing the toolbar strip or
+                // leaving the canvas — it ends on pointerup/cancel only.
                 S.drawing = true;
+                try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ok */ }
                 S.lastX = x;
                 S.lastY = y;
                 applyBrush();
@@ -350,7 +367,7 @@ app.registerExtension({
                 this.redrawGrayPaint();
             });
 
-            canvas.addEventListener("mousemove", (e) => {
+            canvas.addEventListener("pointermove", (e) => {
                 if (!S.drawing) return;
                 const { x, y } = toPaintCoords(e);
                 applyBrush();
@@ -368,8 +385,8 @@ app.registerExtension({
                 S.drawing = false;
                 serializeMask();
             };
-            canvas.addEventListener("mouseup", endStroke);
-            canvas.addEventListener("mouseleave", endStroke);
+            canvas.addEventListener("pointerup", endStroke);
+            canvas.addEventListener("pointercancel", endStroke);
 
             // Wheel over canvas adjusts brush size.
             canvas.addEventListener(
@@ -425,18 +442,36 @@ app.registerExtension({
             // ---------------------------------------------------------
             // Sizing to native frame resolution
             // ---------------------------------------------------------
-            const resizeToImage = (w, h) => {
+            // Chrome = title + slots + parameter widgets above the canvas.
+            // Derived from computeSize instead of a constant so the math
+            // stays right when widgets are added or hidden (the old
+            // hardcoded 140 was copied from point_picker's 2-widget stack
+            // and left the node fighting every resize).
+            const chromeHeight = () =>
+                Math.max(0, this.computeSize()[1] - S.widgetHeight);
+
+            const resizeToImage = (w, h, clearMask = true) => {
                 // Only resize (which clears) the paint canvas when the
                 // frame dimensions actually change, so repeated runs of
                 // the same video preserve the painted mask.
+                const dimsChanged = S.imgW !== w || S.imgH !== h;
                 if (paint.width !== w || paint.height !== h) {
                     paint.width = w;
                     paint.height = h;
+                    if (clearMask && maskWidget) {
+                        // the bitmap was just wiped — the serialized mask
+                        // must not silently keep the old-resolution paint
+                        maskWidget.value = "";
+                        if (maskWidget.callback) maskWidget.callback("");
+                    }
                 }
                 canvas.width = w;
                 canvas.height = h;
                 S.imgW = w;
                 S.imgH = h;
+
+                // keep the user's node size when the frame is unchanged
+                if (!dimsChanged) return;
 
                 const nodeWidth = this.size[0] || 400;
                 const avail = nodeWidth - 20;
@@ -455,7 +490,9 @@ app.registerExtension({
             // ---------------------------------------------------------
             // Image arrives from Python
             // ---------------------------------------------------------
+            const prevOnExecuted = this.onExecuted;
             this.onExecuted = (message) => {
+                if (prevOnExecuted) prevOnExecuted.call(this, message);
                 if (message.preview_image && message.preview_image[0]) {
                     const img = new Image();
                     img.onload = () => {
@@ -481,7 +518,12 @@ app.registerExtension({
                 if (maskWidget && maskWidget.value) {
                     const img = new Image();
                     img.onload = () => {
-                        if (paint.width !== img.width ||
+                        if (!S.imgW) {
+                            // no frame yet (fresh reload): size the widget
+                            // to the mask like a frame arrival would, and
+                            // keep the serialized mask (clearMask=false)
+                            resizeToImage(img.width, img.height, false);
+                        } else if (paint.width !== img.width ||
                             paint.height !== img.height) {
                             paint.width = img.width;
                             paint.height = img.height;
@@ -491,12 +533,6 @@ app.registerExtension({
                         pctx.clearRect(0, 0, paint.width, paint.height);
                         pctx.drawImage(img, 0, 0);
                         pctx.restore();
-                        if (!S.imgW) {
-                            S.imgW = img.width;
-                            S.imgH = img.height;
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                        }
                         this.redrawGrayPaint();
                     };
                     img.src = "data:image/png;base64," + maskWidget.value;
@@ -510,6 +546,9 @@ app.registerExtension({
                 if (originalOnConfigure) {
                     originalOnConfigure.apply(this, arguments);
                 }
+                // a configured node has a saved size — the init timer must
+                // not stomp it
+                this.__gpConfigured = true;
                 setTimeout(restoreFromWidgets, 100);
             };
 
@@ -523,7 +562,7 @@ app.registerExtension({
                 }
                 if (this._gpResizing) return;
                 this._gpResizing = true;
-                const newH = Math.max(160, size[1] - 140);
+                const newH = Math.max(160, size[1] - chromeHeight());
                 if (Math.abs(newH - S.widgetHeight) > 5) {
                     S.widgetHeight = newH;
                     container.style.height = newH + "px";
@@ -537,12 +576,50 @@ app.registerExtension({
             // ---------------------------------------------------------
             // Initial layout
             // ---------------------------------------------------------
+            // Editing anchor_x / anchor_y / anchor_mode must move the
+            // crosshair live (point_picker's setupWidgetCallbacks pattern —
+            // it was dropped in the copy).
+            const hookAnchorWidgets = () => {
+                for (const [name, key] of [
+                    ["anchor_x", "anchorX"],
+                    ["anchor_y", "anchorY"],
+                ]) {
+                    const w = getW(name);
+                    if (!w || w.__gpHooked) continue;
+                    w.__gpHooked = true;
+                    const prevCb = w.callback;
+                    w.callback = (v, ...rest) => {
+                        const r = prevCb ? prevCb.call(w, v, ...rest) : undefined;
+                        S[key] = Math.round(Number(v)) || 0;
+                        updateStatus();
+                        this.redrawGrayPaint();
+                        return r;
+                    };
+                }
+                const am = getW("anchor_mode");
+                if (am && !am.__gpHooked) {
+                    am.__gpHooked = true;
+                    const prevCb = am.callback;
+                    am.callback = (v, ...rest) => {
+                        const r = prevCb ? prevCb.call(am, v, ...rest) : undefined;
+                        this.redrawGrayPaint();
+                        return r;
+                    };
+                }
+            };
+            hookAnchorWidgets();
+
             setTimeout(() => {
                 updateStatus();
                 this.redrawGrayPaint();
-                const nodeWidth = Math.max(380, this.size[0] || 380);
-                container.style.height = "300px";
-                this.setSize([nodeWidth, 520]);
+                if (!this.__gpConfigured) {
+                    // fresh node: give it a sane default footprint. A
+                    // loaded node keeps its saved size (the old forced
+                    // [w, 520] discarded it on every workflow open).
+                    const nodeWidth = Math.max(380, this.size[0] || 380);
+                    container.style.height = S.widgetHeight + "px";
+                    this.setSize([nodeWidth, this.computeSize()[1]]);
+                }
             }, 100);
 
             return result;
