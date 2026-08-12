@@ -51,11 +51,13 @@ No face morphing of Aria Voss. No wardrobe changes. No extra characters. No text
 
 class FakeBackend:
     name = "fake"
+    supports_audio = False
 
     def __init__(self):
         self.calls = 0
 
-    def generate(self, system, images, user_text, max_tokens=4096, seed=0):
+    def generate(self, system, images, user_text, max_tokens=4096, seed=0,
+                 audio=None):
         self.calls += 1
         assert "UNBREAKABLE RULES" in system
         assert images[0].label.startswith("Reference image <Picture 1>")

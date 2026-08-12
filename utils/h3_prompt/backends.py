@@ -17,10 +17,11 @@ import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 DEFAULT_MODELS = {
     "anthropic": "claude-opus-5",
+    "gemini": "gemini-3.6-flash",
     "openai": "gpt-4o",
     "kimi": "kimi-k3",
     "glm": "glm-4.6v",
@@ -63,6 +64,8 @@ OPENAI_COMPAT_PROVIDERS = {
 
 PROVIDER_ENV_VARS = {
     "anthropic": "ANTHROPIC_API_KEY",
+    # Google publishes both names; accept either.
+    "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
     **{name: cfg["env"] for name, cfg in OPENAI_COMPAT_PROVIDERS.items()},
 }
 
@@ -79,6 +82,14 @@ class VLMImage:
 
 
 @dataclass
+class VLMAudio:
+    """Source-clip audio for soundscape description. 16 kHz mono WAV."""
+    wav_b64: str
+    duration_seconds: float
+    media_type: str = "audio/wav"
+
+
+@dataclass
 class VLMResult:
     text: str
     usage: Dict = field(default_factory=dict)
@@ -86,6 +97,9 @@ class VLMResult:
 
 class VLMBackend(ABC):
     name = "base"
+    # Only backends that actually accept an audio track set this. The
+    # node warns and drops the audio for the rest rather than failing.
+    supports_audio = False
 
     @abstractmethod
     def generate(
@@ -95,20 +109,28 @@ class VLMBackend(ABC):
         user_text: str,
         max_tokens: int = 4096,
         seed: int = 0,
+        audio: Optional[VLMAudio] = None,
     ) -> VLMResult:
         ...
 
 
 def resolve_api_key(widget_key: str, provider: str) -> str:
-    env_var = PROVIDER_ENV_VARS.get(provider, "")
+    """Widget value first, then the provider's env var(s)."""
+    env_vars = PROVIDER_ENV_VARS.get(provider, ())
+    if isinstance(env_vars, str):
+        env_vars = (env_vars,)
+
     api_key = (widget_key or "").strip()
-    if not api_key and env_var:
+    for env_var in env_vars:
+        if api_key:
+            break
         api_key = (os.environ.get(env_var) or "").strip()
+
     if not api_key:
         raise RuntimeError(
             f"{provider} API key missing. Paste it into the node's "
-            f"api_key widget or export {env_var} in the shell that "
-            "starts ComfyUI."
+            f"api_key widget or export {' or '.join(env_vars)} in the "
+            "shell that starts ComfyUI."
         )
     return api_key
 
@@ -140,7 +162,8 @@ class AnthropicBackend(VLMBackend):
         )
         self.model = model
 
-    def generate(self, system, images, user_text, max_tokens=4096, seed=0):
+    def generate(self, system, images, user_text, max_tokens=4096, seed=0,
+                 audio=None):
         content = []
         for img in images:
             content.append({"type": "text", "text": img.label})
@@ -178,6 +201,99 @@ class AnthropicBackend(VLMBackend):
         return VLMResult(text=text, usage=usage)
 
 
+class GeminiBackend(VLMBackend):
+    """
+    Google Gemini via the native google-genai SDK.
+
+    Native rather than Gemini's OpenAI-compatibility shim because the
+    SDK path carries an audio track reliably - Gemini is currently the
+    only provider here that can listen to the source clip and describe
+    the real soundscape instead of inferring it from pixels.
+    """
+
+    name = "gemini"
+    supports_audio = True
+
+    def __init__(self, model: str, api_key: str = ""):
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise RuntimeError(
+                "The google-genai package is missing. Install with: "
+                "pip install google-genai"
+            ) from exc
+        self._types = types
+        self._client = genai.Client(
+            api_key=resolve_api_key(api_key, "gemini")
+        )
+        self.model = model
+
+    def generate(self, system, images, user_text, max_tokens=4096, seed=0,
+                 audio=None):
+        types = self._types
+        parts = []
+        for img in images:
+            parts.append(types.Part.from_text(text=img.label))
+            parts.append(types.Part.from_bytes(
+                data=base64.b64decode(img.jpeg_b64),
+                mime_type=img.media_type,
+            ))
+        if audio is not None:
+            parts.append(types.Part.from_text(
+                text=(
+                    "Audio track of <Video 1> "
+                    f"({audio.duration_seconds:.2f}s). Describe the "
+                    "soundscape from what you actually hear here."
+                )
+            ))
+            parts.append(types.Part.from_bytes(
+                data=base64.b64decode(audio.wav_b64),
+                mime_type=audio.media_type,
+            ))
+        parts.append(types.Part.from_text(text=user_text))
+
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+            temperature=0.0,
+        )
+        if seed:
+            config.seed = seed
+
+        start = time.time()
+        response = self._client.models.generate_content(
+            model=self.model, contents=parts, config=config,
+        )
+
+        text = getattr(response, "text", None)
+        if not text:
+            reason = ""
+            candidates = getattr(response, "candidates", None) or []
+            if candidates:
+                reason = str(getattr(candidates[0], "finish_reason", "") or "")
+            feedback = getattr(response, "prompt_feedback", None)
+            if feedback is not None and not reason:
+                reason = str(getattr(feedback, "block_reason", "") or "")
+            raise RuntimeError(
+                "Gemini returned no text"
+                + (f" (finish reason: {reason})" if reason else "")
+                + ". A safety filter or token limit is the usual cause."
+            )
+
+        usage_meta = getattr(response, "usage_metadata", None)
+        usage = {
+            "model": self.model,
+            "input_tokens": getattr(usage_meta, "prompt_token_count", None),
+            "output_tokens": getattr(
+                usage_meta, "candidates_token_count", None
+            ),
+            "latency_s": round(time.time() - start, 2),
+            "audio_sent": audio is not None,
+        }
+        return VLMResult(text=text, usage=usage)
+
+
 class OpenAICompatibleBackend(VLMBackend):
     """
     Any provider speaking the OpenAI chat-completions protocol with
@@ -203,7 +319,8 @@ class OpenAICompatibleBackend(VLMBackend):
         self._client = openai.OpenAI(**client_kwargs)
         self.model = model
 
-    def generate(self, system, images, user_text, max_tokens=4096, seed=0):
+    def generate(self, system, images, user_text, max_tokens=4096, seed=0,
+                 audio=None):
         content = []
         for img in images:
             content.append({"type": "text", "text": img.label})
@@ -248,7 +365,8 @@ class QwenVLBackend(VLMBackend):
         self._wrapper = qwen_wrapper
         self.model = model
 
-    def generate(self, system, images, user_text, max_tokens=4096, seed=0):
+    def generate(self, system, images, user_text, max_tokens=4096, seed=0,
+                 audio=None):
         labeled = [(img.label, img.to_pil()) for img in images]
         start = time.time()
         text = self._wrapper.run_qwen_inference(
@@ -278,7 +396,8 @@ class MiniCPMBackend(VLMBackend):
         self._wrapper = minicpm_wrapper
         self.model = model
 
-    def generate(self, system, images, user_text, max_tokens=4096, seed=0):
+    def generate(self, system, images, user_text, max_tokens=4096, seed=0,
+                 audio=None):
         pils = [img.to_pil() for img in images]
         prompt = _legend_prompt(images, user_text)
         start = time.time()
@@ -327,7 +446,8 @@ class MageVLBackend(VLMBackend):
         self._wrapper = magevl_wrapper
         self.model = model
 
-    def generate(self, system, images, user_text, max_tokens=4096, seed=0):
+    def generate(self, system, images, user_text, max_tokens=4096, seed=0,
+                 audio=None):
         pils = [img.to_pil() for img in images]
         prompt = _legend_prompt(images, user_text)
         start = time.time()
@@ -365,7 +485,8 @@ class OllamaBackend(VLMBackend):
         self._ollama = ollama
         self.model = model
 
-    def generate(self, system, images, user_text, max_tokens=4096, seed=0):
+    def generate(self, system, images, user_text, max_tokens=4096, seed=0,
+                 audio=None):
         start = time.time()
         response = self._ollama.chat(
             model=self.model,
@@ -396,6 +517,7 @@ def _compat_factory(provider: str):
 
 _BACKEND_CLASSES = {
     "anthropic": AnthropicBackend,
+    "gemini": GeminiBackend,
     **{name: _compat_factory(name) for name in OPENAI_COMPAT_PROVIDERS},
     "qwen_local": QwenVLBackend,
     "minicpm_local": MiniCPMBackend,

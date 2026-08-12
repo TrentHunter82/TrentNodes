@@ -19,8 +19,13 @@ from typing import Optional, Tuple
 
 import torch
 
-from ..utils.h3_prompt import assembler, prompts
-from ..utils.h3_prompt.backends import DEFAULT_MODELS, VLMImage, get_backend
+from ..utils.h3_prompt import assembler, audio_io, prompts
+from ..utils.h3_prompt.backends import (
+    DEFAULT_MODELS,
+    VLMAudio,
+    VLMImage,
+    get_backend,
+)
 from ..utils.h3_prompt.imaging import (
     FRAME_MAX_SIDE,
     REFERENCE_MAX_SIDE,
@@ -70,18 +75,20 @@ class H3AutoPromptGenerator:
                     "tooltip": "Drives the overall_soundscape guidance"
                 }),
                 "vlm_provider": (
-                    ["anthropic", "openai", "kimi", "glm", "qwen_api",
-                     "qwen_local", "minicpm_local", "magevl_local",
-                     "ollama"],
+                    ["anthropic", "gemini", "openai", "kimi", "glm",
+                     "qwen_api", "qwen_local", "minicpm_local",
+                     "magevl_local", "ollama"],
                     {
                         "default": "anthropic",
                         "tooltip": (
-                            "Hosted APIs: anthropic, openai, kimi "
-                            "(Moonshot Kimi K3), glm (Z.ai GLM vision), "
-                            "qwen_api (DashScope intl). Local: qwen_local/"
-                            "minicpm_local/magevl_local (Microsoft "
-                            "Mage-VL 4B, shared with VidScribe) run on "
-                            "this GPU; ollama needs an ollama server."
+                            "Hosted APIs: anthropic, gemini (Google; the "
+                            "only provider that can hear the audio "
+                            "input), openai, kimi (Moonshot Kimi K3), "
+                            "glm (Z.ai GLM vision), qwen_api (DashScope "
+                            "intl). Local: qwen_local/minicpm_local/"
+                            "magevl_local (Microsoft Mage-VL 4B, shared "
+                            "with VidScribe) run on this GPU; ollama "
+                            "needs an ollama server."
                         )
                     }
                 ),
@@ -104,6 +111,17 @@ class H3AutoPromptGenerator:
                     "tooltip": (
                         "Off: forces minimal soundscape, no dialogue, "
                         "music N/A"
+                    )
+                }),
+                "listen_to_audio": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": (
+                        "Send the clip's audio to the VLM so the "
+                        "soundscape describes what is actually heard "
+                        "instead of what the frames imply. Uses the "
+                        "audio input, or the VIDEO's own track when "
+                        "nothing is connected. Audio-capable providers "
+                        "only (gemini today); ignored elsewhere."
                     )
                 }),
                 "prompt_profile": (["official", "upgraded", "both_ab"], {
@@ -133,11 +151,19 @@ class H3AutoPromptGenerator:
                     "default": 24.0, "min": 1.0, "max": 120.0, "step": 0.01,
                     "tooltip": "Frame rate of the frames input (ignored for video)"
                 }),
+                "audio": ("AUDIO", {
+                    "tooltip": (
+                        "Soundtrack to describe. Overrides the VIDEO's "
+                        "own audio. Needs listen_to_audio on and an "
+                        "audio-capable provider."
+                    )
+                }),
                 "api_key": ("STRING", {
                     "default": "",
                     "tooltip": (
                         "Blank = read the provider's env var: "
-                        "ANTHROPIC_API_KEY / OPENAI_API_KEY / "
+                        "ANTHROPIC_API_KEY / GEMINI_API_KEY (or "
+                        "GOOGLE_API_KEY) / OPENAI_API_KEY / "
                         "MOONSHOT_API_KEY (kimi) / ZAI_API_KEY (glm) / "
                         "DASHSCOPE_API_KEY (qwen_api)"
                     )
@@ -190,10 +216,12 @@ class H3AutoPromptGenerator:
         model: str,
         max_frames_to_analyze: int,
         enable_audio_prompt: bool,
+        listen_to_audio: bool = True,
         prompt_profile: str = "official",
         video=None,
         frames: Optional[torch.Tensor] = None,
         fps: float = 24.0,
+        audio: Optional[dict] = None,
         api_key: str = "",
         dialogue: str = "",
         duration_override: float = 0.0,
@@ -248,6 +276,15 @@ class H3AutoPromptGenerator:
         cut_timestamps = [
             round(b / real_fps, 3) for b in keyframes.scene_boundaries if b > 0
         ]
+
+        # Backend first: whether the soundscape is heard or inferred
+        # changes the task context we build below.
+        backend = get_backend(vlm_provider, model, api_key)
+        vlm_audio = self._resolve_audio(
+            backend, audio, video, listen_to_audio, enable_audio_prompt,
+            warnings,
+        )
+
         user_context = prompts.build_user_context(
             subject_name=subject_name,
             subject_wardrobe=subject_wardrobe,
@@ -259,9 +296,8 @@ class H3AutoPromptGenerator:
             cut_timestamps=cut_timestamps,
             enable_audio_prompt=enable_audio_prompt,
             dialogue_text=dialogue,
+            audio_available=vlm_audio is not None,
         )
-
-        backend = get_backend(vlm_provider, model, api_key)
 
         profiles = (
             ["official", "upgraded"] if prompt_profile == "both_ab"
@@ -283,7 +319,8 @@ class H3AutoPromptGenerator:
                 profile=profile,
             )
             result, attempts, usage = self._run_variant(
-                backend, profile, vlm_images, user_context, ctx, seed
+                backend, profile, vlm_images, user_context, ctx, seed,
+                vlm_audio,
             )
             last_usage = usage
             prompts_out.append(result.prompt)
@@ -315,6 +352,10 @@ class H3AutoPromptGenerator:
             "provider": vlm_provider,
             "model": last_usage.get("model", model),
             "profile_mode": prompt_profile,
+            "audio_sent": vlm_audio is not None,
+            "audio_seconds": (
+                round(vlm_audio.duration_seconds, 3) if vlm_audio else 0.0
+            ),
             "variants": variants,
             "warnings": warnings,
             "duration_source": duration_source,
@@ -331,6 +372,7 @@ class H3AutoPromptGenerator:
     def _run_variant(
         self, backend, profile: str, vlm_images, user_context: str,
         ctx: "assembler.AssemblyContext", seed: int,
+        vlm_audio: Optional[VLMAudio] = None,
     ):
         """One profile's generate -> assemble -> retry loop."""
         system = prompts.get_system_prompt(profile)
@@ -352,7 +394,7 @@ class H3AutoPromptGenerator:
                     + "\n\n" + prompts.build_retry_message(result.retry_errors)
                 )
             vlm_result = backend.generate(
-                system, vlm_images, prompt_text, seed=seed
+                system, vlm_images, prompt_text, seed=seed, audio=vlm_audio
             )
             raw_text = vlm_result.text
             usage = vlm_result.usage
@@ -365,6 +407,55 @@ class H3AutoPromptGenerator:
             if not result.retry_errors:
                 break
         return result, attempts, usage
+
+    def _resolve_audio(
+        self, backend, audio, video, listen_to_audio: bool,
+        enable_audio_prompt: bool, warnings: list,
+    ) -> Optional[VLMAudio]:
+        """
+        Pick the audio track to send: the audio input first, else the
+        VIDEO's own. Returns None (with a warning when the user clearly
+        asked for audio) if it cannot or should not be sent.
+        """
+        if not listen_to_audio:
+            return None
+        if not enable_audio_prompt:
+            if audio is not None:
+                warnings.append(
+                    "audio connected but enable_audio_prompt is off; "
+                    "audio not sent"
+                )
+            return None
+
+        source = "audio input"
+        track = audio
+        if track is None:
+            track = audio_io.audio_from_video(video) if video is not None else None
+            source = "video track"
+        if track is None:
+            if audio is not None:
+                warnings.append("the audio input carried no usable waveform")
+            return None
+
+        if not getattr(backend, "supports_audio", False):
+            warnings.append(
+                f"provider '{backend.name}' cannot accept audio; the "
+                "soundscape will be inferred from the frames. Use "
+                "gemini to describe the real audio."
+            )
+            return None
+
+        try:
+            wav_b64, duration = audio_io.audio_to_wav_b64(track)
+        except RuntimeError as exc:
+            warnings.append(f"audio not sent: {exc}")
+            return None
+
+        print(
+            f"{LOG_PREFIX} sending {duration:.2f}s of audio "
+            f"({source}) to {backend.name}"
+        )
+        return VLMAudio(wav_b64=wav_b64, duration_seconds=duration)
 
     def _resolve_frames(
         self, video, frames, fps: float, warnings: list

@@ -60,6 +60,31 @@ def load_video(path: str):
     return tensor, float(fps)
 
 
+def load_audio(path: str, video_path: str):
+    """Load an audio file (or extract the video's track) as ComfyUI AUDIO."""
+    import torchaudio
+
+    if path == "video":
+        import subprocess
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            wav_path = tmp.name
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", video_path, "-vn",
+             "-ac", "1", "-ar", "16000", wav_path],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise SystemExit(
+                "ffmpeg could not extract audio:\n"
+                + result.stderr.decode()[-400:]
+            )
+        path = wav_path
+
+    waveform, sample_rate = torchaudio.load(path)
+    return {"waveform": waveform.unsqueeze(0), "sample_rate": sample_rate}
+
+
 def load_image(path: str) -> torch.Tensor:
     pil = Image.open(path).convert("RGB")
     arr = np.asarray(pil).astype(np.float32) / 255.0
@@ -85,10 +110,15 @@ def main():
     )
     parser.add_argument(
         "--provider", default="anthropic",
-        choices=["anthropic", "openai", "kimi", "glm", "qwen_api",
+        choices=["anthropic", "gemini", "openai", "kimi", "glm", "qwen_api",
                  "qwen_local", "minicpm_local", "magevl_local", "ollama"],
         help="magevl_local needs the ComfyUI environment (its wrapper "
              "imports comfy modules); use it from the node, not here",
+    )
+    parser.add_argument(
+        "--audio", default="",
+        help="path to an audio file to describe (gemini only). Use "
+             "'video' to pull the source clip's own track via ffmpeg.",
     )
     parser.add_argument("--model", default="auto")
     parser.add_argument(
@@ -111,6 +141,15 @@ def main():
     reference = load_image(args.reference)
     print(f"Loaded {frames.shape[0]} frames @ {fps:.3f} fps")
 
+    audio = None
+    if args.audio:
+        audio = load_audio(args.audio, args.video)
+        samples = audio["waveform"].shape[-1]
+        print(
+            f"Loaded {samples / audio['sample_rate']:.2f}s of audio "
+            f"@ {audio['sample_rate']} Hz"
+        )
+
     node = H3AutoPromptGenerator()
     prompt, prompt_b, duration, out_fps, analysis = node.generate(
         reference_image=reference,
@@ -125,6 +164,7 @@ def main():
         prompt_profile=args.profile,
         frames=frames,
         fps=fps,
+        audio=audio,
         api_key=args.api_key,
         dialogue=args.dialogue,
     )

@@ -40,5 +40,8 @@ psd-tools>=1.9.0
 # kimi (Moonshot Kimi K3), glm (Z.ai), qwen_api (DashScope intl).
 anthropic>=0.119.0
 openai>=2.0.0
+# google-genai serves the gemini provider, the only backend that can
+# take the clip's audio track and describe the real soundscape.
+google-genai>=1.75.0
 # ollama>=0.6.0        # optional local provider (needs an ollama server)
 # Local Qwen3-VL needs transformers>=5.0 + accelerate (in the ComfyUI venv)

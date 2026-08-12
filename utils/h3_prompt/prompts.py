@@ -164,6 +164,7 @@ def build_user_context(
     cut_timestamps: list,
     enable_audio_prompt: bool = True,
     dialogue_text: str = "",
+    audio_available: bool = False,
 ) -> str:
     """Compose the per-run task context sent alongside the images."""
     lines = [
@@ -192,6 +193,18 @@ def build_user_context(
             soundscape_type, SOUNDSCAPE_GUIDANCE["ambient"]
         )
         lines.append(f"- soundscape type '{soundscape_type}': {guidance}")
+        if audio_available:
+            lines.append(
+                "- THE SOURCE CLIP'S AUDIO TRACK IS ATTACHED. Base "
+                "overall_soundscape on what you actually hear in it, not "
+                "on what the frames imply: name the real ambience, the "
+                "specific impacts and movement sounds, and their timing "
+                "against the shots. If music is audible, describe its "
+                "instrumentation, tempo, and where it enters and exits "
+                "in non_diegetic_music; write N/A only if you hear no "
+                "score. Do not transcribe speech into a spoken line "
+                "unless the task context supplies the exact words above."
+            )
     else:
         lines.append(
             "- audio: minimal. No dialogue lines. overall_soundscape is "
