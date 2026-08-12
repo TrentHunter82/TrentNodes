@@ -8,7 +8,7 @@ carries a real timestamp.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import torch
@@ -86,6 +86,7 @@ def select_keyframes(
     fps: float,
     max_frames: int = 8,
     cut_threshold: float = DEFAULT_CUT_THRESHOLD,
+    known_boundaries: Optional[List[int]] = None,
 ) -> KeyframeResult:
     """
     Select up to `max_frames` frame indices from a (B, H, W, C) [0,1]
@@ -94,6 +95,12 @@ def select_keyframes(
     Priority: first + last frame > scene starts (longest scenes first)
     > scene midpoints > motion peaks > uniform fill. Selected indices
     keep a minimum spacing except the always-kept first/last anchors.
+
+    known_boundaries: shot-start frame indices from a real detector
+    (Cut Detective). When given they replace the local difference
+    threshold entirely, so the frames sent to the VLM land on the shots
+    that were actually found. The difference curve is still computed -
+    motion peaks inside a shot come from it.
     """
     batch_size = images.shape[0]
     fps = float(fps) if fps and fps > 0 else 24.0
@@ -119,9 +126,15 @@ def select_keyframes(
         )
 
     min_scene_frames = max(2, int(round(0.15 * fps)))
-    boundaries = detect_boundaries(
-        differences, cut_threshold, min_scene_frames, adaptive=True
-    )
+    if known_boundaries:
+        method = "supplied"
+        boundaries = sorted({
+            min(max(int(b), 0), batch_size - 1) for b in known_boundaries
+        } | {0})
+    else:
+        boundaries = detect_boundaries(
+            differences, cut_threshold, min_scene_frames, adaptive=True
+        )
     scenes = scenes_from_boundaries(boundaries, batch_size)
 
     smoothed = _gaussian_smooth(differences, sigma=2.0)

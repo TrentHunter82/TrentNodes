@@ -56,10 +56,18 @@ class FakeBackend:
 
     def __init__(self):
         self.calls = 0
+        self.last_user_text = ""
+        # The retry message quotes the validator's errors back, so a
+        # test about the task context must read the first call, not the
+        # last, or it will match on error text instead.
+        self.first_user_text = ""
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
                  audio=None, video=None):
         self.calls += 1
+        self.last_user_text = user_text
+        if self.calls == 1:
+            self.first_user_text = user_text
         assert "UNBREAKABLE RULES" in system
         assert images[0].label.startswith("Reference image <Picture 1>")
         assert "TASK CONTEXT" in user_text
@@ -144,6 +152,230 @@ def test_upgraded_profile_no_padding():
     assert not any(
         "padded exclusions" in f for f in upgraded["applied_fixes"]
     )
+
+
+def test_blank_cut_times_keeps_local_detection():
+    _p, _b, _d, _f, analysis_json = _run_node(FakeBackend())
+    analysis = json.loads(analysis_json)
+    assert analysis["cut_source"] == "local"
+    assert analysis["cut_kinds"] == []
+    assert analysis["detection_method"] in ("hybrid", "intensity")
+
+
+def test_cut_times_pin_the_shot_timeline():
+    # The canned text writes [Shot 2] At 00:01.000; Cut Detective
+    # measured 1.500, so the measured time must win.
+    fake = FakeBackend()
+    prompt, _b, _d, _f, analysis_json = _run_node(fake, cut_times="0.0, 1.5")
+
+    assert "[Shot 2] At 00:01.500" in prompt
+    assert "00:01.000" not in prompt
+    assert fake.calls == 1  # count matched, so no retry
+
+    analysis = json.loads(analysis_json)
+    assert analysis["cut_source"] == "measured"
+    assert analysis["cut_timestamps"] == [0.0, 1.5]
+    assert analysis["detection_method"] == "supplied"
+    # Keyframes land on the measured cut, not on a difference spike.
+    assert 18 in analysis["selected_frame_indices"], analysis[
+        "selected_frame_indices"
+    ]
+
+
+def test_cut_times_reads_a_cut_detective_shot_table():
+    fake = FakeBackend()
+    table = (
+        "Shot 1 | 00:00.000 | 1.250s | start\n"
+        "Shot 2 | 00:01.250 | 0.750s | dissolve over 0.125s"
+    )
+    prompt, _b, _d, _f, analysis_json = _run_node(fake, cut_times=table)
+
+    assert "[Shot 2] At 00:01.250" in prompt
+    analysis = json.loads(analysis_json)
+    assert analysis["cut_timestamps"] == [0.0, 1.25]
+    assert analysis["cut_kinds"] == ["start", "dissolve"]
+
+
+def test_cut_times_shot_count_mismatch_forces_a_retry():
+    # Three measured shots, two written: the model must be sent back.
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(
+        fake, cut_times="0.0, 0.5, 1.2"
+    )
+    assert fake.calls == 2  # one retry, and the fake never corrects itself
+
+    analysis = json.loads(analysis_json)
+    unresolved = analysis["variants"]["official"]["unresolved_errors"]
+    assert any("measured shot list has 3 shots" in e for e in unresolved), (
+        unresolved
+    )
+
+
+def test_cut_times_past_the_clip_end_are_dropped():
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(
+        fake, cut_times="0.0, 1.5, 9.0"  # clip is 2.000s
+    )
+    analysis = json.loads(analysis_json)
+    assert analysis["cut_timestamps"] == [0.0, 1.5]
+    assert any("past the" in w for w in analysis["warnings"]), analysis[
+        "warnings"
+    ]
+
+
+def test_unreadable_cut_times_fall_back_to_local_detection():
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(fake, cut_times="no cuts here")
+    analysis = json.loads(analysis_json)
+    assert analysis["cut_source"] == "local"
+    assert any("no readable timestamps" in w for w in analysis["warnings"])
+
+
+def test_boundaries_only_cut_list_regains_shot_one():
+    # Cut Detective with include_first_shot off emits no leading 0.000.
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(fake, cut_times="1.5")
+    analysis = json.loads(analysis_json)
+    assert analysis["cut_timestamps"] == [0.0, 1.5]
+    assert analysis["cut_kinds"][0] == "start"
+
+
+def test_alignment_toggle_is_off_by_default():
+    prompt, _b, _d, _f, analysis_json = _run_node(FakeBackend())
+    assert prompt.startswith("subject_definitions:")
+    assert "fully referenced" not in prompt
+    assert json.loads(analysis_json)["alignment_hook"] == ""
+
+
+def test_first_frame_alignment_prepends_the_hook():
+    fake = FakeBackend()
+    prompt, _b, _d, _f, analysis_json = _run_node(
+        fake, first_frame_alignment=True
+    )
+    expected = (
+        "For the target video, at 0.00 seconds into the target video, "
+        "<Picture 1> (from [Shot 1]) is fully referenced."
+    )
+    assert prompt.startswith(expected)
+    assert json.loads(analysis_json)["alignment_hook"] == expected
+    # The task context tells the model the sentence is coming.
+    assert "FIRST-FRAME ALIGNMENT IS ON" in fake.first_user_text
+
+
+def test_alignment_time_names_the_shot_it_lands_in():
+    # Cuts at 0.0 / 0.5 / 1.2; 1.3s falls inside shot 3.
+    fake = FakeBackend()
+    prompt, _b, _d, _f, _a = _run_node(
+        fake, first_frame_alignment=True, alignment_time_seconds=1.3,
+        cut_times="0.0, 0.5, 1.2",
+    )
+    assert prompt.startswith(
+        "For the target video, at 1.30 seconds into the target video, "
+        "<Picture 1> (from [Shot 3]) is fully referenced."
+    )
+
+
+def test_alignment_time_past_the_clip_is_clamped():
+    fake = FakeBackend()
+    prompt, _b, _d, _f, analysis_json = _run_node(
+        fake, first_frame_alignment=True, alignment_time_seconds=99.0
+    )
+    assert prompt.startswith(
+        "For the target video, at 2.00 seconds"  # clip is 2.000s
+    )
+    assert any(
+        "past the" in w and "clamped" in w
+        for w in json.loads(analysis_json)["warnings"]
+    )
+
+
+def test_music_video_off_keeps_the_soundscape_type():
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(fake)
+    assert "soundscape type 'ambient'" in fake.first_user_text
+    assert "MUSIC VIDEO MODE" not in fake.first_user_text
+    assert json.loads(analysis_json)["music_video"] is False
+
+
+def test_music_video_replaces_the_soundscape_guidance():
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(fake, music_video=True)
+    context = fake.first_user_text
+    assert "MUSIC VIDEO MODE IS ON" in context
+    assert "soundscape type 'ambient'" not in context
+    assert "never be \"N/A\"" in context
+    assert json.loads(analysis_json)["music_video"] is True
+
+
+def test_lyrics_and_music_description_reach_the_context():
+    fake = FakeBackend()
+    _run_node(
+        fake, music_video=True,
+        lyrics="I'm lonely lonely lonely",
+        music_description="downtempo synthwave, ~92 BPM",
+    )
+    assert "I'm lonely lonely lonely" in fake.first_user_text
+    assert "downtempo synthwave, ~92 BPM" in fake.first_user_text
+    # No audio connected, so the subject is the vocal source.
+    assert "(S1) sings" in fake.first_user_text
+    assert "<Audio 1>" not in fake.first_user_text
+
+
+def test_no_lyrics_forbids_inventing_them():
+    fake = FakeBackend()
+    _run_node(fake, music_video=True)
+    assert "Do not invent words" in fake.first_user_text
+
+
+def test_music_video_ignores_lyrics_when_off():
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(fake, lyrics="la la la")
+    assert "la la la" not in fake.first_user_text
+    assert any(
+        "music_video is off" in w
+        for w in json.loads(analysis_json)["warnings"]
+    )
+
+
+def test_music_video_forces_audio_on():
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(
+        fake, music_video=True, enable_audio_prompt=False
+    )
+    context = fake.first_user_text
+    assert "MUSIC VIDEO MODE IS ON" in context
+    assert "audio: minimal" not in context
+    assert any(
+        "enable_audio_prompt was treated as on" in w
+        for w in json.loads(analysis_json)["warnings"]
+    )
+
+
+def test_connected_audio_declares_the_song_as_audio_1():
+    # supports_audio so the track actually reaches the VLM; the
+    # <Audio 1> declaration is about the H3 graph and does not depend
+    # on it, but the "listen to the track" block does.
+    fake = FakeBackend()
+    fake.supports_audio = True
+    audio = {
+        "waveform": torch.zeros((1, 1, 16000)),
+        "sample_rate": 16000,
+    }
+    _p, _b, _d, _f, analysis_json = _run_node(
+        fake, music_video=True, audio=audio,
+        lyrics="I'm lonely lonely lonely",
+    )
+    context = fake.first_user_text
+    assert "SUPPLIED TO THE GENERATION AS <Audio 1>" in context
+    assert "fully_copy" in context
+    # A voice inside the reused track is not a new speaker.
+    assert "Do not assign an (Sx) ID to it." in context
+    assert "(S1) sings" not in context
+    # The generic "name the impacts / N/A is fine" block would fight
+    # music-video mode, so a music-specific one replaces it.
+    assert "THE TRACK IS ATTACHED FOR YOU TO HEAR" in context
+    assert "specific impacts and movement sounds" not in context
+    assert json.loads(analysis_json)["music_is_reference"] is True
 
 
 def test_node_requires_an_input():

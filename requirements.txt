@@ -33,6 +33,24 @@ einops>=0.8.0
 # For PSD layer decomposition (PSD Layer Splitter node)
 psd-tools>=1.9.0
 
+# For Cut Detective (Trent/Video) shot-boundary detection.
+# TransNetV2 is the fallback detector; its weights ship in the wheel.
+transnetv2-pytorch>=1.0.5
+#
+# The default detector is OmniShotCut (UVA Computer Vision Lab, 2026;
+# MIT), which is not on PyPI and is deliberately NOT listed as a
+# requirement here. Install it by hand, with --no-deps:
+#
+#   pip install --no-deps \
+#     git+https://github.com/UVA-Computer-Vision-Lab/OmniShotCut.git
+#
+# --no-deps matters twice over: the repo's requirements.txt pins
+# transformers==4.57.3, and its pyproject lists torch/torchvision, so a
+# plain install can downgrade a working ComfyUI environment. The package
+# itself imports neither transformers nor anything ComfyUI lacks. Cut
+# Detective runs on TransNetV2 without it; only transition typing
+# (dissolve / wipe / fade) needs OmniShotCut. It also needs CUDA.
+
 # For H3 Auto Prompt Generator (Trent/VLM) - hosted VLM providers.
 # Each provider is optional; the node registers regardless and raises
 # an actionable error only when a missing provider is selected.

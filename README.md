@@ -121,13 +121,29 @@ pip install -r requirements.txt
 
 All nodes are organized under the `Trent/` category for easy navigation.
 
-### Trent/Video (12 nodes)
+### Trent/Video (13 nodes)
+
+**Cut Detective**
+
+Neural shot-boundary detection with a film-strip preview. Finds every cut in a clip, says what kind of cut each one is, and hands the cut list to the H3 Auto Prompt Generator.
+
+- **Detectors.** `omnishotcut` (default) is [OmniShotCut](https://github.com/UVA-Computer-Vision-Lab/OmniShotCut), a 2026 shot-query video Transformer from the UVA Computer Vision Lab: range F1 0.883 against 0.814 for both TransNetV2 and AutoShot, and the only one of the three that labels a boundary as a dissolve, wipe, fade, whip-pan or sudden jump instead of just flagging it. `transnetv2` is the proven baseline, ships its weights in the wheel, runs on CPU, and reports hard cuts only. `classic` is the frame-difference detector Chop Cuts uses — no model, no download, and a safety net rather than a peer. `auto` takes the first that loads.
+- **Outputs.** `cut_times` (comma-separated seconds), `shot_table` (one readable line per shot), `film_strip` (a labelled contact sheet with a colour-coded cut marker per shot and a proportional timeline ribbon), `report`, `cuts_json`, `num_shots`.
+- **Feeding H3.** Wire `cut_times` into the H3 Auto Prompt Generator's `cut_times` input. The VLM is then told to write exactly those shots, and the assembler forces the `[Shot N]` times onto the measured cuts instead of rescaling them proportionally. Any of the three string outputs works — the parser also reads timecodes, `[Shot N] At MM:SS.mmm` labels, and hand-typed lists.
+
+OmniShotCut is not on PyPI and is not installed automatically. Install it with `--no-deps`, which matters: its `requirements.txt` pins `transformers==4.57.3` and its `pyproject` lists torch, so a plain install can downgrade a working ComfyUI environment.
+
+```bash
+pip install --no-deps git+https://github.com/UVA-Computer-Vision-Lab/OmniShotCut.git
+```
+
+It needs CUDA, and downloads a 164 MB checkpoint from HuggingFace on first use. Without it, Cut Detective falls back to TransNetV2.
 
 **Chop Cuts**
 
 <img src="assets/images/nodes/ChopCuts.png" width="262" alt="Chop Cuts node">
 
-Accurate scene detection and video splitting. Automatically detects cuts, fades, and transitions using multi-metric analysis, then exports each scene as a separate MP4 file with a detailed report of cut locations and timestamps.
+Accurate scene detection and video splitting. Automatically detects cuts, fades, and transitions using multi-metric analysis, then exports each scene as a separate MP4 file with a detailed report of cut locations and timestamps. For cut *detection* alone, Cut Detective above is substantially more accurate; Chop Cuts remains the node that splits a clip into per-scene MP4 files.
 
 **Video Folder Analyzer**
 
@@ -499,7 +515,20 @@ Generates 10 test prompts specifically designed to validate different types of L
 
 Outputs 10 individual prompt strings plus a combined `all_prompts` output for easy batch processing. Includes optional quality suffix to append tags like "8k, detailed" to all prompts.
 
-### 👁️ Trent/VLM (6 nodes)
+### 👁️ Trent/VLM (7 nodes)
+
+**H3 Auto Prompt Generator**
+
+Reads a source video plus an identity reference image with a VLM and writes a production-ready MiniMax H3 REF2VA prompt in the official six-section format. It picks keyframes on scene cuts and motion peaks, then validates and repairs the model's output — shot times, `<Subject 1>` tagging, wardrobe mentions, exclusions, the 7000-character cap — and retries once with the validator's error list. Backends: anthropic, gemini (the only one that can hear the audio track), openai, kimi, glm, qwen_api, and three local options.
+
+Two controls decide how the references are read:
+
+- **`cut_times`** — paste or wire any Cut Detective output here. The cut list becomes ground truth: keyframes land on the real shot starts, the VLM is told to write exactly those shots, and the assembler forces the `[Shot N]` times onto them instead of rescaling proportionally. A shot count that disagrees is a retry error, not a silent repair. Blank falls back to the node's own frame-difference guess.
+- **`music_video`** — writes the prompt as a music video instead of a documentary scene. The audio balance inverts: `non_diegetic_music` becomes the lead section and can no longer be `N/A`, `overall_soundscape` thins to what is genuinely audible under the track, cuts are described as landing on the beat, and performance to camera becomes the action. Put the sung words in **`lyrics`** and the track in **`music_description`**. Lyrics are written as `<d>[English] ...</d>` inside the shot where they are heard and are stripped if the model repeats them in the audio sections, per the official guide. Connect the **`audio`** input as well and the prompt declares the song as `<Audio 1>` reused as the score, with a `fully_copy` retention line and the vocal attributed to the track rather than a new `(Sx)` speaker ID. Leaving `lyrics` blank tells the model to say the mouth moves in time without intelligible words — H3 invents nonsense syllables if you ask for singing without giving it words. The mode overrides `enable_audio_prompt` when they clash, since a silent music video is a contradiction.
+- **`first_frame_alignment`** — the I2V hook. H3 reads an image reference in context and expects the frame relationship declared outright, so this prepends `For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.` above `subject_definitions`. Because that sentence declares `<Picture 1>` to *be* the target frame, the node also reverses its usual stance: the task context tells the model to use the reference's framing, background and lighting, and the assembler strips any prose or exclusion still saying to ignore them. Set the moment with `alignment_time_seconds` — `0.00` for a first frame, a later value to anchor the reference mid-clip (the last-frame / FLV trick), and the hook names whichever shot contains it.
+
+Leave `first_frame_alignment` **off** for REF2VA character replacement, where `<Picture 1>` supplies identity only and its background must not leak into the video.
+
 
 **VidScribe MiniCPM Beta**
 

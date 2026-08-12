@@ -13,7 +13,7 @@ exclusion sentences) - see prompts.py module docstring for the source.
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .prompts import (
     MAX_PROMPT_CHARS,
@@ -34,6 +34,23 @@ class AssemblyContext:
     # "official": trailing "No..." block padded to MIN_EXCLUSIONS.
     # "upgraded": positive assertions inline; no padding, no block target.
     profile: str = "official"
+    # Shot start times in seconds from a real shot-boundary detector,
+    # starting at 0.0. When present they are ground truth: shot times are
+    # forced onto them rather than repaired proportionally, and a shot
+    # count that disagrees becomes a retry error. Empty = none measured.
+    known_shot_times: List[float] = field(default_factory=list)
+    # First-frame alignment sentence (prompts.build_alignment_hook).
+    # Prepended above subject_definitions, and it suppresses any
+    # exclusion that would forbid using <Picture 1>'s background, pose,
+    # or lighting - the hook declares that they ARE the target frame.
+    # Empty = no alignment hook.
+    alignment_hook: str = ""
+    # Music-video mode: non_diegetic_music leads instead of being N/A,
+    # and lyrics belong in <d> inside detailed_description only.
+    music_video: bool = False
+    # Exact sung words, when supplied. Their absence from the output is
+    # a retry error in music-video mode.
+    lyrics: str = ""
 
 
 @dataclass
@@ -293,16 +310,76 @@ _LEGACY_RANGE_RE = re.compile(
 )
 
 
+def _apply_known_times(
+    times: List[float],
+    known: List[float],
+    fixes: List[str],
+    warnings: List[str],
+    retry_errors: List[str],
+) -> List[float]:
+    """
+    Force model shot times onto a measured cut list.
+
+    Matching counts means the model found the right shots and only its
+    timings drift, so the measured times replace them outright. A count
+    mismatch is a real content error - a merged or invented shot - so it
+    becomes a retry error; the times are still snapped to the nearest
+    measured cut so an unfixed retry at least lands on real boundaries,
+    and the snap is abandoned if it would break monotonicity.
+    """
+    if len(times) == len(known):
+        if any(abs(a - b) > 0.001 for a, b in zip(times, known)):
+            fixes.append(
+                f"snapped {len(known)} shot times to the measured cut list"
+            )
+        return list(known)
+
+    retry_errors.append(
+        f"detailed_description has {len(times)} [Shot N] labels but the "
+        f"measured shot list has {len(known)} shots. Write exactly "
+        f"{len(known)} shots, starting at these times in seconds: "
+        + ", ".join(f"{t:.3f}" for t in known)
+        + "."
+    )
+
+    snapped = [
+        min(known, key=lambda k: abs(k - t)) if t == t else t
+        for t in times
+    ]
+    if any(t != t for t in snapped) or any(
+        b <= a for a, b in zip(snapped, snapped[1:])
+    ):
+        warnings.append(
+            "shot count disagrees with the measured cut list and the "
+            "times could not be snapped without collapsing two shots; "
+            "kept the model's own times"
+        )
+        return times
+
+    warnings.append(
+        f"shot count disagrees with the measured cut list "
+        f"({len(times)} written vs {len(known)} measured); snapped each "
+        "written shot to its nearest measured cut"
+    )
+    return snapped
+
+
 def normalize_shot_labels(
-    detailed: str, duration: float, fixes: List[str], warnings: List[str]
+    detailed: str, duration: float, fixes: List[str], warnings: List[str],
+    known_times: Optional[List[float]] = None,
+    retry_errors: Optional[List[str]] = None,
 ) -> Tuple[str, List[float]]:
     """
     Normalize shot labels to the official form ([Shot 1] bare, then
     [Shot N] At MM:SS.mmm) and repair their times.
 
+    known_times, when given, is a measured cut list that overrides the
+    model's timings - see _apply_known_times.
+
     Returns (fixed_text, shot_start_times) where times[0] is always 0.0.
     """
     text = detailed
+    retry_errors = retry_errors if retry_errors is not None else []
 
     # Legacy "[0.000s-1.250s]" ranges -> official labels using range starts
     if _LEGACY_RANGE_RE.search(text):
@@ -345,7 +422,11 @@ def normalize_shot_labels(
             prev = t
         return True
 
-    if not monotonic_in_range(times):
+    if known_times:
+        times = _apply_known_times(
+            times, list(known_times), fixes, warnings, retry_errors
+        )
+    elif not monotonic_in_range(times):
         n = len(times)
         repaired = [round(duration * i / n, 3) for i in range(n)]
         if any(t != t for t in times):  # NaN present
@@ -489,6 +570,156 @@ def check_camera_moves(detailed: str, warnings: List[str]) -> None:
 # Exclusions
 # ---------------------------------------------------------------------------
 
+# An exclusion forbidding <Picture 1>'s background, pose, or lighting
+# is correct for character replacement and flatly wrong under a
+# first-frame alignment hook, which declares that those ARE the target
+# frame. One of the stock lines says exactly this, so it can arrive
+# through padding even when the model never wrote it.
+_PICTURE_SCENE_WORDS = re.compile(
+    r"(?i)\b(background|pose|lighting|framing|camera angle)\b"
+)
+
+
+def _contradicts_alignment(sentence: str) -> bool:
+    return (
+        "<Picture 1>" in sentence
+        and bool(_PICTURE_SCENE_WORDS.search(sentence))
+    )
+
+
+# The same contradiction reaches the prose sections, and from a stronger
+# source: the system prompt's own worked example writes "Do not copy the
+# background, pose, or lighting from <Picture 1>" into
+# subject_definitions. A task-context instruction is a weak counter to a
+# worked example, so these sentences are removed rather than argued with.
+_ALIGNMENT_NEGATION = re.compile(
+    r"(?i)\b(do(es)? not copy|don't copy|never copy|no copying|"
+    r"avoid copying|ignore)\b"
+)
+_ALIGNMENT_ONLY = re.compile(
+    r"(?i)\b(defines?|supplies|provides|gives) only\b"
+)
+_ALIGNMENT_POSITIVE = (
+    "<Picture 1> is the target video frame declared above: that shot "
+    "opens on exactly that image, keeping its framing, background, and "
+    "lighting."
+)
+
+
+def _conflicts_with_alignment(sentence: str) -> bool:
+    """True for prose that denies <Picture 1> its scene contribution."""
+    if "<Picture 1>" not in sentence:
+        return False
+    if _ALIGNMENT_ONLY.search(sentence):
+        return True
+    return bool(
+        _ALIGNMENT_NEGATION.search(sentence)
+        and _PICTURE_SCENE_WORDS.search(sentence)
+    )
+
+
+def enforce_alignment(
+    sections: Dict[str, str], ctx: AssemblyContext, fixes: List[str]
+) -> Dict[str, str]:
+    """
+    Make the prose agree with the alignment hook.
+
+    Drops sentences saying <Picture 1> contributes identity alone or
+    that its background, pose and lighting must not be copied, then
+    states the opposite once. A no-op without a hook, and byte-identical
+    when nothing conflicts.
+    """
+    if not ctx.alignment_hook:
+        return sections
+
+    removed = 0
+    for key in ("subject_definitions", "retention_analysis"):
+        content = sections.get(key, "")
+        if not content:
+            continue
+        sentences = _SENTENCE_SPLIT_RE.split(content)
+        kept = [s for s in sentences if not _conflicts_with_alignment(s)]
+        if len(kept) != len(sentences):
+            removed += len(sentences) - len(kept)
+            sections[key] = " ".join(s.strip() for s in kept).strip()
+
+    if removed:
+        fixes.append(
+            f"removed {removed} sentence(s) denying <Picture 1> its "
+            "framing, background, or lighting (alignment hook is on)"
+        )
+
+    if "subject_definitions" in sections and _ALIGNMENT_POSITIVE not in (
+        sections["subject_definitions"]
+    ):
+        sections["subject_definitions"] = (
+            sections["subject_definitions"].rstrip()
+            + " " + _ALIGNMENT_POSITIVE
+        )
+        fixes.append("stated the <Picture 1> frame alignment positively")
+    return sections
+
+
+_DIALOGUE_RE = re.compile(r"<d>.*?</d>", re.DOTALL)
+_NA_RE = re.compile(r"(?i)^\s*n/?a\b")
+
+
+def enforce_music_video(
+    sections: Dict[str, str], ctx: AssemblyContext,
+    fixes: List[str], retry_errors: List[str], warnings: List[str],
+) -> Dict[str, str]:
+    """
+    Hold music-video mode to the official guide's audio rules.
+
+    Three checks, all from VIDEO_PROMPT_WRITING_GUIDE_ref_en section 6:
+    a music video's score is never "N/A"; supplied lyrics must actually
+    reach a <d> block; and lyrics are written only inside <d> in
+    detailed_description, never repeated in the two audio sections.
+    """
+    if not ctx.music_video:
+        return sections
+
+    music = sections.get("non_diegetic_music", "").strip()
+    if not music or _NA_RE.match(music):
+        retry_errors.append(
+            "Music video mode: non_diegetic_music is 'N/A' but a music "
+            "video is scored wall to wall. Describe the track - genre, "
+            "instrumentation, tempo, and how it develops across the "
+            "clip - or state that the supplied score is reused directly."
+        )
+
+    detailed = sections.get("detailed_description", "")
+    if ctx.lyrics.strip() and not _DIALOGUE_RE.search(detailed):
+        retry_errors.append(
+            "Music video mode: lyrics were supplied but "
+            "detailed_description contains no <d>[English] ...</d> "
+            "block. Put the sung words inside <d> in the shot where "
+            "they are heard."
+        )
+
+    # Lyrics repeated in the audio sections: strip, do not argue.
+    stripped = 0
+    for key in ("overall_soundscape", "non_diegetic_music"):
+        content = sections.get(key, "")
+        if not content or not _DIALOGUE_RE.search(content):
+            continue
+        cleaned = _DIALOGUE_RE.sub("", content)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+        if cleaned:
+            sections[key] = cleaned
+            stripped += 1
+        else:
+            warnings.append(
+                f"section '{key}' was nothing but lyrics; left as written"
+            )
+    if stripped:
+        fixes.append(
+            f"removed lyrics repeated in {stripped} audio section(s); "
+            "they belong only inside <d> in detailed_description"
+        )
+    return sections
+
+
 def finalize_exclusions(
     exclusions: List[str], ctx: AssemblyContext, fixes: List[str]
 ) -> List[str]:
@@ -497,7 +728,14 @@ def finalize_exclusions(
     to MIN_EXCLUSIONS from the stock pool; the upgraded profile keeps
     whatever the model wrote (constraints live inline as positive
     assertions there).
+
+    With an alignment hook in play, exclusions that would forbid copying
+    <Picture 1>'s background, pose, or lighting are dropped and never
+    padded back in.
     """
+    aligning = bool(ctx.alignment_hook)
+    dropped = 0
+
     cleaned: List[str] = []
     seen = set()
     for raw in exclusions:
@@ -506,10 +744,19 @@ def finalize_exclusions(
             continue
         if not sentence.endswith("."):
             sentence += "."
+        if aligning and _contradicts_alignment(sentence):
+            dropped += 1
+            continue
         key = re.sub(r"\W+", "", sentence.lower())
         if key not in seen:
             seen.add(key)
             cleaned.append(sentence)
+
+    if dropped:
+        fixes.append(
+            f"dropped {dropped} exclusion(s) that contradicted the "
+            "first-frame alignment hook"
+        )
 
     if ctx.profile == "upgraded":
         return cleaned
@@ -517,6 +764,8 @@ def finalize_exclusions(
     if len(cleaned) < MIN_EXCLUSIONS:
         for stock in STOCK_EXCLUSIONS:
             sentence = stock.replace("the subject", ctx.subject_name)
+            if aligning and _contradicts_alignment(sentence):
+                continue
             key = re.sub(r"\W+", "", sentence.lower())
             # Skip stock lines that overlap an existing exclusion's topic
             if key in seen:
@@ -533,8 +782,19 @@ def finalize_exclusions(
 # Reassembly + trim
 # ---------------------------------------------------------------------------
 
-def reassemble(sections: Dict[str, str], exclusions: List[str]) -> str:
+def reassemble(
+    sections: Dict[str, str], exclusions: List[str], prefix: str = ""
+) -> str:
+    """
+    Join the sections back into one prompt.
+
+    `prefix` is the first-frame alignment hook, which sits above
+    subject_definitions. It is counted here rather than glued on later
+    so the trim ladder measures the real prompt length.
+    """
     parts = []
+    if prefix:
+        parts.append(prefix.strip())
     for key in SECTION_ORDER:
         content = sections.get(key, "").strip()
         if not content:
@@ -547,22 +807,22 @@ def reassemble(sections: Dict[str, str], exclusions: List[str]) -> str:
 
 def apply_trim_ladder(
     sections: Dict[str, str], exclusions: List[str],
-    fixes: List[str], retry_errors: List[str],
+    fixes: List[str], retry_errors: List[str], prefix: str = "",
 ) -> Tuple[Dict[str, str], List[str]]:
     """Reduce the prompt below MAX_PROMPT_CHARS, cheapest cuts first."""
-    if len(reassemble(sections, exclusions)) <= MAX_PROMPT_CHARS:
+    if len(reassemble(sections, exclusions, prefix)) <= MAX_PROMPT_CHARS:
         return sections, exclusions
 
     if len(sections.get("non_diegetic_music", "")) > 60:
         sections["non_diegetic_music"] = "N/A"
         fixes.append("trimmed non_diegetic_music to N/A (over char cap)")
-    if len(reassemble(sections, exclusions)) <= MAX_PROMPT_CHARS:
+    if len(reassemble(sections, exclusions, prefix)) <= MAX_PROMPT_CHARS:
         return sections, exclusions
 
     if len(exclusions) > MIN_EXCLUSIONS:
         exclusions = sorted(exclusions, key=len)[:MIN_EXCLUSIONS]
         fixes.append("kept only the 8 shortest exclusions (over char cap)")
-    if len(reassemble(sections, exclusions)) <= MAX_PROMPT_CHARS:
+    if len(reassemble(sections, exclusions, prefix)) <= MAX_PROMPT_CHARS:
         return sections, exclusions
 
     retry_errors.append(
@@ -582,6 +842,15 @@ def process(raw_text: str, ctx: AssemblyContext) -> AssemblyResult:
     fixes, warnings, retry_errors = (
         result.applied_fixes, result.warnings, result.retry_errors
     )
+
+    # A silent music video is a contradiction. Music-video mode wins:
+    # nobody turns it on wanting the audio sections blanked.
+    silent = not ctx.enable_audio_prompt and not ctx.music_video
+    if not ctx.enable_audio_prompt and ctx.music_video:
+        warnings.append(
+            "music video mode overrides enable_audio_prompt; the audio "
+            "sections are written rather than blanked"
+        )
 
     text = strip_wrapper(raw_text or "", fixes)
     text = strip_markdown(text, fixes)
@@ -604,12 +873,14 @@ def process(raw_text: str, ctx: AssemblyContext) -> AssemblyResult:
         detailed, _times = normalize_shot_labels(
             sections["detailed_description"], ctx.duration_seconds,
             fixes, warnings,
+            known_times=ctx.known_shot_times,
+            retry_errors=retry_errors,
         )
         detailed = enforce_subject_per_shot(
             detailed, ctx.subject_name, fixes, retry_errors, warnings
         )
         check_camera_moves(detailed, warnings)
-        if not ctx.enable_audio_prompt:
+        if silent:
             stripped = re.sub(r"<d>.*?</d>", "", detailed, flags=re.DOTALL)
             if stripped != detailed:
                 fixes.append("removed dialogue lines (audio prompt disabled)")
@@ -628,7 +899,7 @@ def process(raw_text: str, ctx: AssemblyContext) -> AssemblyResult:
                 f"({ctx.profile} target {lo}-{hi})"
             )
 
-    if not ctx.enable_audio_prompt:
+    if silent:
         sections["overall_soundscape"] = (
             "Quiet natural ambience only. No dialogue is spoken."
         )
@@ -636,6 +907,10 @@ def process(raw_text: str, ctx: AssemblyContext) -> AssemblyResult:
         fixes.append("forced minimal audio sections (audio prompt disabled)")
 
     enforce_wardrobe(sections, ctx.subject_wardrobe, fixes, warnings)
+    sections = enforce_alignment(sections, ctx, fixes)
+    sections = enforce_music_video(
+        sections, ctx, fixes, retry_errors, warnings
+    )
     exclusions = finalize_exclusions(exclusions, ctx, fixes)
     if ctx.profile == "upgraded" and len(exclusions) > 3:
         warnings.append(
@@ -643,10 +918,10 @@ def process(raw_text: str, ctx: AssemblyContext) -> AssemblyResult:
             f"the model wrote {len(exclusions)} trailing 'No...' sentences"
         )
     sections, exclusions = apply_trim_ladder(
-        sections, exclusions, fixes, retry_errors
+        sections, exclusions, fixes, retry_errors, ctx.alignment_hook
     )
 
-    result.prompt = reassemble(sections, exclusions)
+    result.prompt = reassemble(sections, exclusions, ctx.alignment_hook)
     result.char_count = len(result.prompt)
     if result.char_count > MAX_PROMPT_CHARS:
         warnings.append(

@@ -14,6 +14,8 @@ literal braces-free text but the rule keeps edits safe); all dynamic
 content goes into the user message via build_user_context().
 """
 
+from typing import Optional
+
 SECTION_ORDER = [
     "subject_definitions",
     "summary",
@@ -40,6 +42,17 @@ STOCK_EXCLUSIONS = [
     "No camera moves beyond those present in <Video 1>.",
 ]
 
+# First-frame alignment hook. H3 reads an I2V reference in context and
+# needs the frame relationship declared outright, so this sentence sits
+# above subject_definitions and pins <Picture 1> to a moment on the
+# target timeline. The assembler prepends it rather than the VLM writing
+# it - strip_wrapper deletes everything above subject_definitions, and a
+# fixed string cannot drift.
+ALIGNMENT_HOOK = (
+    "For the target video, at {seconds:.2f} seconds into the target "
+    "video, <Picture 1> (from [Shot {shot}]) is fully referenced."
+)
+
 MIN_EXCLUSIONS = 8
 MAX_PROMPT_CHARS = 7000
 TARGET_PROMPT_CHARS = 5500
@@ -52,6 +65,66 @@ DETAILED_DESCRIPTION_WORDS = (350, 500)
 PROFILES = ("official", "upgraded")
 UPGRADED_DESCRIPTION_WORDS = (120, 300)
 UPGRADED_TARGET_CHARS = 3000
+
+# Music-video mode. Sourced from the official guide
+# (huggingface.co/MiniMaxAI/MiniMax-H3, VIDEO_PROMPT_WRITING_GUIDE_ref_en
+# sections 5.4 and 6): lyrics live in <d> inside detailed_description and
+# are never repeated in the audio sections; a reused track is <Audio N>
+# with a fully_copy retention line; and verbal content that exists only
+# inside a reused track is attributed to <Audio N> rather than given a
+# new (Sx) speaker ID.
+MUSIC_VIDEO_GUIDANCE = (
+    "- MUSIC VIDEO MODE IS ON. The target is a music video, so the "
+    "audio balance inverts from the usual documentary one:\n"
+    "  * non_diegetic_music is the primary audio section and must "
+    "never be \"N/A\". Give genre, instrumentation, tempo (a BPM when "
+    "you can hear one), and how the track develops across the clip - "
+    "intro, verse, chorus, drop, outro - and where those land against "
+    "the shot list.\n"
+    "  * overall_soundscape stays thin. A music video is scored wall "
+    "to wall, so write only what is genuinely audible under the track: "
+    "an instrument played on camera, a crowd, a room tone. Do not "
+    "write footsteps, cloth rustle and impact sounds shot by shot; the "
+    "music covers them.\n"
+    "  * Cuts are musical. Where the shot list supports it, say the "
+    "cut rhythm follows the beat rather than describing each cut as a "
+    "narrative event.\n"
+    "  * Performance is the action. Describe what the subject does to "
+    "camera - the performance energy, the movement on the beat, where "
+    "they look - with the same physical, observable language as any "
+    "other shot."
+)
+
+MUSIC_VIDEO_LYRICS = (
+    "- LYRICS, exact words: {lyrics}\n"
+    "  Write them inside the shot where they are sung, as "
+    "<d>[English] ...</d>, exactly as given and in their original "
+    "language. State that the subject's mouth movement matches the "
+    "words. Split them across shots if the clip cuts mid-line. NEVER "
+    "repeat lyrics in overall_soundscape or non_diegetic_music - they "
+    "belong only inside <d> in detailed_description."
+)
+
+MUSIC_VIDEO_SINGER = (
+    "  The subject is the vocal source, so give them a speaker ID and "
+    "keep it: write \"{name} <Subject 1> (S1) sings, "
+    "<d>[English] ...</d>\"."
+)
+
+MUSIC_VIDEO_AUDIO_REUSE = (
+    "- THE SONG IS SUPPLIED TO THE GENERATION AS <Audio 1>. For this "
+    "run <Audio 1> is a fourth valid reference tag alongside "
+    "<Picture 1>, <Video 1> and <Subject 1>. Define it on its own line "
+    "in subject_definitions, give it the line \"<Audio 1>: fully_copy "
+    "- <Audio 1> is reused as the target video's complete "
+    "audience-only score.\" in retention_analysis, and write "
+    "non_diegetic_music as a statement that <Audio 1> is reused "
+    "directly rather than as a description of music to invent. A voice "
+    "that exists only inside <Audio 1> is NOT a separate speaker: "
+    "attribute it to the track, e.g. \"When <Audio 1> reaches the "
+    "phrase <d>[English] ...</d>, {name} <Subject 1> mouths the words "
+    "in sync\". Do not assign an (Sx) ID to it."
+)
 
 SOUNDSCAPE_GUIDANCE = {
     "fight": (
@@ -81,7 +154,7 @@ SYSTEM_PROMPT = """You are an expert Minimax H3 prompt director. You analyze vid
 2. After non_diegetic_music, end with a block of plain-English exclusion sentences. Each sentence starts with "No". Write at least 8. No header above them.
 3. No other text: no markdown, no code fences, no commentary, no title, no duration/fps/aspect-ratio claims. The output starts with "subject_definitions:" and ends with the last exclusion sentence.
 4. Reference tags are exactly <Picture 1> (identity reference image) and <Video 1> (motion source video). The person is <Subject 1>. Never renumber, never invent tags.
-5. In detailed_description, label shots as [Shot 1] for the opening shot (no timestamp), then [Shot 2] At MM:SS.mmm, [Shot 3] At MM:SS.mmm, and so on. Times are when the shot starts, strictly increasing, inside the clip duration given in the task context. Derive them from the frame timestamps you are given. One [Shot N] per hard cut you observe; do not invent cuts.
+5. In detailed_description, label shots as [Shot 1] for the opening shot (no timestamp), then [Shot 2] At MM:SS.mmm, [Shot 3] At MM:SS.mmm, and so on. Times are when the shot starts, strictly increasing, inside the clip duration given in the task context. One [Shot N] per hard cut; do not invent cuts and do not merge two shots into one. When the task context supplies a MEASURED SHOT LIST, it came from a shot-boundary detector that watched every frame: write exactly that many shots, with exactly those start times, in that order. Otherwise derive the times from the frame timestamps you are given.
 6. Write the subject's name followed by <Subject 1> in EVERY shot, e.g. "Aria Voss <Subject 1> pivots...". Also state the subject's position in frame in EVERY shot (e.g. "center frame", "left third, midground", "upper right quadrant, far background").
 7. Name the exact wardrobe from the task context in subject_definitions, again in retention_analysis, and at least once in detailed_description.
 8. Camera direction is prose inside each shot, physical production terms only (static, push in, pull back, pan, tilt, truck, arc, handheld tracking). ONE dominant camera move per shot. Never stack conflicting moves.
@@ -126,7 +199,8 @@ No face morphing or identity drift of Aria Voss in any frame. No changes to the 
 
 ## ANALYSIS METHOD
 
-1. Read the frame timestamps to establish the clip duration and where hard cuts fall (large visual discontinuities between adjacent sampled frames). The task context lists detected cut boundaries - trust them over your own guess unless the frames clearly contradict them.
+1. Establish the shot structure. If the task context carries a MEASURED SHOT LIST, that is the structure: one [Shot N] per listed shot, at the listed start time, and no others. If it does not, read the frame timestamps and place cuts at the large visual discontinuities between adjacent sampled frames.
+1a. A listed shot entered by a dissolve, fade, wipe or other gradual transition is still its own [Shot N] at its listed start time. Write the incoming shot plainly - never describe the transition effect itself, because H3 renders what you describe and the exclusions forbid dissolves and crossfades. A listed sudden jump is a jump cut inside continuous action: keep the location and the wardrobe identical across it and let only the framing or the pose jump.
 2. For each shot: identify the one dominant camera move, the subject's frame position, direction of travel, and every visible physical action in order.
 3. If motion between frames is very small, treat it as slow or deliberate movement and say so; do not describe the subject as frozen.
 4. Build the six sections. Target under 5500 characters total.
@@ -153,6 +227,59 @@ def get_system_prompt(profile: str = "official") -> str:
     return SYSTEM_PROMPT
 
 
+def shot_index_for_time(seconds: float, shot_starts: list) -> int:
+    """
+    1-based index of the shot containing `seconds`.
+
+    The hook names the target-video shot the reference aligns with, so
+    an alignment time inside shot 3 must say [Shot 3], not [Shot 1].
+    """
+    index = 1
+    for i, start in enumerate(shot_starts or [0.0], start=1):
+        if seconds + 1e-6 >= start:
+            index = i
+        else:
+            break
+    return index
+
+
+def build_alignment_hook(seconds: float, shot_index: int = 1) -> str:
+    """Render the first-frame alignment sentence."""
+    return ALIGNMENT_HOOK.format(
+        seconds=max(0.0, float(seconds)), shot=max(1, int(shot_index))
+    )
+
+
+def build_shot_list_block(
+    cut_timestamps: list,
+    duration_seconds: float,
+    cut_kinds: Optional[list] = None,
+) -> str:
+    """
+    The MEASURED SHOT LIST block: one line per shot, with the boundary
+    kind when a real detector supplied one.
+
+    cut_timestamps are shot start times in seconds and must begin at
+    0.0; cut_kinds, when given, is how each shot is entered ("start",
+    "hard cut", "dissolve", ...) and is parallel to cut_timestamps.
+    """
+    kinds = list(cut_kinds or [])
+    lines = []
+    for i, start in enumerate(cut_timestamps):
+        end = (
+            cut_timestamps[i + 1] if i + 1 < len(cut_timestamps)
+            else duration_seconds
+        )
+        default = "start" if i == 0 else "hard cut"
+        kind = kinds[i] if i < len(kinds) else default
+        entry = "opening shot" if i == 0 else f"entered by a {kind}"
+        lines.append(
+            f"  Shot {i + 1}: starts {start:.3f}s, "
+            f"runs {max(0.0, end - start):.3f}s, {entry}"
+        )
+    return "\n".join(lines)
+
+
 def build_user_context(
     subject_name: str,
     subject_wardrobe: str,
@@ -166,8 +293,38 @@ def build_user_context(
     dialogue_text: str = "",
     audio_available: bool = False,
     full_clip: bool = False,
+    cut_kinds: Optional[list] = None,
+    cut_source: str = "local",
+    alignment_seconds: Optional[float] = None,
+    alignment_shot: int = 1,
+    music_video: bool = False,
+    lyrics: str = "",
+    music_description: str = "",
+    music_is_reference: bool = False,
 ) -> str:
-    """Compose the per-run task context sent alongside the images."""
+    """
+    Compose the per-run task context sent alongside the images.
+
+    cut_source is where cut_timestamps came from: "measured" for a real
+    shot-boundary detector (Cut Detective), "local" for the node's own
+    keyframe-selection heuristic. A measured list is stated as fact and
+    the model is told to match it shot for shot; a local one stays a
+    hint the model may override from the frames.
+
+    music_video flips the audio balance: non_diegetic_music becomes the
+    leading section and overall_soundscape thins out. music_is_reference
+    says the song is handed to the generation as <Audio 1>, which
+    changes it again - the score is declared reused rather than
+    invented, and any voice inside it belongs to <Audio 1> instead of
+    getting its own speaker ID.
+
+    alignment_seconds, when not None, turns on first-frame alignment:
+    <Picture 1> stops being a pure identity reference and becomes the
+    literal frame of the target video at that moment. That inverts the
+    node's normal "do not copy <Picture 1>'s background, pose or
+    lighting" stance, so the reversal is stated here rather than left
+    for the model to infer.
+    """
     lines = [
         "TASK CONTEXT",
         f"- subject_name: {subject_name}",
@@ -187,11 +344,28 @@ def build_user_context(
             "- sampled frame timestamps (seconds): "
             + ", ".join(f"{t:.3f}" for t in frame_timestamps)
         )
-    hint_scope = (
-        "local detector's guess; trust the attached video over it"
-        if full_clip else "trust these over your own guess"
-    )
-    if cut_timestamps:
+
+    measured = cut_source == "measured" and bool(cut_timestamps)
+    if measured:
+        count = len(cut_timestamps)
+        lines.append(
+            f"- MEASURED SHOT LIST - {count} "
+            f"{'shot' if count == 1 else 'shots'}. A "
+            "shot-boundary detector read every frame of the clip to "
+            "produce this. It is ground truth, more reliable than the "
+            "sampled frames and more reliable than the attached video. "
+            "Write exactly these shots, in this order, with these start "
+            "times. Do not add a shot, do not drop one, do not shift a "
+            "time:\n"
+            + build_shot_list_block(
+                cut_timestamps, duration_seconds, cut_kinds
+            )
+        )
+    elif cut_timestamps:
+        hint_scope = (
+            "local detector's guess; trust the attached video over it"
+            if full_clip else "trust these over your own guess"
+        )
         lines.append(
             "- detected hard-cut boundaries (seconds, shot starts; "
             f"{hint_scope}): "
@@ -207,12 +381,66 @@ def build_user_context(
             "- detected hard-cut boundaries: none (treat as one "
             "continuous shot unless frames clearly show a cut)"
         )
-    if enable_audio_prompt:
-        guidance = SOUNDSCAPE_GUIDANCE.get(
-            soundscape_type, SOUNDSCAPE_GUIDANCE["ambient"]
+    if alignment_seconds is not None:
+        hook = build_alignment_hook(alignment_seconds, alignment_shot)
+        lines.append(
+            "- FIRST-FRAME ALIGNMENT IS ON. This exact sentence will be "
+            f"placed above subject_definitions for you:\n    {hook}\n"
+            "  Do not write that sentence yourself. Write the rest of "
+            "the prompt so it is true. For this run <Picture 1> is not "
+            "only an identity reference: it IS the frame of the target "
+            f"video at {float(alignment_seconds):.2f} seconds. Its "
+            "framing, camera angle, background, lighting, and the "
+            "subject's pose in it are the target video at that moment, "
+            f"and [Shot {max(1, int(alignment_shot))}] must open on "
+            "exactly that image before any action moves on from it. "
+            "THEREFORE, for this run only, reverse the normal rule: do "
+            "NOT write that <Picture 1> supplies identity alone, do NOT "
+            "write that its background, pose, or lighting must be "
+            "ignored, and do NOT write any exclusion forbidding their "
+            "use. Say instead that the shot begins on <Picture 1> "
+            "exactly as shown. Identity and wardrobe stay locked to it "
+            "as always."
         )
-        lines.append(f"- soundscape type '{soundscape_type}': {guidance}")
-        if audio_available:
+
+    if enable_audio_prompt:
+        if music_video:
+            lines.append(MUSIC_VIDEO_GUIDANCE)
+            if music_description.strip():
+                lines.append(
+                    "- the track, as the user describes it (build "
+                    f"non_diegetic_music on this): {music_description.strip()}"
+                )
+            if music_is_reference:
+                lines.append(MUSIC_VIDEO_AUDIO_REUSE.format(name=subject_name))
+            if lyrics.strip():
+                lines.append(MUSIC_VIDEO_LYRICS.format(lyrics=lyrics.strip()))
+                if not music_is_reference:
+                    lines.append(MUSIC_VIDEO_SINGER.format(name=subject_name))
+            else:
+                lines.append(
+                    "- lyrics: none supplied. Do not invent words. If "
+                    "the subject's mouth moves to the track, say the "
+                    "mouth moves in time with the music without "
+                    "intelligible lyrics, and write no <d> lines."
+                )
+        else:
+            guidance = SOUNDSCAPE_GUIDANCE.get(
+                soundscape_type, SOUNDSCAPE_GUIDANCE["ambient"]
+            )
+            lines.append(f"- soundscape type '{soundscape_type}': {guidance}")
+        if audio_available and music_video:
+            lines.append(
+                "- THE TRACK IS ATTACHED FOR YOU TO HEAR. Build "
+                "non_diegetic_music on what it actually sounds like, "
+                "not on what the frames imply: the real genre, the "
+                "instruments you can pick out, the tempo, and where "
+                "the arrangement changes against the shot list. Keep "
+                "overall_soundscape thin as described above. Do not "
+                "transcribe sung words into <d> unless the lyrics are "
+                "supplied in this context."
+            )
+        elif audio_available:
             lines.append(
                 "- THE SOURCE CLIP'S AUDIO TRACK IS ATTACHED. Base "
                 "overall_soundscape on what you actually hear in it, not "
@@ -231,23 +459,28 @@ def build_user_context(
         )
     if dialogue_text.strip():
         lines.append(f"- required dialogue, exact words: {dialogue_text.strip()}")
-    else:
+    elif not (music_video and lyrics.strip()):
         lines.append("- dialogue: none supplied; write no <d> lines.")
-    if full_clip:
-        lines.append(
-            "\nThe single image is <Picture 1>, the identity and "
-            "wardrobe reference for the subject. The attached video is "
-            "<Video 1>, the complete motion source. Write the complete "
-            "H3 REF2VA prompt now, following every unbreakable rule."
+    closing = (
+        "\nThe single image is <Picture 1>, the identity and "
+        "wardrobe reference for the subject. The attached video is "
+        "<Video 1>, the complete motion source. Write the complete "
+        "H3 REF2VA prompt now, following every unbreakable rule."
+        if full_clip else
+        "\nThe first image is <Picture 1>, the identity and wardrobe "
+        "reference for the subject. Every following image is a "
+        "sampled frame of <Video 1> in playback order, each preceded "
+        "by its timestamp label. Write the complete H3 REF2VA prompt "
+        "now, following every unbreakable rule."
+    )
+    if measured:
+        count = len(cut_timestamps)
+        closing += (
+            f" detailed_description must contain exactly {count} "
+            f"[Shot N] {'label' if count == 1 else 'labels'}, matching "
+            "the MEASURED SHOT LIST above."
         )
-    else:
-        lines.append(
-            "\nThe first image is <Picture 1>, the identity and wardrobe "
-            "reference for the subject. Every following image is a "
-            "sampled frame of <Video 1> in playback order, each preceded "
-            "by its timestamp label. Write the complete H3 REF2VA prompt "
-            "now, following every unbreakable rule."
-        )
+    lines.append(closing)
     return "\n".join(lines)
 
 

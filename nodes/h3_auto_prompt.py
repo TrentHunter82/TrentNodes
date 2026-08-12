@@ -11,14 +11,33 @@ Pipeline: keyframe selection (scene cuts > motion peaks > anchors) ->
 one VLM call with timestamp-labeled frames -> deterministic assembler
 that repairs format drift -> optional single corrective retry -> final
 prompt + debug JSON.
+
+Cuts come from this node's own frame-difference heuristic unless the
+cut_times widget carries a measured shot list, normally from the Cut
+Detective node. A measured list is treated as ground truth end to end:
+keyframes land on the real shot starts, the VLM is told to write exactly
+those shots, and the assembler forces the [Shot N] times onto them
+instead of rescaling them proportionally.
+
+first_frame_alignment turns the node from REF2VA character replacement
+into I2V: the alignment hook is prepended above subject_definitions,
+<Picture 1> is declared to BE the target frame at a given second, and
+the usual "do not copy its background, pose or lighting" stance is
+reversed in both the task context and the exclusions block.
+
+music_video inverts the audio balance: non_diegetic_music leads instead
+of being N/A, overall_soundscape thins to what is audible under the
+track, lyrics go into <d> blocks and nowhere else, and a connected audio
+input declares the song as <Audio 1> reused as the score.
 """
 
 import json
 from fractions import Fraction
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 
+from ..utils.cut_detect.formats import ParsedCut, parse_cut_times
 from ..utils.h3_prompt import assembler, audio_io, prompts, video_io
 from ..utils.h3_prompt.backends import (
     DEFAULT_MODELS,
@@ -136,6 +155,42 @@ class H3AutoPromptGenerator:
                         "only (gemini today); ignored elsewhere."
                     )
                 }),
+                "music_video": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Write the prompt as a music video. "
+                        "non_diegetic_music becomes the lead audio "
+                        "section instead of 'N/A', overall_soundscape "
+                        "thins out to what is audible under the track, "
+                        "cuts are described as landing on the beat, and "
+                        "performance to camera becomes the action. Put "
+                        "the sung words in lyrics and the track in "
+                        "music_description. Connect the audio input too "
+                        "and the prompt declares the song as <Audio 1> "
+                        "reused as the score, with the vocal attributed "
+                        "to the track instead of a new speaker ID. "
+                        "Overrides enable_audio_prompt when they clash."
+                    )
+                }),
+                "first_frame_alignment": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "I2V first-frame hook. Puts 'For the target "
+                        "video, at 0.00 seconds into the target video, "
+                        "<Picture 1> (from [Shot 1]) is fully "
+                        "referenced.' above subject_definitions, and "
+                        "rewrites the prompt around it: <Picture 1> "
+                        "becomes the literal opening frame, so its "
+                        "framing, background, lighting and pose are "
+                        "used instead of excluded. Turn this ON for "
+                        "image-to-video, where the reference IS frame "
+                        "one. Leave it OFF for REF2VA character "
+                        "replacement, where <Picture 1> supplies "
+                        "identity only and its background must not "
+                        "leak in. Set the moment with "
+                        "alignment_time_seconds."
+                    )
+                }),
                 "prompt_profile": (["official", "upgraded", "both_ab"], {
                     "default": "official",
                     "tooltip": (
@@ -195,6 +250,58 @@ class H3AutoPromptGenerator:
                         "validation"
                     )
                 }),
+                "cut_times": ("STRING", {
+                    "multiline": True,
+                    "default": "",
+                    "tooltip": (
+                        "Measured shot list, normally from Cut "
+                        "Detective's cut_times, shot_table or cuts_json "
+                        "output. Overrides this node's own cut guess: "
+                        "the VLM is told to write exactly these shots, "
+                        "and the assembler forces the [Shot N] times "
+                        "onto them. Accepts seconds ('0, 2.5, 5.083'), "
+                        "MM:SS.mmm timecodes, the shot table, or JSON. "
+                        "Blank = detect cuts locally as before."
+                    )
+                }),
+                "lyrics": ("STRING", {
+                    "multiline": True,
+                    "default": "",
+                    "tooltip": (
+                        "Exact sung words, in their original language. "
+                        "Written into detailed_description as "
+                        "<d>[English] ...</d> at the shot where they "
+                        "are heard, never repeated in the audio "
+                        "sections. Blank means the mouth moves to the "
+                        "music with no intelligible lyrics - H3 invents "
+                        "nonsense syllables if you ask for singing "
+                        "without giving it words. Needs music_video on."
+                    )
+                }),
+                "music_description": ("STRING", {
+                    "multiline": True,
+                    "default": "",
+                    "tooltip": (
+                        "The track, for non_diegetic_music: genre, "
+                        "instrumentation, tempo or BPM, and how it "
+                        "develops. Example: 'downtempo synthwave, ~92 "
+                        "BPM, analog pad and gated drums, filter opens "
+                        "into the chorus at the second cut'. Blank lets "
+                        "the model infer it from the attached audio, or "
+                        "from the visuals if none. Needs music_video on."
+                    )
+                }),
+                "alignment_time_seconds": ("FLOAT", {
+                    "default": 0.0, "min": 0.0, "max": 600.0, "step": 0.01,
+                    "tooltip": (
+                        "Where <Picture 1> lands on the target timeline "
+                        "when first_frame_alignment is on. 0.00 is the "
+                        "first frame (I2V). A later time anchors the "
+                        "reference mid-clip - the last-frame / FLV "
+                        "trick - and the hook names whichever shot "
+                        "contains it. Ignored when the toggle is off."
+                    )
+                }),
                 "seed": ("INT", {
                     "default": 0, "min": 0, "max": 0xFFFFFFFF,
                     "tooltip": "Passed to providers that support seeding"
@@ -214,7 +321,10 @@ class H3AutoPromptGenerator:
         "and motion peaks, validates and repairs the VLM output "
         "(shot times, <Subject 1> tagging, wardrobe mentions, "
         "exclusions, 7000-char cap), and retries once with the "
-        "validator's error list when needed."
+        "validator's error list when needed. Wire Cut Detective into "
+        "cut_times to pin the [Shot N] timeline to real detected cuts, "
+        "and switch first_frame_alignment on for I2V, where <Picture 1> "
+        "is the opening frame rather than an identity reference."
     )
 
     def generate(
@@ -230,6 +340,8 @@ class H3AutoPromptGenerator:
         enable_audio_prompt: bool,
         video_mode: str = "keyframes",
         listen_to_audio: bool = True,
+        music_video: bool = False,
+        first_frame_alignment: bool = False,
         prompt_profile: str = "official",
         video=None,
         frames: Optional[torch.Tensor] = None,
@@ -238,9 +350,27 @@ class H3AutoPromptGenerator:
         api_key: str = "",
         dialogue: str = "",
         duration_override: float = 0.0,
+        cut_times: str = "",
+        lyrics: str = "",
+        music_description: str = "",
+        alignment_time_seconds: float = 0.0,
         seed: int = 0,
     ) -> Tuple[str, str, float, int, str]:
         warnings = []
+
+        # A silent music video is a contradiction; the mode wins, since
+        # nobody enables it hoping for blanked audio sections.
+        if music_video and not enable_audio_prompt:
+            warnings.append(
+                "music_video is on, so enable_audio_prompt was treated "
+                "as on; the audio sections describe the track"
+            )
+            enable_audio_prompt = True
+        if not music_video and (lyrics.strip() or music_description.strip()):
+            warnings.append(
+                "lyrics/music_description are set but music_video is "
+                "off; they were ignored"
+            )
 
         images, real_fps, duration_source = self._resolve_frames(
             video, frames, fps, warnings
@@ -258,17 +388,45 @@ class H3AutoPromptGenerator:
             f"({duration:.3f}s, source: {duration_source})"
         )
 
+        measured_times, measured_kinds = self._resolve_cut_list(
+            cut_times, duration, warnings
+        )
+
         keyframes = select_keyframes(
-            images, real_fps, max_frames=max_frames_to_analyze
+            images, real_fps, max_frames=max_frames_to_analyze,
+            known_boundaries=(
+                [int(round(t * real_fps)) for t in measured_times]
+                if measured_times else None
+            ),
         )
         print(
             f"{LOG_PREFIX} selected frames {keyframes.indices} "
             f"({keyframes.diff_stats.get('num_scenes', 1)} scene(s))"
         )
 
-        cut_timestamps = [
-            round(b / real_fps, 3) for b in keyframes.scene_boundaries if b > 0
-        ]
+        if measured_times:
+            cut_source = "measured"
+            # The measured list is a shot list: it opens at 0.000.
+            cut_timestamps = measured_times
+            print(
+                f"{LOG_PREFIX} using a measured shot list: "
+                f"{len(measured_times)} shots at "
+                + ", ".join(f"{t:.3f}" for t in measured_times)
+            )
+        else:
+            cut_source = "local"
+            # The local guess is a boundary list: shot 1 is implicit.
+            cut_timestamps = [
+                round(b / real_fps, 3)
+                for b in keyframes.scene_boundaries if b > 0
+            ]
+
+        alignment_seconds, alignment_shot, alignment_hook = (
+            self._resolve_alignment(
+                first_frame_alignment, alignment_time_seconds, duration,
+                measured_times or [0.0] + cut_timestamps, warnings,
+            )
+        )
 
         # Backend first: what it can actually take - a whole clip, an
         # audio track, or only stills - shapes both the payload and the
@@ -318,6 +476,16 @@ class H3AutoPromptGenerator:
             dialogue_text=dialogue,
             audio_available=vlm_audio is not None,
             full_clip=vlm_video is not None,
+            cut_kinds=measured_kinds,
+            cut_source=cut_source,
+            alignment_seconds=alignment_seconds,
+            alignment_shot=alignment_shot,
+            music_video=music_video,
+            lyrics=lyrics,
+            music_description=music_description,
+            # A connected audio input means the user has the actual
+            # song, so the H3 graph is being fed it as <Audio 1> too.
+            music_is_reference=music_video and audio is not None,
         )
 
         profiles = (
@@ -338,6 +506,10 @@ class H3AutoPromptGenerator:
                 duration_seconds=duration,
                 enable_audio_prompt=enable_audio_prompt,
                 profile=profile,
+                known_shot_times=measured_times,
+                alignment_hook=alignment_hook,
+                music_video=music_video,
+                lyrics=lyrics,
             )
             result, attempts, usage = self._run_variant(
                 backend, profile, vlm_images, user_context, ctx, seed,
@@ -368,6 +540,11 @@ class H3AutoPromptGenerator:
             "timestamps": keyframes.timestamps,
             "scene_boundaries": keyframes.scene_boundaries,
             "cut_timestamps": cut_timestamps,
+            "cut_source": cut_source,
+            "cut_kinds": measured_kinds,
+            "alignment_hook": alignment_hook,
+            "music_video": music_video,
+            "music_is_reference": music_video and audio is not None,
             "diff_stats": keyframes.diff_stats,
             "detection_method": keyframes.method,
             "provider": vlm_provider,
@@ -523,6 +700,84 @@ class H3AutoPromptGenerator:
             f"({source}) to {backend.name}"
         )
         return VLMAudio(wav_b64=wav_b64, duration_seconds=duration)
+
+    def _resolve_alignment(
+        self, enabled: bool, requested: float, duration: float,
+        shot_starts: List[float], warnings: list,
+    ) -> Tuple[Optional[float], int, str]:
+        """
+        Build the first-frame alignment hook.
+
+        Returns (seconds, shot_index, hook_sentence), or (None, 1, "")
+        when the toggle is off. The time is clamped inside the clip - a
+        hook pointing past the end would anchor <Picture 1> to a frame
+        the target video never renders.
+        """
+        if not enabled:
+            return None, 1, ""
+
+        seconds = max(0.0, float(requested))
+        limit = max(0.0, duration - 0.001)
+        if seconds > limit:
+            warnings.append(
+                f"alignment_time_seconds {seconds:.2f}s is past the "
+                f"{duration:.3f}s clip; clamped to {limit:.2f}s"
+            )
+            seconds = limit
+
+        shot = prompts.shot_index_for_time(seconds, shot_starts)
+        hook = prompts.build_alignment_hook(seconds, shot)
+        print(f"{LOG_PREFIX} first-frame alignment: {hook}")
+        return seconds, shot, hook
+
+    def _resolve_cut_list(
+        self, cut_times: str, duration: float, warnings: list
+    ) -> Tuple[List[float], List[str]]:
+        """
+        Read the cut_times widget into a measured shot list.
+
+        Returns (start_times, entry_kinds), both parallel and both
+        opening at 0.000 with kind "start", or ([], []) when nothing
+        usable was supplied. Cuts at or past the clip duration are
+        dropped: they would produce a [Shot N] the video never reaches.
+        """
+        if not cut_times or not cut_times.strip():
+            return [], []
+
+        parsed = parse_cut_times(cut_times)
+        if not parsed:
+            warnings.append(
+                "cut_times had no readable timestamps; falling back to "
+                "local cut detection"
+            )
+            return [], []
+
+        kept = [c for c in parsed if c.time < duration]
+        if len(kept) < len(parsed):
+            warnings.append(
+                f"dropped {len(parsed) - len(kept)} cut(s) at or past the "
+                f"{duration:.3f}s clip duration"
+            )
+        if not kept:
+            warnings.append(
+                "every supplied cut fell outside the clip; falling back "
+                "to local cut detection"
+            )
+            return [], []
+
+        if kept[0].time >= 0.001:
+            # A boundaries-only list (Cut Detective with
+            # include_first_shot off). Shot 1 still starts at 0.
+            kept.insert(0, ParsedCut(0.0, "start"))
+        else:
+            # Already opens on shot 1; snap off any rounding dust rather
+            # than emitting a second shot a fraction of a frame later.
+            kept[0] = ParsedCut(0.0, "start")
+
+        return (
+            [round(c.time, 3) for c in kept],
+            [c.kind for c in kept],
+        )
 
     def _resolve_frames(
         self, video, frames, fps: float, warnings: list

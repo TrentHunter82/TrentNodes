@@ -216,6 +216,234 @@ def test_empty_output_is_retry_error():
     assert result.retry_errors
 
 
+HOOK = (
+    "For the target video, at 0.00 seconds into the target video, "
+    "<Picture 1> (from [Shot 1]) is fully referenced."
+)
+
+
+def _aligned_ctx(hook=HOOK, profile="official"):
+    return AssemblyContext(
+        subject_name="Aria Voss",
+        subject_wardrobe=CTX.subject_wardrobe,
+        duration_seconds=6.0,
+        profile=profile,
+        alignment_hook=hook,
+    )
+
+
+def test_alignment_hook_opens_the_prompt():
+    result = process(GOOD, _aligned_ctx())
+    assert result.prompt.startswith(HOOK)
+    # The sections still follow, in order, right after it.
+    assert result.prompt.split("\n\n")[1].startswith("subject_definitions:")
+    assert result.char_count == len(result.prompt)
+
+
+def test_no_hook_still_opens_on_subject_definitions():
+    result = process(GOOD, CTX)
+    assert result.prompt.startswith("subject_definitions:")
+    assert "fully referenced" not in result.prompt
+
+
+CONTRADICTING = (
+    " No copying of the background, pose, or lighting from <Picture 1>."
+)
+
+
+def test_alignment_drops_the_contradicting_exclusion():
+    written = GOOD.rstrip() + CONTRADICTING
+
+    plain = process(written, CTX)
+    assert "No copying of the background" in plain.prompt
+
+    aligned = process(written, _aligned_ctx())
+    assert "No copying of the background" not in aligned.prompt
+    assert any(
+        "contradicted the first-frame alignment hook" in f
+        for f in aligned.applied_fixes
+    )
+    # Dropping one must not leave the block short; padding refills it.
+    exclusions = aligned.prompt.rsplit("\n\n", 1)[1]
+    assert exclusions.count("No ") >= MIN_EXCLUSIONS
+
+
+def test_no_padded_exclusion_ever_contradicts_the_hook():
+    # Padding runs deepest when the model writes almost nothing.
+    thin = GOOD.rsplit("\n\n", 1)[0] + "\n\nNo extra characters."
+    exclusions = process(thin, _aligned_ctx()).prompt.rsplit("\n\n", 1)[1]
+    assert exclusions.count("No ") >= MIN_EXCLUSIONS
+    for sentence in exclusions.split("No ")[1:]:
+        assert not ("<Picture 1>" in sentence and any(
+            word in sentence
+            for word in ("background", "pose", "lighting", "framing")
+        )), sentence
+
+
+def test_alignment_removes_the_contradicting_prose():
+    # GOOD's subject_definitions says "Do not copy the background, pose,
+    # or lighting from <Picture 1>." - straight from the system prompt's
+    # worked example, and false once the hook declares that frame.
+    written = process(GOOD, CTX)
+    assert "Do not copy the background, pose, or lighting" in written.prompt
+
+    aligned = process(GOOD, _aligned_ctx())
+    assert "Do not copy the background, pose, or lighting" not in (
+        aligned.prompt
+    )
+    assert "keeping its framing, background, and lighting" in aligned.prompt
+    assert any("denying <Picture 1>" in f for f in aligned.applied_fixes)
+    # The identity lock is untouched.
+    assert "Aria Voss" in aligned.prompt
+    assert "charcoal utility jacket" in aligned.prompt
+
+
+def test_alignment_leaves_unrelated_prose_byte_identical():
+    clean = GOOD.replace(
+        "Do not copy the background, pose, or lighting from <Picture 1>. ", ""
+    ).replace(
+        "No copying of the background, pose, or lighting from <Picture 1>. ",
+        "",
+    )
+    aligned = process(clean, _aligned_ctx())
+    assert not any("denying <Picture 1>" in f for f in aligned.applied_fixes)
+
+
+def test_hook_counts_against_the_char_cap():
+    long_hook = "For the target video, " + "x" * 6900
+    result = process(GOOD, _aligned_ctx(hook=long_hook))
+    assert any("7000 characters" in e for e in result.retry_errors)
+
+
+def _music_ctx(lyrics="", enable_audio=True):
+    return AssemblyContext(
+        subject_name="Aria Voss",
+        subject_wardrobe=CTX.subject_wardrobe,
+        duration_seconds=6.0,
+        enable_audio_prompt=enable_audio,
+        music_video=True,
+        lyrics=lyrics,
+    )
+
+
+SCORED = GOOD.replace(
+    "non_diegetic_music:\nN/A",
+    "non_diegetic_music:\nDowntempo synthwave at about 92 BPM, analog "
+    "pad and gated drums, filter opening into the chorus.",
+)
+
+
+def test_music_video_rejects_an_na_score():
+    result = process(GOOD, _music_ctx())  # GOOD's score is "N/A"
+    assert any(
+        "non_diegetic_music is 'N/A'" in e for e in result.retry_errors
+    ), result.retry_errors
+
+
+def test_music_video_accepts_a_described_score():
+    result = process(SCORED, _music_ctx())
+    assert not result.retry_errors, result.retry_errors
+    assert "92 BPM" in result.prompt
+
+
+def test_na_score_is_fine_without_music_video():
+    result = process(GOOD, CTX)
+    assert not any("non_diegetic_music" in e for e in result.retry_errors)
+
+
+def test_missing_lyrics_block_is_a_retry_error():
+    result = process(SCORED, _music_ctx(lyrics="I'm lonely lonely lonely"))
+    assert any("no <d>" in e for e in result.retry_errors), (
+        result.retry_errors
+    )
+
+
+def test_supplied_lyrics_present_in_a_d_block_pass():
+    sung = SCORED.replace(
+        "[Shot 1] A handheld camera",
+        "[Shot 1] Aria Voss <Subject 1> (S1) sings, <d>[English] I'm "
+        "lonely lonely lonely.</d> A handheld camera",
+    )
+    result = process(sung, _music_ctx(lyrics="I'm lonely lonely lonely"))
+    assert not result.retry_errors, result.retry_errors
+    assert "<d>[English] I'm lonely lonely lonely.</d>" in result.prompt
+
+
+def test_lyrics_repeated_in_the_audio_sections_are_stripped():
+    leaky = SCORED.replace(
+        "Downtempo synthwave",
+        "<d>[English] I'm lonely lonely lonely.</d> Downtempo synthwave",
+    )
+    result = process(leaky, _music_ctx())
+    music = result.prompt.split("non_diegetic_music:\n")[1]
+    assert "<d>" not in music
+    assert "Downtempo synthwave" in music
+    assert any("removed lyrics repeated" in f for f in result.applied_fixes)
+
+
+def test_music_video_overrides_a_disabled_audio_prompt():
+    result = process(SCORED, _music_ctx(enable_audio=False))
+    assert "92 BPM" in result.prompt
+    assert "Quiet natural ambience only" not in result.prompt
+    assert any(
+        "overrides enable_audio_prompt" in w for w in result.warnings
+    )
+
+
+def test_audio_disabled_still_blanks_a_non_music_prompt():
+    ctx = AssemblyContext(
+        subject_name="Aria Voss",
+        subject_wardrobe=CTX.subject_wardrobe,
+        duration_seconds=6.0,
+        enable_audio_prompt=False,
+    )
+    result = process(SCORED, ctx)
+    assert "non_diegetic_music:\nN/A" in result.prompt
+    assert "92 BPM" not in result.prompt
+
+
+def _measured_ctx(times):
+    return AssemblyContext(
+        subject_name="Aria Voss",
+        subject_wardrobe=CTX.subject_wardrobe,
+        duration_seconds=6.0,
+        known_shot_times=times,
+    )
+
+
+def test_measured_times_overwrite_model_times():
+    # GOOD writes [Shot 2] At 00:03.250; the detector measured 2.500.
+    result = process(GOOD, _measured_ctx([0.0, 2.5]))
+    assert "[Shot 2] At 00:02.500" in result.prompt
+    assert "00:03.250" not in result.prompt
+    assert not result.retry_errors
+    assert any("measured cut list" in f for f in result.applied_fixes)
+
+
+def test_measured_times_matching_the_model_apply_no_fix():
+    result = process(GOOD, _measured_ctx([0.0, 3.25]))
+    assert "[Shot 2] At 00:03.250" in result.prompt
+    assert not result.retry_errors
+    assert not any("snapped" in f for f in result.applied_fixes)
+
+
+def test_measured_shot_count_mismatch_is_retry_error():
+    # Three measured shots, two written: the model merged one.
+    result = process(GOOD, _measured_ctx([0.0, 2.5, 4.75]))
+    assert any(
+        "measured shot list has 3 shots" in e for e in result.retry_errors
+    ), result.retry_errors
+    # Snapped anyway so an unfixed retry still lands on a real cut.
+    assert "[Shot 2] At 00:02.500" in result.prompt
+
+
+def test_no_measured_times_keeps_proportional_repair():
+    # Regression guard: the old repair path must survive untouched.
+    broken = GOOD.replace("At 00:03.250", "At 00:99.000")
+    result = process(broken, CTX)
+    assert any("non-monotonic" in w for w in result.warnings), result.warnings
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
