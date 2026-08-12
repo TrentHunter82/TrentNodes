@@ -1,0 +1,249 @@
+/* Cable Management. Global rules per element type; classes only mark the deliberate deviations.
+   Pin `top` is set inline from JS because each pin tracks a different row -- that is
+   position data, not styling. Everything visual lives here. */
+
+.cablemanagement-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Layout: outputs down to a bottom block.
+
+   Core nests the output column inside the same row as the inputs, right-aligned by ml-auto:
+
+     [node-body]  flex-col
+       div.justify-between        <- inputs (left) + outputs (right)
+         div.ml-auto              <- the output column
+       .lg-node-widgets
+
+   `display:contents` promotes both columns to body-level flex items, then `order` drops the
+   outputs last. Core derives link anchors by MEASURING the slot elements, so the wires follow
+   on their own -- and `liteNode.size` is untouched, so none of this reaches the workflow file.
+
+   This is what frees the right edge of every input and widget row for a pass-through pin. */
+body.cablemanagement-layout .lg-node [data-testid^="node-body-"] > div:has(> .ml-auto) {
+  display: contents;
+}
+
+body.cablemanagement-layout .lg-node [data-testid^="node-body-"] > div > .ml-auto {
+  order: 99;
+}
+
+/* NodeBadges (pack pills, node id) is a direct body child; unordered it sits before the
+   order:99 outputs. It belongs at the very bottom. NodeFooter proper renders outside the
+   body and needs no help. */
+body.cablemanagement-layout .lg-node [data-testid^="node-body-"] > .mt-auto {
+  order: 100;
+}
+
+/* Pass-through pins.
+
+   These are slots in every way that matters to the user, so they use core's own slot
+   language rather than a third one: same 8px dot, same outline token, same hover scale,
+   straddling the node edge, and coloured by data type from the same custom properties
+   (`--color-datatype-<TYPE>`) that `getSlotColor()` resolves. The type is supplied per pin
+   as a value; all the styling is here. */
+.cablemanagement-pin {
+  position: absolute;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  box-sizing: border-box;
+  /* Core's own formula for the slot outline, so it tracks the theme and picks up the same
+     hover brightening (it bumps the opacity multiplier to 5). */
+  border: 1px solid rgb(
+    from var(--node-component-slot-dot-outline, #fff) r g b /
+    calc(var(--node-component-slot-dot-outline-opacity, 0.1) *
+         var(--node-component-slot-dot-outline-opacity-mult, 1))
+  );
+  border-radius: 50%;
+  background-color: var(--cablemanagement-slot-color, #aaa);
+  pointer-events: auto;
+  cursor: crosshair;
+  transition: transform 150ms;
+}
+
+.cablemanagement-pin:hover,
+.cablemanagement-pin.is-source {
+  transform: scale(1.25);
+  --node-component-slot-dot-outline-opacity-mult: 5;
+}
+
+/* The dim contract: while a link drags, core fades every slot the drop cannot
+   use to 40% -- pins follow, or they read as valid targets they are not. */
+.cablemanagement-pin[data-cablemanagement-dim="1"] {
+  opacity: 0.4;
+}
+
+
+
+
+
+
+body.cablemanagement-dragging {
+  cursor: crosshair;
+}
+
+body.cablemanagement-dragging .lg-node {
+  user-select: none;
+}
+
+/* Core resolves drag hover and drop with document.elementFromPoint, so a pin sitting inside
+   .lg-node would shadow the real slot underneath it for the whole gesture. */
+body.cablemanagement-dragging .cablemanagement-pin {
+  pointer-events: none;
+}
+
+/* Collapsed blocks: only connected slots -- and REQUIRED inputs (marked
+   data-cablemanagement-req from the graph; optional is core's hollow-circle shape) -- remain
+   VISIBLE. A mandatory socket is information, not a possibility.
+
+   Hidden rows are zero-height and invisible, NOT display:none -- the same trick core uses
+   for title-collapsed nodes (unified slots, opacity-0, stacked). A display:none slot loses
+   its box, the layout store drops it, and core's drag-over-node "connect to first free
+   input/output" offer stops working -- the drawer hides exactly the slots that would be
+   the free candidates. Zero-height keeps every slot mounted and measurable (stacked at the
+   drawer's seam), so implied connections keep working; the moment one connects, the row is
+   linked and unfolds. Only unconnected rows are ever hidden, so no LINK anchors here. */
+/* Never match the .lg-slot hover wrapper NESTED INSIDE a widget row -- only the
+   standalone slot rows in the columns are drawer-managed. */
+.lg-node[data-cablemanagement-inputs="collapsed"] .lg-slot--input[data-cablemanagement-linked="0"]:not([data-cablemanagement-req]):not(.lg-node-widget *),
+.lg-node[data-cablemanagement-outputs="collapsed"] .lg-slot--output[data-cablemanagement-linked="0"]:not(.lg-node-widget *) {
+  height: 0;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Drawer carets: up/down by state, on a pill so they read as controls. Hover-revealed --
+   they are actions. The collapsed-state INDICATOR is .cablemanagement-more, which is always on.
+   Each caret sits beside its block -- inputs top-left, outputs bottom-right, keeping the
+   slot contract. Height and edge offset are set inline per node (sized to the header,
+   inset 2px); the per-which rules below are fallbacks. */
+/* Pill chips tint with the THEME's foreground (core has no on-node chip token; a
+   solid panel hover colour goes darker than the node body): fg at low alpha
+   lightens on dark palettes and darkens on light ones. */
+.cablemanagement-collapse {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: rgb(from var(--fg-color, #fff) r g b / 0.08);
+  color: var(--fg-color, #aaa);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 120ms;
+}
+
+.lg-node:hover .cablemanagement-collapse {
+  opacity: 0.7;
+}
+
+.cablemanagement-collapse:hover {
+  opacity: 1;
+  background: rgb(from var(--fg-color, #fff) r g b / 0.16);
+}
+
+.cablemanagement-collapse[data-which="inputs"] {
+  top: 4px;
+  left: -16px;
+}
+
+.cablemanagement-collapse[data-which="outputs"] {
+  bottom: 4px;
+  right: -16px;
+}
+
+/* A collapsed drawer reserves one row of layout space for its indicator. The 16px splits
+   8 + 8 around the point where the ZERO-HEIGHT rows stack (after the last visible row's
+   margin), so the hidden slots -- and core's implied-connection snap indicator -- sit on
+   the ellipsis centre rather than off-kilter below it. */
+.lg-node[data-cablemanagement-inputs="collapsed"] .lg-slot--input[data-cablemanagement-last="1"]:not(.lg-node-widget *) {
+  margin-bottom: 8px;
+}
+
+.lg-node[data-cablemanagement-outputs="collapsed"] .lg-slot--output[data-cablemanagement-last="1"]:not(.lg-node-widget *) {
+  margin-bottom: 8px;
+}
+
+.lg-node[data-cablemanagement-inputs="collapsed"] [data-testid^="node-body-"] > div:has(> .ml-auto) > div:not(.ml-auto) {
+  padding-bottom: 8px;
+}
+
+.lg-node[data-cablemanagement-outputs="collapsed"] [data-testid^="node-body-"] > div > .ml-auto {
+  padding-bottom: 8px;
+}
+
+/* Every row hidden: the reserved space must sit where the BLOCK is, not at the body's
+   outer edge (body padding-bottom would land below NodeBadges). The slot columns survive
+   as zero-height flex items -- prop them open, with padding-top centring the stacked rows
+   on the ellipsis. */
+.lg-node[data-cablemanagement-inputs-empty] [data-testid^="node-body-"] > div:has(> .ml-auto) > div:not(.ml-auto) {
+  min-height: 16px;
+  padding-top: 8px;
+}
+
+.lg-node[data-cablemanagement-outputs-empty] [data-testid^="node-body-"] > div > .ml-auto {
+  min-height: 16px;
+  padding-top: 8px;
+}
+
+/* "There is more here": shown whenever a drawer is collapsed, sitting in the reserved gap
+   below the last visible row of its block -- inputs on the left, outputs on the right.
+   Also a click target to reopen. */
+.cablemanagement-more {
+  position: absolute;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 3px;
+  background: rgb(from var(--fg-color, #fff) r g b / 0.08);
+  color: var(--fg-color, #aaa);
+  font-size: 10px;
+  line-height: 10px;
+  letter-spacing: 1px;
+  opacity: 0.65;
+  cursor: pointer;
+  z-index: 2;
+  transition: opacity 120ms;
+}
+
+.cablemanagement-more:hover {
+  opacity: 1;
+  background: rgb(from var(--fg-color, #fff) r g b / 0.16);
+}
+
+.cablemanagement-more[data-which="inputs"] {
+  left: 6px;
+}
+
+.cablemanagement-more[data-which="outputs"] {
+  right: 6px;
+}
+
+/* Sort-lanes modal rows (content lives inside comfy's own dialog chrome). */
+.cablemanagement-sort { min-width: 200px; }
+.cablemanagement-sort-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; margin: 3px 0;
+  border: 1px solid var(--border-color, #444); border-radius: 4px;
+  cursor: grab; user-select: none; font-size: 12px;
+}
+.cablemanagement-sort-dragging { opacity: 0.6; cursor: grabbing; }
+.cablemanagement-sort-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+}
+.cablemanagement-sort-buttons {
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px;
+}
