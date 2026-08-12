@@ -116,6 +116,12 @@ def main():
              "imports comfy modules); use it from the node, not here",
     )
     parser.add_argument(
+        "--video-mode", default="keyframes",
+        choices=["keyframes", "full_clip"],
+        help="full_clip sends the whole clip (gemini, kimi); other "
+             "providers warn and fall back to keyframes",
+    )
+    parser.add_argument(
         "--audio", default="",
         help="path to an audio file to describe (gemini only). Use "
              "'video' to pull the source clip's own track via ffmpeg.",
@@ -162,6 +168,7 @@ def main():
         max_frames_to_analyze=args.max_frames,
         enable_audio_prompt=not args.no_audio,
         prompt_profile=args.profile,
+        video_mode=args.video_mode,
         frames=frames,
         fps=fps,
         audio=audio,

@@ -19,13 +19,14 @@ from typing import Optional, Tuple
 
 import torch
 
-from ..utils.h3_prompt import assembler, audio_io, prompts
+from ..utils.h3_prompt import assembler, audio_io, prompts, video_io
 from ..utils.h3_prompt.backends import (
     DEFAULT_MODELS,
     VLMAudio,
     VLMImage,
     get_backend,
 )
+from ..utils.h3_prompt.video_io import VLMVideo
 from ..utils.h3_prompt.imaging import (
     FRAME_MAX_SIDE,
     REFERENCE_MAX_SIDE,
@@ -111,6 +112,17 @@ class H3AutoPromptGenerator:
                     "tooltip": (
                         "Off: forces minimal soundscape, no dialogue, "
                         "music N/A"
+                    )
+                }),
+                "video_mode": (["keyframes", "full_clip"], {
+                    "default": "keyframes",
+                    "tooltip": (
+                        "keyframes: send sampled stills (works "
+                        "everywhere). full_clip: send the whole clip so "
+                        "the model reads real motion, cut timing and "
+                        "camera movement instead of inferring them from "
+                        "stills. Video-capable providers only (gemini, "
+                        "kimi); others warn and fall back to keyframes."
                     )
                 }),
                 "listen_to_audio": ("BOOLEAN", {
@@ -216,6 +228,7 @@ class H3AutoPromptGenerator:
         model: str,
         max_frames_to_analyze: int,
         enable_audio_prompt: bool,
+        video_mode: str = "keyframes",
         listen_to_audio: bool = True,
         prompt_profile: str = "official",
         video=None,
@@ -253,6 +266,22 @@ class H3AutoPromptGenerator:
             f"({keyframes.diff_stats.get('num_scenes', 1)} scene(s))"
         )
 
+        cut_timestamps = [
+            round(b / real_fps, 3) for b in keyframes.scene_boundaries if b > 0
+        ]
+
+        # Backend first: what it can actually take - a whole clip, an
+        # audio track, or only stills - shapes both the payload and the
+        # task context built below.
+        backend = get_backend(vlm_provider, model, api_key)
+        vlm_video = self._resolve_video(
+            backend, video_mode, images, real_fps, duration, video, warnings
+        )
+        vlm_audio = self._resolve_audio(
+            backend, audio, video, listen_to_audio, enable_audio_prompt,
+            warnings,
+        )
+
         vlm_images = [VLMImage(
             label=(
                 "Reference image <Picture 1> - identity and wardrobe "
@@ -262,28 +291,19 @@ class H3AutoPromptGenerator:
                 reference_image, max_side=REFERENCE_MAX_SIDE
             ),
         )]
-        total = len(keyframes.indices)
-        for pos, (idx, ts) in enumerate(
-            zip(keyframes.indices, keyframes.timestamps), start=1
-        ):
-            vlm_images.append(VLMImage(
-                label=frame_label(pos, total, ts, idx),
-                jpeg_b64=tensor_to_jpeg_b64(
-                    images[idx], max_side=FRAME_MAX_SIDE
-                ),
-            ))
-
-        cut_timestamps = [
-            round(b / real_fps, 3) for b in keyframes.scene_boundaries if b > 0
-        ]
-
-        # Backend first: whether the soundscape is heard or inferred
-        # changes the task context we build below.
-        backend = get_backend(vlm_provider, model, api_key)
-        vlm_audio = self._resolve_audio(
-            backend, audio, video, listen_to_audio, enable_audio_prompt,
-            warnings,
-        )
+        # With the whole clip attached, sampled stills are redundant
+        # payload - the model reads the motion straight from the video.
+        if vlm_video is None:
+            total = len(keyframes.indices)
+            for pos, (idx, ts) in enumerate(
+                zip(keyframes.indices, keyframes.timestamps), start=1
+            ):
+                vlm_images.append(VLMImage(
+                    label=frame_label(pos, total, ts, idx),
+                    jpeg_b64=tensor_to_jpeg_b64(
+                        images[idx], max_side=FRAME_MAX_SIDE
+                    ),
+                ))
 
         user_context = prompts.build_user_context(
             subject_name=subject_name,
@@ -297,6 +317,7 @@ class H3AutoPromptGenerator:
             enable_audio_prompt=enable_audio_prompt,
             dialogue_text=dialogue,
             audio_available=vlm_audio is not None,
+            full_clip=vlm_video is not None,
         )
 
         profiles = (
@@ -320,7 +341,7 @@ class H3AutoPromptGenerator:
             )
             result, attempts, usage = self._run_variant(
                 backend, profile, vlm_images, user_context, ctx, seed,
-                vlm_audio,
+                vlm_audio, vlm_video,
             )
             last_usage = usage
             prompts_out.append(result.prompt)
@@ -352,6 +373,11 @@ class H3AutoPromptGenerator:
             "provider": vlm_provider,
             "model": last_usage.get("model", model),
             "profile_mode": prompt_profile,
+            "video_mode": "full_clip" if vlm_video else "keyframes",
+            "video_mb": round(vlm_video.size_mb, 3) if vlm_video else 0.0,
+            "video_source_reused": (
+                vlm_video.reused_source if vlm_video else False
+            ),
             "audio_sent": vlm_audio is not None,
             "audio_seconds": (
                 round(vlm_audio.duration_seconds, 3) if vlm_audio else 0.0
@@ -373,6 +399,7 @@ class H3AutoPromptGenerator:
         self, backend, profile: str, vlm_images, user_context: str,
         ctx: "assembler.AssemblyContext", seed: int,
         vlm_audio: Optional[VLMAudio] = None,
+        vlm_video: Optional[VLMVideo] = None,
     ):
         """One profile's generate -> assemble -> retry loop."""
         system = prompts.get_system_prompt(profile)
@@ -394,7 +421,8 @@ class H3AutoPromptGenerator:
                     + "\n\n" + prompts.build_retry_message(result.retry_errors)
                 )
             vlm_result = backend.generate(
-                system, vlm_images, prompt_text, seed=seed, audio=vlm_audio
+                system, vlm_images, prompt_text, seed=seed,
+                audio=vlm_audio, video=vlm_video,
             )
             raw_text = vlm_result.text
             usage = vlm_result.usage
@@ -407,6 +435,45 @@ class H3AutoPromptGenerator:
             if not result.retry_errors:
                 break
         return result, attempts, usage
+
+    def _resolve_video(
+        self, backend, video_mode: str, images: torch.Tensor,
+        real_fps: float, duration: float, video, warnings: list,
+    ) -> Optional[VLMVideo]:
+        """
+        Encode the whole clip when the user asked for it and the
+        provider can read video. Any obstacle degrades to keyframes
+        with a warning rather than failing the run.
+        """
+        if video_mode != "full_clip":
+            return None
+
+        if not getattr(backend, "supports_video", False):
+            warnings.append(
+                f"provider '{backend.name}' cannot read video; falling "
+                "back to keyframes. Use gemini or kimi to send the "
+                "whole clip."
+            )
+            return None
+
+        max_bytes = (
+            video_io.UPLOAD_MAX_BYTES if getattr(backend, "_video_upload", None)
+            else video_io.INLINE_MAX_BYTES
+        )
+        try:
+            clip = video_io.prepare_video(
+                images, real_fps, duration, video=video, max_bytes=max_bytes
+            )
+        except RuntimeError as exc:
+            warnings.append(f"full clip not sent, using keyframes: {exc}")
+            return None
+
+        print(
+            f"{LOG_PREFIX} sending full clip to {backend.name}: "
+            f"{clip.size_mb:.2f} MB, {clip.duration_seconds:.2f}s"
+            + (" (source file reused)" if clip.reused_source else " (encoded)")
+        )
+        return clip
 
     def _resolve_audio(
         self, backend, audio, video, listen_to_audio: bool,

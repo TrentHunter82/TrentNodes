@@ -165,6 +165,7 @@ def build_user_context(
     enable_audio_prompt: bool = True,
     dialogue_text: str = "",
     audio_available: bool = False,
+    full_clip: bool = False,
 ) -> str:
     """Compose the per-run task context sent alongside the images."""
     lines = [
@@ -173,15 +174,33 @@ def build_user_context(
         f"- wardrobe (name these items verbatim): {subject_wardrobe}",
         f"- scene_style: {scene_style}",
         f"- clip duration: {duration_seconds:.3f} seconds at {fps:.3f} fps",
-        (
+    ]
+    if full_clip:
+        lines.append(
+            "- THE COMPLETE SOURCE CLIP IS ATTACHED as <Video 1>. Read "
+            "the motion, cut timing, and camera movement directly from "
+            "it. Place every [Shot N] time from what you see in the "
+            "video, not from a guess."
+        )
+    else:
+        lines.append(
             "- sampled frame timestamps (seconds): "
             + ", ".join(f"{t:.3f}" for t in frame_timestamps)
-        ),
-    ]
+        )
+    hint_scope = (
+        "local detector's guess; trust the attached video over it"
+        if full_clip else "trust these over your own guess"
+    )
     if cut_timestamps:
         lines.append(
-            "- detected hard-cut boundaries (seconds, shot starts): "
+            "- detected hard-cut boundaries (seconds, shot starts; "
+            f"{hint_scope}): "
             + ", ".join(f"{t:.3f}" for t in cut_timestamps)
+        )
+    elif full_clip:
+        lines.append(
+            "- detected hard-cut boundaries: none found locally; "
+            "confirm against the attached video."
         )
     else:
         lines.append(
@@ -214,13 +233,21 @@ def build_user_context(
         lines.append(f"- required dialogue, exact words: {dialogue_text.strip()}")
     else:
         lines.append("- dialogue: none supplied; write no <d> lines.")
-    lines.append(
-        "\nThe first image is <Picture 1>, the identity and wardrobe "
-        "reference for the subject. Every following image is a sampled "
-        "frame of <Video 1> in playback order, each preceded by its "
-        "timestamp label. Write the complete H3 REF2VA prompt now, "
-        "following every unbreakable rule."
-    )
+    if full_clip:
+        lines.append(
+            "\nThe single image is <Picture 1>, the identity and "
+            "wardrobe reference for the subject. The attached video is "
+            "<Video 1>, the complete motion source. Write the complete "
+            "H3 REF2VA prompt now, following every unbreakable rule."
+        )
+    else:
+        lines.append(
+            "\nThe first image is <Picture 1>, the identity and wardrobe "
+            "reference for the subject. Every following image is a "
+            "sampled frame of <Video 1> in playback order, each preceded "
+            "by its timestamp label. Write the complete H3 REF2VA prompt "
+            "now, following every unbreakable rule."
+        )
     return "\n".join(lines)
 
 

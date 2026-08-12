@@ -19,6 +19,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from .video_io import VLMVideo, sampling_fps
+
+
+def video_sampling_fps(video: VLMVideo) -> float:
+    """Frame rate a provider should sample an attached clip at."""
+    return sampling_fps(video.duration_seconds, video.fps)
+
 DEFAULT_MODELS = {
     "anthropic": "claude-opus-5",
     "gemini": "gemini-3.6-flash",
@@ -42,11 +49,14 @@ OPENAI_COMPAT_PROVIDERS = {
         "env": "OPENAI_API_KEY",
         "supports_seed": True,
     },
-    # Moonshot Kimi K3 (native-vision MoE, 2026-07 release)
+    # Moonshot Kimi K3 (native-vision MoE, 2026-07 release). Reads video
+    # natively, but only via a Files upload referenced as ms://<file-id>
+    # - it rejects inline base64 video.
     "kimi": {
         "base_url": "https://api.moonshot.ai/v1",
         "env": "MOONSHOT_API_KEY",
         "supports_seed": False,
+        "video_upload": "moonshot",
     },
     # Z.ai (Zhipu) GLM vision line
     "glm": {
@@ -100,6 +110,10 @@ class VLMBackend(ABC):
     # Only backends that actually accept an audio track set this. The
     # node warns and drops the audio for the rest rather than failing.
     supports_audio = False
+    # Backends that read a whole clip natively rather than sampled
+    # stills. Same fallback contract: the node warns and reverts to
+    # keyframes instead of failing.
+    supports_video = False
 
     @abstractmethod
     def generate(
@@ -110,6 +124,7 @@ class VLMBackend(ABC):
         max_tokens: int = 4096,
         seed: int = 0,
         audio: Optional[VLMAudio] = None,
+        video: Optional[VLMVideo] = None,
     ) -> VLMResult:
         ...
 
@@ -163,7 +178,7 @@ class AnthropicBackend(VLMBackend):
         self.model = model
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
-                 audio=None):
+                 audio=None, video=None):
         content = []
         for img in images:
             content.append({"type": "text", "text": img.label})
@@ -213,6 +228,7 @@ class GeminiBackend(VLMBackend):
 
     name = "gemini"
     supports_audio = True
+    supports_video = True
 
     def __init__(self, model: str, api_key: str = ""):
         try:
@@ -230,7 +246,7 @@ class GeminiBackend(VLMBackend):
         self.model = model
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
-                 audio=None):
+                 audio=None, video=None):
         types = self._types
         parts = []
         for img in images:
@@ -239,6 +255,28 @@ class GeminiBackend(VLMBackend):
                 data=base64.b64decode(img.jpeg_b64),
                 mime_type=img.media_type,
             ))
+        if video is not None:
+            # Gemini samples video at 1 fps by default, far too coarse
+            # to place cuts in a short action clip.
+            sample_fps = video_sampling_fps(video)
+            parts.append(types.Part.from_text(
+                text=(
+                    f"<Video 1>, the full source clip "
+                    f"({video.duration_seconds:.2f}s at "
+                    f"{video.fps:.3f} fps), sampled here at "
+                    f"{sample_fps:g} fps."
+                )
+            ))
+            video_part = types.Part.from_bytes(
+                data=video.mp4_bytes, mime_type="video/mp4",
+            )
+            try:
+                video_part.video_metadata = types.VideoMetadata(fps=sample_fps)
+            except Exception:
+                # Older SDKs without per-part video metadata still get
+                # the clip, just at the default sampling rate.
+                pass
+            parts.append(video_part)
         if audio is not None:
             parts.append(types.Part.from_text(
                 text=(
@@ -290,6 +328,7 @@ class GeminiBackend(VLMBackend):
             ),
             "latency_s": round(time.time() - start, 2),
             "audio_sent": audio is not None,
+            "video_sent": video is not None,
         }
         return VLMResult(text=text, usage=usage)
 
@@ -313,6 +352,8 @@ class OpenAICompatibleBackend(VLMBackend):
         config = OPENAI_COMPAT_PROVIDERS[provider]
         self.name = provider
         self._supports_seed = config["supports_seed"]
+        self._video_upload = config.get("video_upload")
+        self.supports_video = self._video_upload is not None
         client_kwargs = {"api_key": resolve_api_key(api_key, provider)}
         if config["base_url"]:
             client_kwargs["base_url"] = config["base_url"]
@@ -320,7 +361,7 @@ class OpenAICompatibleBackend(VLMBackend):
         self.model = model
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
-                 audio=None):
+                 audio=None, video=None):
         content = []
         for img in images:
             content.append({"type": "text", "text": img.label})
@@ -330,21 +371,38 @@ class OpenAICompatibleBackend(VLMBackend):
                     "url": f"data:{img.media_type};base64,{img.jpeg_b64}"
                 },
             })
+
+        file_id = None
+        if video is not None and self.supports_video:
+            file_id = self._upload_video(video)
+            content.append({"type": "text", "text": (
+                f"<Video 1>, the full source clip "
+                f"({video.duration_seconds:.2f}s at {video.fps:.3f} fps)."
+            )})
+            content.append({
+                "type": "video_url",
+                "video_url": {"url": f"ms://{file_id}"},
+            })
+
         content.append({"type": "text", "text": user_text})
 
         kwargs = {}
         if seed and self._supports_seed:
             kwargs["seed"] = seed
         start = time.time()
-        response = self._client.chat.completions.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": content},
-            ],
-            **kwargs,
-        )
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": content},
+                ],
+                **kwargs,
+            )
+        finally:
+            self._delete_uploaded_video(file_id)
+
         text = response.choices[0].message.content or ""
         usage = {
             "model": self.model,
@@ -353,8 +411,29 @@ class OpenAICompatibleBackend(VLMBackend):
                 response.usage, "completion_tokens", None
             ),
             "latency_s": round(time.time() - start, 2),
+            "video_sent": video is not None and self.supports_video,
         }
         return VLMResult(text=text, usage=usage)
+
+    def _upload_video(self, video: VLMVideo) -> str:
+        """Upload the clip to the provider's file store, return its id."""
+        uploaded = self._client.files.create(
+            file=("clip.mp4", io.BytesIO(video.mp4_bytes), "video/mp4"),
+            purpose="video",
+        )
+        return uploaded.id
+
+    def _delete_uploaded_video(self, file_id: Optional[str]) -> None:
+        """Best-effort cleanup; a leftover upload must not fail the run."""
+        if not file_id:
+            return
+        try:
+            self._client.files.delete(file_id)
+        except Exception as exc:
+            print(
+                f"[TrentNodes] could not delete uploaded clip "
+                f"{file_id}: {exc}"
+            )
 
 
 class QwenVLBackend(VLMBackend):
@@ -366,7 +445,7 @@ class QwenVLBackend(VLMBackend):
         self.model = model
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
-                 audio=None):
+                 audio=None, video=None):
         labeled = [(img.label, img.to_pil()) for img in images]
         start = time.time()
         text = self._wrapper.run_qwen_inference(
@@ -397,7 +476,7 @@ class MiniCPMBackend(VLMBackend):
         self.model = model
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
-                 audio=None):
+                 audio=None, video=None):
         pils = [img.to_pil() for img in images]
         prompt = _legend_prompt(images, user_text)
         start = time.time()
@@ -447,7 +526,7 @@ class MageVLBackend(VLMBackend):
         self.model = model
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
-                 audio=None):
+                 audio=None, video=None):
         pils = [img.to_pil() for img in images]
         prompt = _legend_prompt(images, user_text)
         start = time.time()
@@ -486,7 +565,7 @@ class OllamaBackend(VLMBackend):
         self.model = model
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
-                 audio=None):
+                 audio=None, video=None):
         start = time.time()
         response = self._ollama.chat(
             model=self.model,

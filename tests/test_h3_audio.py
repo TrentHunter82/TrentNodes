@@ -102,10 +102,11 @@ class AudioFake:
     def __init__(self, name="gemini", supports_audio=True):
         self.name = name
         self.supports_audio = supports_audio
+        self.supports_video = False
         self.received = []
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
-                 audio=None):
+                 audio=None, video=None):
         self.received.append(audio)
         if audio is not None:
             assert "AUDIO TRACK IS ATTACHED" in user_text
