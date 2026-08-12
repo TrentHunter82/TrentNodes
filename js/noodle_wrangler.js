@@ -20,6 +20,11 @@ import { app } from "../../scripts/app.js";
  *      to match a neighbour (dashed outline marks the matched box).
  *      Instant in, instant out — no attraction physics.
  *      Hold Alt while dragging or resizing to suppress it.
+ *      Works in both canvas mode and Nodes 2.0 (Vue nodes): Vue node-body
+ *      drags are tracked from the DOM (trackVueDrag) and corrections are
+ *      committed through the node.pos setter so the layout store — the
+ *      source of truth for Vue node visuals — sees them. Circuit noodles
+ *      remain canvas-mode only.
  *
  * State persists in localStorage. Other TrentNodes scripts can subscribe to
  * toggle changes via onNoodleChange(fn) to keep their UI in sync.
@@ -1080,16 +1085,203 @@ function applySmartAlign(canvas, altFree, soloDrag) {
     const dx = desired[0] - sim.off[0];
     const dy = desired[1] - sim.off[1];
     if (dx || dy) {
-        for (const g of groups) g.move(dx, dy, !!soloDrag);
-        for (const n of looseNodes) {
-            n.pos[0] += dx;
-            n.pos[1] += dy;
+        if (window.LiteGraph?.vueNodesMode) {
+            // Vue node visuals follow the layout store, and node.move() is
+            // a no-op there (so group.move can't carry children): move all
+            // frames alone and shift every affected node through the pos
+            // SETTER, which commits to the store.
+            const frames = soloDrag ? groups : [...nested.groups];
+            for (const g of frames) g.move(dx, dy, true);
+            if (!soloDrag) {
+                for (const id of nested.nodeIds) {
+                    const n = canvas.graph?.getNodeById(id);
+                    if (n && !n.pinned) n.pos = [n.pos[0] + dx, n.pos[1] + dy];
+                }
+            }
+            for (const n of looseNodes) n.pos = [n.pos[0] + dx, n.pos[1] + dy];
+        } else {
+            for (const g of groups) g.move(dx, dy, !!soloDrag);
+            for (const n of looseNodes) {
+                n.pos[0] += dx;
+                n.pos[1] += dy;
+            }
         }
     }
     sim.off[0] = desired[0];
     sim.off[1] = desired[1];
 
     if (dx || dy || sim.guides.length !== prevGuides) {
+        canvas.dirty_canvas = true;
+        canvas.dirty_bgcanvas = true;
+    }
+}
+
+/*
+ * Nodes 2.0 (Vue nodes) drag tracking. Node-body drags never touch the
+ * canvas's pointer machinery: they are DOM pointer drags on the Vue node
+ * elements, and the frontend rebuilds ABSOLUTE free positions from the
+ * drag start inside its own rAF on every frame (useNodeDrag.ts), then
+ * commits them to the layout store. Any correction we apply is wiped by
+ * the next frame — the same stateless model resize snapping already uses.
+ *
+ * Ordering: the node element's own pointermove handler runs first (it
+ * schedules the frontend's rAF), then this window listener schedules
+ * ours. rAF callbacks run FIFO, so our snap is always applied AFTER the
+ * free positions land, in the same frame — no flicker.
+ *
+ * Group frames are the exception: the Vue drag moves them by per-frame
+ * DELTAS (useNodeDrag applies frameDelta), so a correction applied to a
+ * frame persists across frames. vueDrag.groupOff remembers it and it is
+ * rewound before every application.
+ *
+ * Widget guard: a slider drag inside a node also captures the pointer
+ * and bubbles the same way. We therefore only ENGAGE after the pressed
+ * node's position actually changes — a widget drag never moves the node.
+ */
+const vueDrag = {
+    pointerId: null,   // pointer being watched (null = idle)
+    node: null,        // pressed node (movement sentinel)
+    startX: 0,         // its position when watching began
+    startY: 0,
+    active: false,     // true once the sentinel actually moved
+    rafPending: false,
+    groupOff: [0, 0],  // correction currently applied to group frames
+};
+
+function resetVueDrag() {
+    vueDrag.pointerId = null;
+    vueDrag.node = null;
+    vueDrag.active = false;
+    vueDrag.groupOff = [0, 0];
+}
+
+// Returns true while a Vue node-body drag (or a candidate for one) owns
+// the event stream; false hands the event to the canvas-drag branches.
+function trackVueDrag(canvas, e) {
+    if (!(e.buttons & 1)) {
+        if (vueDrag.pointerId !== null) {
+            resetVueDrag();
+            stopSim();
+        }
+        return false;
+    }
+    if (vueDrag.pointerId === null) {
+        const el = e.target instanceof Element
+            ? e.target.closest?.("[data-node-id]")
+            : null;
+        if (!el) return false;
+        const node = canvas.graph?.getNodeById(el.getAttribute("data-node-id"));
+        if (!node) return false;
+        vueDrag.pointerId = e.pointerId;
+        vueDrag.node = node;
+        vueDrag.startX = node.pos[0];
+        vueDrag.startY = node.pos[1];
+        vueDrag.active = false;
+        return true;
+    }
+    if (e.pointerId !== vueDrag.pointerId) return false;
+    if (!vueDrag.active) {
+        const n = vueDrag.node;
+        if (n.pos[0] === vueDrag.startX && n.pos[1] === vueDrag.startY) {
+            return true; // widget drag or below drag threshold — stay quiet
+        }
+        vueDrag.active = true;
+    }
+    sim.canvas = canvas;
+    chainGuideOverlay(canvas);
+    const altFree = !!e.altKey;
+    if (!vueDrag.rafPending) {
+        vueDrag.rafPending = true;
+        requestAnimationFrame(() => {
+            vueDrag.rafPending = false;
+            try {
+                if (vueDrag.active && state.magnet) {
+                    applyVueSmartAlign(app.canvas, altFree);
+                }
+            } catch (err) {
+                console.warn("[TrentNoodles] vue magnet error", err);
+            }
+        });
+    }
+    return true;
+}
+
+// Live dragged-node box for Vue drags — measure() semantics without the
+// boundingRect cache, which the canvas draw loop refreshes one frame
+// behind the store-committed drag positions (the same lag the resize
+// path works around). Vue mode always measures expanded bounds:
+// collapsed sizes are DOM-measured into node.size.
+function liveNodeBoxVue(node) {
+    const LG = window.LiteGraph || {};
+    const renderTitle =
+        node.title_mode !== LG.TRANSPARENT_TITLE &&
+        node.title_mode !== LG.NO_TITLE;
+    const titleH = renderTitle ? (LG.NODE_TITLE_HEIGHT || 30) : 0;
+    return {
+        x1: node.pos[0],
+        y1: node.pos[1] - titleH,
+        x2: node.pos[0] + node.size[0],
+        y2: node.pos[1] + node.size[1],
+    };
+}
+
+// Stateless application for Vue node drags. The Vue drag moves every
+// SELECTED node plus selected group frames (children do NOT ride along,
+// mirroring useNodeDrag), so the union box and the correction cover
+// exactly that set.
+function applyVueSmartAlign(canvas, altFree) {
+    if (!canvas) return;
+    const { nodes, groups } = draggedItems(canvas);
+    if (!nodes.length && !groups.length) return;
+
+    // node positions were rebuilt free by the Vue drag this frame; group
+    // frames still carry last frame's correction — rewind it first so the
+    // union box is measured in the free frame
+    if (vueDrag.groupOff[0] || vueDrag.groupOff[1]) {
+        for (const g of groups) {
+            g.move(-vueDrag.groupOff[0], -vueDrag.groupOff[1], true);
+        }
+    }
+    vueDrag.groupOff = [0, 0];
+
+    sim.off[0] = 0; // stateless: pickAxis measures from the free frame
+    sim.off[1] = 0;
+    const prevGuides = sim.guides.length;
+    sim.guides = [];
+
+    const desired = [0, 0];
+    if (!altFree) {
+        const zoom = canvas.ds?.scale || 1;
+        const boxes = [...nodes.map(liveNodeBoxVue), ...groups.map(groupBox)];
+        let ub = null;
+        for (const b of boxes) {
+            if (!ub) ub = { ...b };
+            else {
+                ub.x1 = Math.min(ub.x1, b.x1); ub.y1 = Math.min(ub.y1, b.y1);
+                ub.x2 = Math.max(ub.x2, b.x2); ub.y2 = Math.max(ub.y2, b.y2);
+            }
+        }
+        const draggedIds = new Set(nodes.map((n) => n.id));
+        const { xs, ys } = collectCandidates(
+            canvas, ub, draggedIds, new Set(groups),
+            groups.length === 0, // slots only for pure node drags
+        );
+        desired[0] = pickAxis(xs, 0, zoom);
+        desired[1] = pickAxis(ys, 1, zoom);
+    }
+
+    if (desired[0] || desired[1]) {
+        for (const n of nodes) {
+            // the pos SETTER commits to the layout store, which Vue node
+            // visuals follow; an element write (pos[0] += dx) would move
+            // only the invisible litegraph shadow
+            n.pos = [n.pos[0] + desired[0], n.pos[1] + desired[1]];
+        }
+        for (const g of groups) g.move(desired[0], desired[1], true);
+        vueDrag.groupOff = [desired[0], desired[1]];
+    }
+
+    if (desired[0] || desired[1] || sim.guides.length !== prevGuides) {
         canvas.dirty_canvas = true;
         canvas.dirty_bgcanvas = true;
     }
@@ -1195,7 +1387,12 @@ function installPatches() {
     window.addEventListener("pointermove", (e) => {
         try {
             const canvas = app.canvas;
-            if (!canvas || window.LiteGraph?.vueNodesMode) return;
+            if (!canvas) return;
+            // Nodes 2.0: node-body drags are DOM drags on the Vue node
+            // elements — trackVueDrag() owns those. Canvas-driven drags
+            // (group titles, group resize) still hit the branches below.
+            if (window.LiteGraph?.vueNodesMode &&
+                state.magnet && trackVueDrag(canvas, e)) return;
             if (state.magnet && canvas.isDragging) {
                 sim.canvas = canvas;
                 chainGuideOverlay(canvas);
@@ -1214,13 +1411,17 @@ function installPatches() {
     }, false);
 
     // the snap offset is already exact on the last move; just reset state
-    // BEFORE the canvas handler finalizes the drag (capture = ancestors first)
-    window.addEventListener("pointerup", () => {
+    // BEFORE the canvas handler finalizes the drag (capture = ancestors
+    // first). vueDrag.groupOff is NOT rewound: the final frame correction
+    // is part of the drop position.
+    window.addEventListener("pointerup", (e) => {
         if (sim.canvas) stopSim();
+        if (e.pointerId === vueDrag.pointerId) resetVueDrag();
     }, true);
 
-    window.addEventListener("pointercancel", () => {
+    window.addEventListener("pointercancel", (e) => {
         if (sim.canvas) stopSim();
+        if (e.pointerId === vueDrag.pointerId) resetVueDrag();
     }, true);
 
     proto.__trentNoodlesPatched = true;
