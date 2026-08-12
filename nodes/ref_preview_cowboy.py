@@ -41,7 +41,11 @@ class RefPreviewCowboy(nodes.PreviewImage):
             },
         }
 
+    # PreviewImage inherits SaveImage's ("IMAGE",)/("images",) passthrough, but
+    # preview() returns no "result", so clear both or /object_info reports a
+    # named output slot that does not exist.
     RETURN_TYPES = ()
+    RETURN_NAMES = ()
     FUNCTION = "preview"
     OUTPUT_NODE = True
     CATEGORY = "Trent/Image"

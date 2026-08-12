@@ -14,12 +14,17 @@ from .utils.banner import (
 )
 from .utils.validation import run_self_test
 
-# Import server routes (registers API endpoints on import)
+# Import server routes (registers API endpoints on import).
+# Outside a live ComfyUI the route decorators raise AttributeError, not
+# ImportError, so catch broadly: a failure here must never take the nodes
+# down with it. Report it instead of swallowing it silently.
 try:
     from . import server  # noqa: F401
-except ImportError:
-    # Server module requires ComfyUI context - will be loaded at runtime
-    pass
+except Exception as _server_err:  # noqa: BLE001
+    print(
+        f"[TrentNodes] API routes unavailable "
+        f"({type(_server_err).__name__}: {_server_err}); nodes still load."
+    )
 
 # Node registries
 NODE_CLASS_MAPPINGS = {}
