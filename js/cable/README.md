@@ -29,7 +29,7 @@ have already rigged still opens correctly.
 
 ## The one addition: `groupcomb.js`
 
-The only non-upstream file. Select a group, press **Alt+Shift+T**, and every wire
+The only non-upstream file. Select a group, press **T**, and every wire
 crossing the group boundary is gathered into a comb placed just outside the
 group — inbound off the top-left, outbound off the bottom-right.
 
@@ -41,9 +41,11 @@ by hand. The hotkey only decides where it goes and which wires ride it.
 Needs at least two un-combed wires crossing the boundary. Re-running is safe —
 already-combed wires are skipped.
 
-`Alt+Shift+T`, because core rejects a duplicate combo with a red toast on every
-load: `Alt+Shift+R` is taken by Reroute Roundup, and `Alt+Shift+G` sits too close
-to KJNodes' `Ctrl+Shift+G` for comfort.
+A bare `T`, matching the rest of the keymap (`g`, `l`, `s`, `o`, `w`, `0`) rather
+than the `Alt+Shift+<letter>` pattern this pack's own defaults use. Bare keys only
+fire on the canvas, never while a text field has focus. T because core rejects a
+duplicate combo with a red toast on every load: `R` is taken by Reroute Roundup
+and `G` by core's Fit Group To Contents.
 
 ## Do not run the original alongside
 

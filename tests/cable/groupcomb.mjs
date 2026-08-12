@@ -108,6 +108,28 @@ const intact = await page.evaluate(() => ({
 ok('s5: upstream comb features intact (flip, labels, selection, ribbon routes)',
   intact.gestures && intact.labels && intact.flip && intact.routes === 3, JSON.stringify(intact))
 
+// ---- s6: the real keypress, not just command.execute ----
+// Bare `t` is only useful if it survives the keybinding store, so drive it from the
+// keyboard on a focused canvas rather than calling the command by id.
+await page.evaluate(() => {
+  const g = window.app.graph
+  for (const c of g.extra.cablemanagement_combs ?? []) window.__cablemanagementCombs.decompose(c.id)
+  g.extra.cablemanagement_combs = []
+  g.setDirtyCanvas(true, true)
+})
+await page.waitForTimeout(500)
+// No click to focus: the toast stack from the earlier steps sits over the canvas and
+// intercepts pointer events. The keybinding handler listens at the document level, so
+// an unfocused body is enough -- just make sure no text field is holding the keys.
+await page.evaluate(() => {
+  document.activeElement?.blur?.()
+  window.app.canvas.selectedItems = new Set([window.app.graph._groups[0]])
+})
+await page.keyboard.press('t')
+await page.waitForTimeout(900)
+const s6 = await combs()
+ok('s6: bare T fires the command from the keyboard', s6.length === 1 && s6[0].lanes === 3, JSON.stringify(s6))
+
 await page.locator('canvas').first().screenshot({ path: process.env.SHOT ?? '/tmp/groupcomb.png' })
 ok('no page errors', errs.length === 0, errs.slice(0, 3).join(' | '))
 await b.close()

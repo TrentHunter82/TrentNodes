@@ -145,10 +145,13 @@ app.registerExtension({
     }
   ],
 
-  // Alt+Shift+<letter> is the house pattern for TrentNodes commands, and core rejects a
-  // duplicate combo with a red toast on every load -- so R is out (Reroute Roundup) and
-  // G is out (too close to KJNodes' Ctrl+Shift+G for comfort). T is free on both counts.
+  // A BARE letter, matching the rest of Trent's keymap (g, l, s, o, w, 0) rather than
+  // the Alt+Shift+<letter> pattern the extension defaults in this pack use. Bare keys
+  // only fire on the canvas, never while a text field has focus.
+  //
+  // T because core rejects a duplicate combo with a red toast on every load: R is taken
+  // by Reroute Roundup and G by core's own Fit Group To Contents.
   keybindings: [
-    { combo: { key: "t", alt: true, shift: true }, commandId: "TrentNodes.GroupComb.CombGroup" }
+    { combo: { key: "t" }, commandId: "TrentNodes.GroupComb.CombGroup" }
   ]
 });
