@@ -145,10 +145,10 @@ app.registerExtension({
     }
   ],
 
-  // Alt+Shift+<letter> is the house pattern for TrentNodes commands. Alt+Shift+R would
-  // read better but Reroute Roundup owns it, and core rejects a duplicate combo with a
-  // red toast on every load.
+  // Alt+Shift+<letter> is the house pattern for TrentNodes commands, and core rejects a
+  // duplicate combo with a red toast on every load -- so R is out (Reroute Roundup) and
+  // G is out (too close to KJNodes' Ctrl+Shift+G for comfort). T is free on both counts.
   keybindings: [
-    { combo: { key: "g", alt: true, shift: true }, commandId: "TrentNodes.GroupComb.CombGroup" }
+    { combo: { key: "t", alt: true, shift: true }, commandId: "TrentNodes.GroupComb.CombGroup" }
   ]
 });

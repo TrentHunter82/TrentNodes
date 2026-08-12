@@ -29,7 +29,7 @@ have already rigged still opens correctly.
 
 ## The one addition: `groupcomb.js`
 
-The only non-upstream file. Select a group, press **Alt+Shift+G**, and every wire
+The only non-upstream file. Select a group, press **Alt+Shift+T**, and every wire
 crossing the group boundary is gathered into a comb placed just outside the
 group — inbound off the top-left, outbound off the bottom-right.
 
@@ -41,8 +41,9 @@ by hand. The hotkey only decides where it goes and which wires ride it.
 Needs at least two un-combed wires crossing the boundary. Re-running is safe —
 already-combed wires are skipped.
 
-`Alt+Shift+G` rather than `Alt+Shift+R`, because Reroute Roundup owns that combo
-and core rejects duplicates with a red toast on every load.
+`Alt+Shift+T`, because core rejects a duplicate combo with a red toast on every
+load: `Alt+Shift+R` is taken by Reroute Roundup, and `Alt+Shift+G` sits too close
+to KJNodes' `Ctrl+Shift+G` for comfort.
 
 ## Do not run the original alongside
 
