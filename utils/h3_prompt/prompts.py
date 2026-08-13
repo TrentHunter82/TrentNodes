@@ -84,13 +84,18 @@ RETENTION_MARKERS_AUDIO = (
 # The assembler prepends it rather than the VLM writing it - strip_wrapper
 # deletes everything above subject_definitions, and a fixed string cannot
 # drift.
+#
+# The picture tag is a parameter, not a constant. In a hybrid graph the
+# identity reference is <Picture 1> and the injected first frame is a
+# second image, so the aligned tag is <Picture 2> - which is exactly how
+# the guide's own standalone-picture example numbers it.
 ALIGNMENT_HOOK_I2VA = (
     "For the target video, at 0.00 seconds into the target video, "
-    "<Picture 1> (from [Shot 1]) is fully referenced."
+    "<{picture}> (from [Shot 1]) is fully referenced."
 )
 ALIGNMENT_HOOK_L2VA = (
     "How the reference pictures align with the target video - "
-    "<Picture 1> (from [Shot {shot}]) aligns with the {seconds:.2f}-second "
+    "<{picture}> (from [Shot {shot}]) aligns with the {seconds:.2f}-second "
     "mark of the target video."
 )
 
@@ -294,19 +299,26 @@ def shot_index_for_time(seconds: float, shot_starts: list) -> int:
     return index
 
 
-def build_alignment_hook(seconds: float, shot_index: int = 1) -> str:
+def build_alignment_hook(
+    seconds: float, shot_index: int = 1, picture: str = "Picture 1"
+) -> str:
     """
     Render the official alignment instruction for this moment.
 
     0.00s on [Shot 1] is exactly the I2VA case, so that sentence is used
     verbatim. Anything else is the L2VA form, the one the guide writes
     with a variable shot and mark.
+
+    `picture` is the tag that IS the frame. It is <Picture 2> in a hybrid
+    graph, where <Picture 1> stays the identity reference.
     """
     seconds = max(0.0, float(seconds))
     shot = max(1, int(shot_index))
     if seconds < 0.005 and shot == 1:
-        return ALIGNMENT_HOOK_I2VA
-    return ALIGNMENT_HOOK_L2VA.format(seconds=seconds, shot=shot)
+        return ALIGNMENT_HOOK_I2VA.format(picture=picture)
+    return ALIGNMENT_HOOK_L2VA.format(
+        seconds=seconds, shot=shot, picture=picture
+    )
 
 
 def build_task_type(
@@ -383,6 +395,7 @@ def build_user_context(
     music_description: str = "",
     music_is_reference: bool = False,
     task_type: str = "reference generation",
+    alignment_picture: str = "Picture 1",
 ) -> str:
     """
     Compose the per-run task context sent alongside the images.
@@ -470,42 +483,54 @@ def build_user_context(
             "continuous shot unless frames clearly show a cut)"
         )
     if alignment_seconds is not None:
-        hook = build_alignment_hook(alignment_seconds, alignment_shot)
+        aligned = alignment_picture
+        hybrid = aligned != "Picture 1"
+        hook = build_alignment_hook(
+            alignment_seconds, alignment_shot, aligned
+        )
+        shot_label = f"[Shot {max(1, int(alignment_shot))}]"
         lines.append(
             "- FIRST-FRAME ALIGNMENT IS ON. This exact sentence will be "
             f"placed above subject_definitions for you:\n    {hook}\n"
             "  Do not write that sentence yourself. Write the rest of "
-            "the prompt so it is true. For this run <Picture 1> is not "
-            "only an identity reference: it IS the frame of the target "
-            f"video at {float(alignment_seconds):.2f} seconds. Its "
-            "framing, camera angle, background, lighting, and the "
+            f"the prompt so it is true. <{aligned}> IS the frame of the "
+            f"target video at {float(alignment_seconds):.2f} seconds. "
+            "Its framing, camera angle, background, lighting, and the "
             "subject's pose in it are the target video at that moment, "
-            f"and [Shot {max(1, int(alignment_shot))}] must open on "
-            "exactly that image before any action moves on from it. "
-            "THEREFORE, for this run only, reverse the normal rule: do "
-            "NOT write that <Picture 1> supplies identity alone, do NOT "
-            "write that its background, pose, or lighting must be "
-            "ignored, and do NOT write any exclusion forbidding their "
-            "use. Say instead that the shot begins on <Picture 1> "
-            "exactly as shown. Identity and wardrobe stay locked to it "
-            "as always."
+            f"and {shot_label} must open on exactly that image before "
+            f"any action moves on from it. Do NOT write that <{aligned}> "
+            "supplies identity alone, and do NOT write that its "
+            "background, pose, or lighting must be ignored. Say instead "
+            f"that the shot begins from <{aligned}> exactly as shown."
         )
-        # With alignment on, <Picture 1> really is a concrete frame
-        # anchor, which is exactly when the guide wants a standalone
-        # entry and its own retention line. Rule 2's "no standalone
-        # picture entry" covers the identity-only case, so it has to be
-        # lifted here.
-        shot_label = f"[Shot {max(1, int(alignment_shot))}]"
+        # A frame anchor is exactly the case where the guide wants a
+        # standalone picture entry and its own retention line.
         lines.append(
-            "- BECAUSE ALIGNMENT IS ON, <Picture 1> gets its own line "
-            "in subject_definitions and its own line in "
-            "retention_analysis, overriding the usual rule that an "
-            "identity-only image is cited inside <Subject 1> instead. "
-            f"Write \"<Picture 1> is the first frame of {shot_label}, "
+            f"- <{aligned}> therefore gets its own line in "
+            "subject_definitions and its own line in retention_analysis. "
+            f"Write \"<{aligned}> is the first frame of {shot_label}, "
             "showing ...\" in subject_definitions, and "
-            f"\"<Picture 1> ({shot_label} first frame): fully_preserved "
-            "- ...\" in retention_analysis."
+            f"\"<{aligned}> ({shot_label} first frame): fully_preserved "
+            "- ...\" in retention_analysis. Anchor it in the shot itself "
+            f"too: \"{shot_label} the shot begins from <{aligned}> ...\"."
         )
+        if hybrid:
+            # The two pictures do different jobs, and conflating them is
+            # the whole failure this branch exists to prevent: a
+            # multi-angle character sheet is not a frame of the video.
+            lines.append(
+                "- THE TWO PICTURES ARE NOT INTERCHANGEABLE. <Picture 1> "
+                "is the identity and wardrobe reference and may be a "
+                "multi-angle character sheet or a plain portrait; it is "
+                "NOT a frame of the target video, and no shot opens on "
+                "it. It keeps the normal rule: cite it inside the "
+                "<Subject 1> line and give it no standalone entry and no "
+                "retention line of its own. Never write that a shot "
+                f"begins from <Picture 1>. <{aligned}> is the actual "
+                "opening frame, already showing the subject as they "
+                "should look, and it is the only picture pinned to a "
+                "moment on the timeline."
+            )
 
     if enable_audio_prompt:
         if music_video:
@@ -570,14 +595,21 @@ def build_user_context(
         )
     elif not (music_video and lyrics.strip()):
         lines.append("- dialogue: none supplied; write no <d> lines.")
+    # The image manifest has to match what was actually attached, or the
+    # model mislabels an image it can see.
+    second = (
+        f" The second image is <{alignment_picture}>, the opening frame "
+        "of the target video."
+        if alignment_picture != "Picture 1" else ""
+    )
     closing = (
-        "\nThe single image is <Picture 1>, the identity and "
-        "wardrobe reference for the subject. The attached video is "
+        "\nThe first image is <Picture 1>, the identity and wardrobe "
+        f"reference for the subject.{second} The attached video is "
         "<Video 1>, the complete motion source. Write the complete "
         "H3 REF2VA prompt now, following every unbreakable rule."
         if full_clip else
         "\nThe first image is <Picture 1>, the identity and wardrobe "
-        "reference for the subject. Every following image is a "
+        f"reference for the subject.{second} Every following image is a "
         "sampled frame of <Video 1> in playback order, each preceded "
         "by its timestamp label. Write the complete H3 REF2VA prompt "
         "now, following every unbreakable rule."

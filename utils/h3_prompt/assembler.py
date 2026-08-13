@@ -61,6 +61,12 @@ class AssemblyContext:
     # and this is off, an <Audio 1> the generation never receives is a
     # dangling reference, so it is stripped rather than shipped.
     music_is_reference: bool = False
+    # Which picture the alignment hook declares to BE the target frame.
+    # "Picture 2" in a hybrid graph, where <Picture 1> stays the identity
+    # reference and only the injected first frame is pinned to a moment.
+    # The prose repair follows this tag: with two pictures, "<Picture 1>
+    # supplies identity only" is correct and must survive.
+    alignment_picture: str = "Picture 1"
     # The mandatory summary task-type prefix, without its brackets
     # (prompts.build_task_type). "" disables the check, which only the
     # older tests do.
@@ -638,9 +644,11 @@ _PICTURE_SCENE_WORDS = re.compile(
 )
 
 
-def _contradicts_alignment(sentence: str) -> bool:
+def _contradicts_alignment(
+    sentence: str, picture: str = "Picture 1"
+) -> bool:
     return (
-        "<Picture 1>" in sentence
+        f"<{picture}>" in sentence
         and bool(_PICTURE_SCENE_WORDS.search(sentence))
     )
 
@@ -686,26 +694,37 @@ _PICTURE_BACKREF = re.compile(
     r"image|the reference)\b"
 )
 _OTHER_TAG_RE = re.compile(r"<(?:Video|Audio|Subject)\s+\d+>")
-_ALIGNMENT_POSITIVE = (
-    "<Picture 1> is the target video frame declared above: that shot "
+_ALIGNMENT_POSITIVE_TEMPLATE = (
+    "<{picture}> is the target video frame declared above: that shot "
     "opens on exactly that image, keeping its framing, background, and "
     "lighting."
 )
 
 
-def _conflicts_with_alignment(sentence: str, carried: bool = False) -> bool:
+def _conflicts_with_alignment(
+    sentence: str, carried: bool = False, picture: str = "Picture 1"
+) -> bool:
     """
-    True for prose that denies <Picture 1> its scene contribution.
+    True for prose denying the ALIGNED picture its scene contribution.
 
-    `carried` says the previous sentence was about <Picture 1>, which
+    `carried` says the previous sentence was about that picture, which
     lets a pronoun follow-on ("Its background must not be copied.") be
     caught. A sentence naming another tag breaks the chain.
+
+    Only the aligned tag is protected. In a hybrid graph <Picture 1> is
+    the identity reference, so "<Picture 1> supplies identity only" is
+    true and has to survive - stripping it would be the same conflation
+    this whole path exists to prevent.
     """
-    about_picture = "<Picture 1>" in sentence
-    if not about_picture:
+    tag = f"<{picture}>"
+    if tag not in sentence:
         if not (carried and _PICTURE_BACKREF.search(sentence)):
             return False
         if _OTHER_TAG_RE.search(sentence):
+            return False
+        # A back-reference cannot reach past a mention of the other
+        # picture: that sentence is about a different image.
+        if re.search(r"<Picture \d+>", sentence):
             return False
 
     if _ALIGNMENT_ONLY.search(sentence):
@@ -736,14 +755,20 @@ def enforce_alignment(
     """
     Make the prose agree with the alignment hook.
 
-    Drops sentences saying <Picture 1> contributes identity alone or
-    that its background, pose and lighting must not be copied, then
-    states the opposite once. A no-op without a hook, and byte-identical
-    when nothing conflicts.
+    Drops sentences saying the ALIGNED picture contributes identity
+    alone or that its background, pose and lighting must not be copied,
+    then states the opposite once. A no-op without a hook, and
+    byte-identical when nothing conflicts.
+
+    Which picture is aligned comes from ctx.alignment_picture. In a
+    hybrid graph that is <Picture 2>, and the identity-only language
+    about <Picture 1> is correct and left alone.
     """
     if not ctx.alignment_hook:
         return sections
 
+    picture = ctx.alignment_picture
+    tag = f"<{picture}>"
     removed = 0
     for key in ("subject_definitions", "retention_analysis"):
         content = sections.get(key, "")
@@ -759,12 +784,12 @@ def enforce_alignment(
             kept = []
             carried = False
             for sentence in sentences:
-                if _conflicts_with_alignment(sentence, carried):
+                if _conflicts_with_alignment(sentence, carried, picture):
                     dropped_here += 1
                     carried = True     # a pronoun may follow the denial
                     continue
                 kept.append(sentence)
-                carried = "<Picture 1>" in sentence
+                carried = tag in sentence
             joined = " ".join(s.strip() for s in kept).strip()
             # A line that emptied out was nothing but denials; dropping
             # it is right, and keeps a blank line out of the section.
@@ -776,18 +801,26 @@ def enforce_alignment(
 
     if removed:
         fixes.append(
-            f"removed {removed} sentence(s) denying <Picture 1> its "
+            f"removed {removed} sentence(s) denying {tag} its "
             "framing, background, or lighting (alignment hook is on)"
         )
 
-    if "subject_definitions" in sections and _ALIGNMENT_POSITIVE not in (
-        sections["subject_definitions"]
-    ):
-        sections["subject_definitions"] = (
-            sections["subject_definitions"].rstrip()
-            + " " + _ALIGNMENT_POSITIVE
+    positive = _ALIGNMENT_POSITIVE_TEMPLATE.format(picture=picture)
+    content = sections.get("subject_definitions", "")
+    if content and positive not in content:
+        lines = content.split("\n")
+        owner = next(
+            (i for i, line in enumerate(lines) if line.startswith(tag)), None
         )
-        fixes.append("stated the <Picture 1> frame alignment positively")
+        if owner is None:
+            # The aligned picture has no line yet, and it is a label of
+            # its own - one line per label, so it gets one rather than
+            # being tacked onto whichever label happens to be last.
+            lines.append(positive)
+        else:
+            lines[owner] = _end_sentence(lines[owner]) + " " + positive
+        sections["subject_definitions"] = "\n".join(lines)
+        fixes.append(f"stated the {tag} frame alignment positively")
     return sections
 
 
@@ -983,7 +1016,8 @@ def finalize_exclusions(
             continue
         if not sentence.endswith("."):
             sentence += "."
-        if aligning and _contradicts_alignment(sentence):
+        if aligning and _contradicts_alignment(
+                sentence, ctx.alignment_picture):
             dropped += 1
             continue
         key = re.sub(r"\W+", "", sentence.lower())
@@ -1003,7 +1037,8 @@ def finalize_exclusions(
     if len(cleaned) < MIN_EXCLUSIONS:
         for stock in STOCK_EXCLUSIONS:
             sentence = stock.replace("the subject", ctx.subject_name)
-            if aligning and _contradicts_alignment(sentence):
+            if aligning and _contradicts_alignment(
+                    sentence, ctx.alignment_picture):
                 continue
             key = re.sub(r"\W+", "", sentence.lower())
             # Skip stock lines that overlap an existing exclusion's topic

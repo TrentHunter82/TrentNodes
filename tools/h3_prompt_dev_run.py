@@ -162,8 +162,14 @@ def main():
     )
     parser.add_argument(
         "--alignment-time", type=float, default=0.0,
-        help="where <Picture 1> lands, in seconds. 0.0 emits the "
-             "official I2VA sentence; any other value the L2VA one",
+        help="where the aligned picture lands, in seconds. 0.0 emits "
+             "the official I2VA sentence; any other value the L2VA one",
+    )
+    parser.add_argument(
+        "--first-frame", default="",
+        help="path to the injected opening frame, for a hybrid graph. "
+             "It becomes <Picture 2> and is the image pinned to the "
+             "timeline; --reference stays <Picture 1>, identity only",
     )
     parser.add_argument("--music-video", action="store_true")
     parser.add_argument(
@@ -228,6 +234,9 @@ def main():
         lyrics=args.lyrics,
         music_description=args.music_description,
         append_exclusions=args.append_exclusions,
+        first_frame_image=(
+            load_image(args.first_frame) if args.first_frame else None
+        ),
     )
 
     label_a = "official" if args.profile in ("official", "both_ab") else args.profile

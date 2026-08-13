@@ -108,6 +108,12 @@ venv/bin/python custom_nodes/TrentNodes/tools/cut_detective_dev_run.py \
 venv/bin/python custom_nodes/TrentNodes/tools/h3_prompt_dev_run.py \
   --video input/clip.mp4 --reference input/face.png \
   --cut-times "0.0, 1.5, 3.0" --first-frame-alignment --profile both_ab
+
+# the hybrid graph: --reference stays <Picture 1> (identity only),
+# --first-frame becomes <Picture 2> and is what Shot 1 opens on
+venv/bin/python custom_nodes/TrentNodes/tools/h3_prompt_dev_run.py \
+  --video input/clip.mp4 --reference input/character_sheet.png \
+  --first-frame input/frame0_swapped.png --first-frame-alignment
 ```
 
 `tests/test_h3_node.py` drives the whole H3 node against a `FakeBackend`, so
@@ -224,6 +230,36 @@ content conventions inside three sections were not:
   *is* a concrete frame anchor, which is exactly when a standalone entry and a
   `([Shot N] first frame)` retention line are correct — so the rule is now
   conditional on the toggle that already existed.
+
+### The hybrid graph: two pictures, two jobs
+
+A workflow can feed H3 a character reference **and** an injected opening frame.
+The two are different images doing different jobs, and the node conflated them:
+`first_frame_alignment` declared `<Picture 1>` to BE the opening frame, so a
+multi-angle character sheet in slot 1 told H3 to open the video on a contact
+sheet.
+
+`first_frame_image` fixes it. Connect it and it becomes `<Picture 2>` — which
+is how the guide's own standalone-picture example numbers it
+(`<Picture 2> is the first frame of [Shot 1], showing ...`). Then:
+
+- The alignment sentence names `<Picture 2>`, and only that image is pinned to
+  a moment on the timeline.
+- `<Picture 1>` keeps the normal identity-only rule: cited inside the
+  `<Subject 1>` line, no standalone entry, no retention line, and no shot ever
+  opens on it. The task context says this outright, because it is the mistake
+  worth preventing.
+- The VLM receives the injected frame as its second image, labelled, so Shot 1
+  is described from the frame that actually opens the video rather than
+  inferred from the sampled stills.
+- **The prose repair follows the aligned tag.** This is the subtle part: under a
+  single-picture hook, `<Picture 1> supplies identity only` is a contradiction
+  and gets stripped. In a hybrid it is *true* and must survive. `_conflicts_with_alignment`
+  takes the picture tag, so both runs are right, and a pronoun back-reference
+  cannot reach past a mention of the other picture.
+
+`alignment_picture` on `AssemblyContext` carries this. It defaults to
+`"Picture 1"`, so every single-picture path is unchanged.
 - **`[English]` was hardcoded** in five places while the guide asks for the
   lyric's own language; ref-mode dialogue keeps the visual label,
   `<Subject N> (Sx)`; and the camera and cut vocabularies now use the official

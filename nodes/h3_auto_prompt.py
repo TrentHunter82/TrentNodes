@@ -335,6 +335,22 @@ class H3AutoPromptGenerator:
                         "field, so some workflows lean on it."
                     ),
                 }),
+                "first_frame_image": ("IMAGE", {
+                    "tooltip": (
+                        "The injected opening frame, for a hybrid graph "
+                        "that feeds H3 both a character reference AND a "
+                        "first frame. Connect it and it becomes "
+                        "<Picture 2>: the prompt pins THIS image to the "
+                        "timeline and opens Shot 1 on it, while "
+                        "<Picture 1> keeps its identity-only role and "
+                        "no shot ever opens on it. Leave it empty and "
+                        "first_frame_alignment aligns <Picture 1> "
+                        "itself, which is right only when your "
+                        "reference IS the opening frame - never when it "
+                        "is a multi-angle character sheet. Wire the "
+                        "same image your H3 encoder gets in slot 2."
+                    ),
+                }),
             },
         }
 
@@ -387,6 +403,7 @@ class H3AutoPromptGenerator:
         seed: int = 0,
         music_source: str = "auto",
         append_exclusions: bool = False,
+        first_frame_image: Optional[torch.Tensor] = None,
     ) -> Tuple[str, str, float, int, str]:
         warnings = []
 
@@ -468,12 +485,26 @@ class H3AutoPromptGenerator:
                 for b in keyframes.scene_boundaries if b > 0
             ]
 
+        # A hybrid graph feeds H3 a character reference AND an injected
+        # opening frame. They are different images doing different jobs,
+        # so only the second one is pinned to the timeline. Getting this
+        # wrong tells H3 to open the video on a character sheet.
+        alignment_picture = (
+            "Picture 2" if first_frame_image is not None else "Picture 1"
+        )
         alignment_seconds, alignment_shot, alignment_hook = (
             self._resolve_alignment(
                 first_frame_alignment, alignment_time_seconds, duration,
                 measured_times or [0.0] + cut_timestamps, warnings,
+                picture=alignment_picture,
             )
         )
+        if first_frame_image is not None and not alignment_hook:
+            warnings.append(
+                "first_frame_image is connected but first_frame_alignment "
+                "is off, so <Picture 2> is described without being pinned "
+                "to a moment; turn the toggle on to declare where it lands"
+            )
 
         # The mandatory summary prefix, from what this run actually uses.
         task_type = prompts.build_task_type(
@@ -496,12 +527,31 @@ class H3AutoPromptGenerator:
         vlm_images = [VLMImage(
             label=(
                 "Reference image <Picture 1> - identity and wardrobe "
+                f"lock for {subject_name}. NOT a frame of the target "
+                "video; it may be a multi-angle character sheet"
+                if first_frame_image is not None else
+                "Reference image <Picture 1> - identity and wardrobe "
                 f"lock for {subject_name}"
             ),
             jpeg_b64=tensor_to_jpeg_b64(
                 reference_image, max_side=REFERENCE_MAX_SIDE
             ),
         )]
+        # The injected frame goes second, so <Picture 2> is literally the
+        # second image the model sees. It is what Shot 1 opens on, so the
+        # model has to look at it rather than infer it from the stills.
+        if first_frame_image is not None:
+            vlm_images.append(VLMImage(
+                label=(
+                    "Reference image <Picture 2> - the actual opening "
+                    f"frame of the target video at "
+                    f"{float(alignment_seconds or 0.0):.2f}s, already "
+                    f"showing {subject_name}. Describe Shot 1 from this"
+                ),
+                jpeg_b64=tensor_to_jpeg_b64(
+                    first_frame_image, max_side=REFERENCE_MAX_SIDE
+                ),
+            ))
         # With the whole clip attached, sampled stills are redundant
         # payload - the model reads the motion straight from the video.
         if vlm_video is None:
@@ -538,6 +588,7 @@ class H3AutoPromptGenerator:
             music_description=music_description,
             music_is_reference=music_is_reference,
             task_type=task_type,
+            alignment_picture=alignment_picture,
         )
 
         profiles = (
@@ -565,6 +616,7 @@ class H3AutoPromptGenerator:
                 music_is_reference=music_is_reference,
                 task_type=task_type,
                 append_exclusions=append_exclusions,
+                alignment_picture=alignment_picture,
             )
             result, attempts, usage = self._run_variant(
                 backend, profile, vlm_images, user_context, ctx, seed,
@@ -598,6 +650,8 @@ class H3AutoPromptGenerator:
             "cut_source": cut_source,
             "cut_kinds": measured_kinds,
             "alignment_hook": alignment_hook,
+            "alignment_picture": alignment_picture,
+            "has_first_frame_image": first_frame_image is not None,
             "music_video": music_video,
             "music_is_reference": music_is_reference,
             "music_source": music_source,
@@ -762,14 +816,19 @@ class H3AutoPromptGenerator:
     def _resolve_alignment(
         self, enabled: bool, requested: float, duration: float,
         shot_starts: List[float], warnings: list,
+        picture: str = "Picture 1",
     ) -> Tuple[Optional[float], int, str]:
         """
         Build the first-frame alignment hook.
 
         Returns (seconds, shot_index, hook_sentence), or (None, 1, "")
         when the toggle is off. The time is clamped inside the clip - a
-        hook pointing past the end would anchor <Picture 1> to a frame
+        hook pointing past the end would anchor the picture to a frame
         the target video never renders.
+
+        `picture` is the tag that IS the frame: <Picture 2> in a hybrid
+        graph that injects an opening frame alongside the character
+        reference, <Picture 1> otherwise.
         """
         if not enabled:
             return None, 1, ""
@@ -784,7 +843,7 @@ class H3AutoPromptGenerator:
             seconds = limit
 
         shot = prompts.shot_index_for_time(seconds, shot_starts)
-        hook = prompts.build_alignment_hook(seconds, shot)
+        hook = prompts.build_alignment_hook(seconds, shot, picture)
         print(f"{LOG_PREFIX} first-frame alignment: {hook}")
         return seconds, shot, hook
 

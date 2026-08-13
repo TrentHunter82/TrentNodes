@@ -61,6 +61,8 @@ class FakeBackend:
         # test about the task context must read the first call, not the
         # last, or it will match on error text instead.
         self.first_user_text = ""
+        self.image_labels = []
+        self.reply = CANNED
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
                  audio=None, video=None):
@@ -68,10 +70,11 @@ class FakeBackend:
         self.last_user_text = user_text
         if self.calls == 1:
             self.first_user_text = user_text
+            self.image_labels = [im.label for im in images]
         assert "UNBREAKABLE RULES" in system
         assert images[0].label.startswith("Reference image <Picture 1>")
         assert "TASK CONTEXT" in user_text
-        return VLMResult(text=CANNED, usage={"model": "fake-model"})
+        return VLMResult(text=self.reply, usage={"model": "fake-model"})
 
 
 def _run_node(fake, **overrides):
@@ -276,6 +279,94 @@ def test_alignment_time_names_the_shot_it_lands_in():
         "<Picture 1> (from [Shot 3]) aligns with the 1.30-second mark "
         "of the target video."
     ), prompt[:160]
+
+
+# ---------------------------------------------------------------------------
+# Hybrid graph: a character reference AND an injected opening frame
+# ---------------------------------------------------------------------------
+
+def test_a_hybrid_graph_aligns_picture_2_not_the_character_sheet():
+    # The whole point: <Picture 1> may be a multi-angle character sheet,
+    # so declaring it to BE the opening frame tells H3 to open the video
+    # on a contact sheet.
+    fake = FakeBackend()
+    prompt, _b, _d, _f, analysis_json = _run_node(
+        fake, first_frame_alignment=True,
+        first_frame_image=torch.rand((1, 96, 96, 3)),
+    )
+    assert prompt.startswith(
+        "For the target video, at 0.00 seconds into the target video, "
+        "<Picture 2> (from [Shot 1]) is fully referenced."
+    ), prompt[:140]
+    analysis = json.loads(analysis_json)
+    assert analysis["alignment_picture"] == "Picture 2"
+    assert analysis["has_first_frame_image"] is True
+
+
+def test_without_a_first_frame_image_picture_1_is_still_aligned():
+    fake = FakeBackend()
+    prompt, _b, _d, _f, analysis_json = _run_node(
+        fake, first_frame_alignment=True
+    )
+    assert "<Picture 1> (from [Shot 1]) is fully referenced." in prompt
+    assert json.loads(analysis_json)["alignment_picture"] == "Picture 1"
+
+
+def test_the_hybrid_first_frame_reaches_the_vlm_as_picture_2():
+    fake = FakeBackend()
+    _run_node(
+        fake, first_frame_alignment=True,
+        first_frame_image=torch.rand((1, 96, 96, 3)),
+    )
+    assert fake.image_labels[0].startswith("Reference image <Picture 1>")
+    assert fake.image_labels[1].startswith("Reference image <Picture 2>")
+    assert "opening frame" in fake.image_labels[1]
+    # <Picture 1> is flagged as not being a frame of the video.
+    assert "NOT a frame of the target video" in fake.image_labels[0]
+
+
+def test_the_hybrid_context_separates_the_two_pictures():
+    fake = FakeBackend()
+    _run_node(
+        fake, first_frame_alignment=True,
+        first_frame_image=torch.rand((1, 96, 96, 3)),
+    )
+    context = fake.first_user_text
+    assert "THE TWO PICTURES ARE NOT INTERCHANGEABLE" in context
+    assert "Never write that a shot begins from <Picture 1>" in context
+    # <Picture 2> gets the standalone entry and the retention line.
+    assert "<Picture 2> is the first frame of [Shot 1]" in context
+    assert "<Picture 2> ([Shot 1] first frame): fully_preserved" in context
+    # The image manifest names it too.
+    assert "The second image is <Picture 2>" in context
+
+
+def test_a_hybrid_keeps_picture_1_identity_only_language():
+    # Under a single-picture hook the assembler strips "supplies identity
+    # only" as a contradiction. In a hybrid that sentence is TRUE and has
+    # to survive, because <Picture 1> really does supply identity alone.
+    fake = FakeBackend()
+    fake.reply = CANNED.replace(
+        "<Video 1> supplies only the exact body movement",
+        "<Picture 1> supplies only identity and wardrobe. "
+        "<Video 1> supplies only the exact body movement",
+    )
+    prompt, _b, _d, _f, _a = _run_node(
+        fake, first_frame_alignment=True,
+        first_frame_image=torch.rand((1, 96, 96, 3)),
+    )
+    assert "<Picture 1> supplies only identity and wardrobe." in prompt
+
+
+def test_a_first_frame_image_without_the_toggle_warns():
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(
+        fake, first_frame_image=torch.rand((1, 96, 96, 3))
+    )
+    assert any(
+        "first_frame_image is connected" in w
+        for w in json.loads(analysis_json)["warnings"]
+    )
 
 
 def test_alignment_time_past_the_clip_is_clamped():

@@ -260,6 +260,12 @@ HOOK = (
 )
 
 
+def prompts_build_hook(seconds=0.0, shot=1, picture="Picture 2"):
+    """The official alignment sentence for a hybrid graph."""
+    from TrentNodes.utils.h3_prompt.prompts import build_alignment_hook
+    return build_alignment_hook(seconds, shot, picture)
+
+
 def _aligned_ctx(hook=HOOK, profile="official", append_exclusions=True):
     return AssemblyContext(
         subject_name="Aria Voss",
@@ -395,6 +401,37 @@ def test_alignment_keeps_retention_analysis_line_breaks():
     lines = body.split("\n")
     assert lines[0].startswith("<Subject 1> (appears in [Shot 1])")
     assert lines[1].startswith("<Video 1> (cut and pacing structure)")
+
+
+def test_the_aligned_picture_gets_its_own_line_when_it_has_none():
+    # <Picture 2> is a label of its own, so the positive statement must
+    # not be tacked onto whichever label happens to be last.
+    ctx = replace(
+        CTX,
+        alignment_hook=prompts_build_hook(),
+        alignment_picture="Picture 2",
+    )
+    body = process(GOOD, ctx).prompt.split(
+        "subject_definitions:\n", 1
+    )[1].split("\n\n", 1)[0]
+    lines = body.split("\n")
+    assert lines[-1].startswith("<Picture 2> is the target video frame")
+
+
+def test_a_hybrid_keeps_picture_1_identity_only_prose():
+    written = GOOD.replace(
+        "Do not copy the background, pose, or lighting from <Picture 1>.",
+        "<Picture 1> defines only Aria Voss's identity and wardrobe.",
+    )
+    ctx = replace(
+        CTX,
+        alignment_hook=prompts_build_hook(),
+        alignment_picture="Picture 2",
+    )
+    result = process(written, ctx)
+    # True in a hybrid graph, so it survives - the single-picture path
+    # strips exactly this sentence.
+    assert "<Picture 1> defines only Aria Voss's identity" in result.prompt
 
 
 def test_injected_wardrobe_lands_on_the_subject_line():
