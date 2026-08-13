@@ -61,9 +61,28 @@ function equal(name, actual, expected) {
 // A stand-in for a registered ComfyUI node
 // ---------------------------------------------------------------------------
 
+/* The shape /object_info hands the extension, trimmed to what it reads. */
+const NODE_DEF = {
+    name: "MultiLoadCowboy",
+    input: {
+        required: {
+            ...Object.fromEntries(SLOT_NAMES.map((n) => [
+                n, [[EMPTY, "a.png", "b.png", "c.png"], { default: EMPTY }],
+            ])),
+            width: ["INT", { default: 1024 }],
+            height: ["INT", { default: 1024 }],
+            resize_mode: [
+                ["stretch", "resize", "pad", "pad_edge", "crop", "total_pixels"],
+                { default: "pad" },
+            ],
+        },
+        optional: { device: [["cpu", "gpu"], { default: "cpu" }] },
+    },
+};
+
 function makeNodeType() {
     const nodeType = { prototype: {} };
-    app.extension.beforeRegisterNodeDef(nodeType, { name: "MultiLoadCowboy" });
+    app.extension.beforeRegisterNodeDef(nodeType, NODE_DEF);
     return nodeType;
 }
 
@@ -407,6 +426,55 @@ function readAll(node) {
     const untouched = [...saved];
     e.nodeType.prototype.configure.call(e.node, { widgets_values: untouched });
     equal("a healthy save is not touched", untouched, saved);
+}
+
+console.log("\nHealing a damaged node");
+
+{
+    /* Exactly what the old index/compaction shift left behind: combo
+       strings sitting in the number widgets. A number widget in that
+       state cannot be dragged or typed into at all. */
+    const { nodeType, node } = create();
+    const w = (n) => node.widgets.find((x) => x.name === n);
+    w("width").value = "(empty)";
+    w("height").value = "pad";
+    w("resize_mode").value = "lanczos";
+    w("image_1").value = 1024;
+
+    nodeType.prototype.configure.call(node, {});
+
+    equal("width comes back a number", w("width").value, 1024);
+    equal("height comes back a number", w("height").value, 1024);
+    equal("a bad combo goes to its default", w("resize_mode").value, "pad");
+    equal("a slot holding a number is emptied", w("image_1").value, EMPTY);
+}
+
+{
+    /* Healing must not touch anything valid, including a slot pointing
+       at a file that is no longer in the input folder. */
+    const { nodeType, node } = create();
+    const w = (n) => node.widgets.find((x) => x.name === n);
+    w("width").value = 768;
+    w("height").value = 0;
+    w("image_1").value = "gone_from_disk.png";
+    w("resize_mode").value = "crop";
+
+    nodeType.prototype.configure.call(node, {});
+
+    equal("a good number is left alone", w("width").value, 768);
+    equal("zero is a legal size", w("height").value, 0);
+    equal("a missing file keeps its name", w("image_1").value,
+        "gone_from_disk.png");
+    equal("a good combo is left alone", w("resize_mode").value, "crop");
+}
+
+{
+    /* Numeric text is worth keeping rather than throwing away. */
+    const { nodeType, node } = create();
+    const w = (n) => node.widgets.find((x) => x.name === n);
+    w("width").value = "512";
+    nodeType.prototype.configure.call(node, {});
+    equal("numeric text is read as a number", w("width").value, 512);
 }
 
 console.log("\nOther node types are untouched");

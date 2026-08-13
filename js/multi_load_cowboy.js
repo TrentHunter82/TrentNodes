@@ -1271,6 +1271,75 @@ function repairWidgetValues(node, info) {
     return dropped;
 }
 
+/**
+ * What each widget is allowed to hold, read from the node definition.
+ */
+function collectSpecs(nodeData) {
+    const specs = {};
+    for (const group of [nodeData?.input?.required, nodeData?.input?.optional]) {
+        for (const [name, entry] of Object.entries(group || {})) {
+            const [type, config = {}] = Array.isArray(entry) ? entry : [entry, {}];
+            specs[name] = {
+                kind: Array.isArray(type) ? "combo"
+                    : (type === "INT" || type === "FLOAT") ? "number" : "string",
+                values: Array.isArray(type) ? type : null,
+                fallback: config.default,
+            };
+        }
+    }
+    return specs;
+}
+
+/**
+ * Put back anything holding the wrong kind of value.
+ *
+ * A build that let saved values shift along could leave a combo string
+ * in width or height. A number widget in that state cannot be dragged or
+ * typed into at all - the first click turns it into undefined - so a
+ * node damaged that way has to be healed rather than left to the user.
+ *
+ * Image slots are only healed when they hold something that is not a
+ * string: a name that is simply missing from the input folder is kept,
+ * because the grid already shows that as a missing tile.
+ */
+function healWidgetValues(node, specs) {
+    const healed = [];
+    for (const widget of node.widgets || []) {
+        const spec = specs[widget.name];
+        if (!spec || widget.serialize === false) continue;
+        const value = widget.value;
+
+        if (spec.kind === "number") {
+            if (typeof value === "number" && Number.isFinite(value)) continue;
+            const asNumber = typeof value === "string" && value.trim() !== ""
+                ? Number(value) : NaN;
+            widget.value = Number.isFinite(asNumber)
+                ? asNumber
+                : (spec.fallback ?? 0);
+        } else if (SLOT_NAMES.includes(widget.name)) {
+            if (typeof value === "string" && value !== "") continue;
+            widget.value = EMPTY;
+        } else if (spec.kind === "combo") {
+            const values = Array.isArray(widget.options?.values)
+                ? widget.options.values : spec.values;
+            if (!values || values.includes(value)) continue;
+            widget.value = spec.fallback ?? values[0];
+        } else {
+            if (typeof value === "string") continue;
+            widget.value = spec.fallback ?? "";
+        }
+        healed.push(`${widget.name}=${JSON.stringify(value)}`);
+    }
+
+    if (healed.length) {
+        console.info(
+            "[MultiLoadCowboy] reset widgets holding the wrong kind of " +
+            `value: ${healed.join(", ")}`
+        );
+    }
+    return healed;
+}
+
 /* ------------------------------------------------------------------ */
 /* Extension                                                           */
 /* ------------------------------------------------------------------ */
@@ -1280,6 +1349,8 @@ app.registerExtension({
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_NAME) return;
+
+        const specs = collectSpecs(nodeData);
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
@@ -1372,7 +1443,17 @@ app.registerExtension({
             } catch (err) {
                 console.error("[MultiLoadCowboy] value repair failed", err);
             }
-            return configure ? configure.apply(this, arguments) : undefined;
+            const result = configure
+                ? configure.apply(this, arguments)
+                : undefined;
+            try {
+                if (healWidgetValues(this, specs).length) {
+                    this.mlcRefresh?.();
+                }
+            } catch (err) {
+                console.error("[MultiLoadCowboy] value heal failed", err);
+            }
+            return result;
         };
 
         const onConfigure = nodeType.prototype.onConfigure;
@@ -1382,6 +1463,11 @@ app.registerExtension({
                 : undefined;
             /* Widget values land after configure returns. */
             setTimeout(() => {
+                try {
+                    healWidgetValues(this, specs);
+                } catch (err) {
+                    console.error("[MultiLoadCowboy] value heal failed", err);
+                }
                 this.mlcRefresh?.();
                 this.mlcFitHeight?.();
             }, 0);

@@ -97,6 +97,24 @@ def parse_color(text: str) -> Tuple[float, float, float]:
     return (channels[0], channels[1], channels[2])
 
 
+def as_int(value, default: int = 0) -> int:
+    """
+    Read a size widget that might not hold a number.
+
+    A workflow saved by an older build of the grid can carry a combo
+    string where an INT belongs. Falling back to the default keeps such a
+    workflow running instead of failing on int("pad").
+    """
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return int(value)
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
 def round_to_divisor(value: int, divisor: int) -> int:
     """Round a dimension down to a multiple of divisor, never below it."""
     value = int(value)
@@ -550,6 +568,15 @@ class MultiLoadCowboy:
         device: str = "cpu",
         **kwargs,
     ):
+        width = as_int(width, 1024)
+        height = as_int(height, 1024)
+        divisible_by = as_int(divisible_by, 8)
+        if resize_mode not in RESIZE_MODES:
+            resize_mode = "pad"
+        if upscale_method not in UPSCALE_METHODS:
+            upscale_method = "lanczos"
+        if crop_position not in CROP_POSITIONS:
+            crop_position = "center"
         color = parse_color(pad_color)
 
         if device == "gpu" and upscale_method != "lanczos":

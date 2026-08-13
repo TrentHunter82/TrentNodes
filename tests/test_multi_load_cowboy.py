@@ -391,6 +391,30 @@ def test_is_changed():
     check("changes-with-the-slot", first != other)
 
 
+def test_poisoned_widget_values():
+    print("\n[node-7] a workflow with the wrong kind of value still runs")
+    name = write_image("poison.png", 320, 200)
+    patch_folder_paths()
+
+    check("as_int reads numbers", mlc.as_int(512, 8) == 512)
+    check("as_int reads numeric text", mlc.as_int("512", 8) == 512)
+    check("as_int falls back on a combo string",
+          mlc.as_int("(empty)", 1024) == 1024)
+    check("as_int falls back on None", mlc.as_int(None, 64) == 64)
+
+    # Exactly what an older shifted save left behind.
+    out = run_node([name], width="(empty)", height="pad",
+                   resize_mode="lanczos", upscale_method="center",
+                   crop_position="0, 0, 0", divisible_by="cpu")
+    images, count = out[0], out[2]
+    check("poisoned run still loads the image", count == 1, f"count {count}")
+    check(
+        "poisoned run falls back to the defaults",
+        tuple(images.shape) == (1, 1024, 1024, 3),
+        f"got {tuple(images.shape)}",
+    )
+
+
 def test_node_contract():
     print("\n[node-6] the node's declared shape")
     types_in = mlc.MultiLoadCowboy.INPUT_TYPES()
@@ -430,6 +454,7 @@ if __name__ == "__main__":
     test_mixed_sizes_batch()
     test_empty_and_missing()
     test_is_changed()
+    test_poisoned_widget_values()
     test_node_contract()
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     if FAIL:
