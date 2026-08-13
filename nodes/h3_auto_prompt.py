@@ -306,6 +306,35 @@ class H3AutoPromptGenerator:
                     "default": 0, "min": 0, "max": 0xFFFFFFFF,
                     "tooltip": "Passed to providers that support seeding"
                 }),
+                "music_source": (
+                    ["auto", "generate_score", "reuse_audio_1"], {
+                        "default": "auto",
+                        "tooltip": (
+                            "Where the music comes from, in music_video "
+                            "mode. auto: the song is declared as "
+                            "<Audio 1> when the audio input is "
+                            "connected, on the assumption that your H3 "
+                            "graph is fed the same file. That is the "
+                            "common case, not a guarantee - set it "
+                            "outright if you know. generate_score: H3 "
+                            "invents the track. reuse_audio_1: the "
+                            "track is supplied to H3 as <Audio 1>, even "
+                            "with nothing wired here."
+                        ),
+                    }),
+                "append_exclusions": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Append a trailing block of 'No ...' sentences "
+                        "after non_diegetic_music. OFF by default "
+                        "because it is not part of the official H3 "
+                        "format - no MiniMax guide mentions exclusions, "
+                        "and no official example writes anything after "
+                        "non_diegetic_music. Turn it on if you want the "
+                        "old behaviour: H3 has no negative-prompt "
+                        "field, so some workflows lean on it."
+                    ),
+                }),
             },
         }
 
@@ -319,8 +348,9 @@ class H3AutoPromptGenerator:
         "writes a production-ready Minimax H3 REF2VA prompt in the "
         "official six-section format. Selects keyframes on scene cuts "
         "and motion peaks, validates and repairs the VLM output "
-        "(shot times, <Subject 1> tagging, wardrobe mentions, "
-        "exclusions, 7000-char cap), and retries once with the "
+        "(shot times, <Subject 1> tagging, wardrobe mentions, the "
+        "mandatory summary task-type prefix, retention markers, and a "
+        "character budget), and retries once with the "
         "validator's error list when needed. Wire Cut Detective into "
         "cut_times to pin the [Shot N] timeline to real detected cuts, "
         "and switch first_frame_alignment on for I2V, where <Picture 1> "
@@ -355,6 +385,8 @@ class H3AutoPromptGenerator:
         music_description: str = "",
         alignment_time_seconds: float = 0.0,
         seed: int = 0,
+        music_source: str = "auto",
+        append_exclusions: bool = False,
     ) -> Tuple[str, str, float, int, str]:
         warnings = []
 
@@ -371,6 +403,21 @@ class H3AutoPromptGenerator:
                 "lyrics/music_description are set but music_video is "
                 "off; they were ignored"
             )
+        if not music_video and music_source != "auto":
+            warnings.append(
+                f"music_source is '{music_source}' but music_video is "
+                "off; it was ignored"
+            )
+
+        # Does the song reach H3 itself as <Audio 1>? 'auto' infers it
+        # from a connected audio input - if you have the file, your H3
+        # graph is usually being fed it too. That is the common case,
+        # not a guarantee, so the two explicit values override it. Guess
+        # wrong and the prompt cites an <Audio 1> H3 never receives.
+        music_is_reference = music_video and (
+            music_source == "reuse_audio_1"
+            or (music_source == "auto" and audio is not None)
+        )
 
         images, real_fps, duration_source = self._resolve_frames(
             video, frames, fps, warnings
@@ -428,6 +475,12 @@ class H3AutoPromptGenerator:
             )
         )
 
+        # The mandatory summary prefix, from what this run actually uses.
+        task_type = prompts.build_task_type(
+            music_is_reference=music_is_reference,
+            first_frame_alignment=bool(alignment_hook),
+        )
+
         # Backend first: what it can actually take - a whole clip, an
         # audio track, or only stills - shapes both the payload and the
         # task context built below.
@@ -483,9 +536,8 @@ class H3AutoPromptGenerator:
             music_video=music_video,
             lyrics=lyrics,
             music_description=music_description,
-            # A connected audio input means the user has the actual
-            # song, so the H3 graph is being fed it as <Audio 1> too.
-            music_is_reference=music_video and audio is not None,
+            music_is_reference=music_is_reference,
+            task_type=task_type,
         )
 
         profiles = (
@@ -510,6 +562,9 @@ class H3AutoPromptGenerator:
                 alignment_hook=alignment_hook,
                 music_video=music_video,
                 lyrics=lyrics,
+                music_is_reference=music_is_reference,
+                task_type=task_type,
+                append_exclusions=append_exclusions,
             )
             result, attempts, usage = self._run_variant(
                 backend, profile, vlm_images, user_context, ctx, seed,
@@ -544,7 +599,10 @@ class H3AutoPromptGenerator:
             "cut_kinds": measured_kinds,
             "alignment_hook": alignment_hook,
             "music_video": music_video,
-            "music_is_reference": music_video and audio is not None,
+            "music_is_reference": music_is_reference,
+            "music_source": music_source,
+            "task_type": task_type,
+            "append_exclusions": append_exclusions,
             "diff_stats": keyframes.diff_stats,
             "detection_method": keyframes.method,
             "provider": vlm_provider,

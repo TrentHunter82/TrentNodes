@@ -91,6 +91,14 @@ def load_image(path: str) -> torch.Tensor:
     return torch.from_numpy(arr).unsqueeze(0)
 
 
+def _maybe_file(value: str) -> str:
+    """Read '@path' as a file; anything else is the literal value."""
+    if value.startswith("@"):
+        with open(value[1:], "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--video", required=True)
@@ -137,11 +145,49 @@ def main():
     parser.add_argument("--max-frames", type=int, default=8)
     parser.add_argument("--dialogue", default="")
     parser.add_argument("--no-audio", action="store_true")
+
+    # The three inputs Cut Detective feeds. Without these the measured
+    # cut hand-off, the alignment hook and music-video mode could only
+    # be exercised against the FakeBackend.
+    parser.add_argument(
+        "--cut-times", default="",
+        help="measured shot list, in any form Cut Detective emits: "
+             "\"0.0, 1.5, 3.0\", a pasted shot table, or its cuts_json. "
+             "Use @path to read a file.",
+    )
+    parser.add_argument(
+        "--first-frame-alignment", action="store_true",
+        help="declare <Picture 1> as a real frame of the target video "
+             "rather than an identity reference",
+    )
+    parser.add_argument(
+        "--alignment-time", type=float, default=0.0,
+        help="where <Picture 1> lands, in seconds. 0.0 emits the "
+             "official I2VA sentence; any other value the L2VA one",
+    )
+    parser.add_argument("--music-video", action="store_true")
+    parser.add_argument(
+        "--music-source", default="auto",
+        choices=["auto", "generate_score", "reuse_audio_1"],
+        help="whether the song reaches H3 itself as <Audio 1>",
+    )
+    parser.add_argument("--lyrics", default="", help="@path also works")
+    parser.add_argument("--music-description", default="")
+    parser.add_argument(
+        "--append-exclusions", action="store_true",
+        help="append the off-spec trailing 'No ...' block. Off by "
+             "default: no MiniMax guide writes anything after "
+             "non_diegetic_music. Pair with --profile both_ab to A/B it.",
+    )
+
     parser.add_argument(
         "--json", action="store_true",
         help="also print the frame_analysis_json",
     )
     args = parser.parse_args()
+
+    args.cut_times = _maybe_file(args.cut_times)
+    args.lyrics = _maybe_file(args.lyrics)
 
     frames, fps = load_video(args.video)
     reference = load_image(args.reference)
@@ -174,6 +220,14 @@ def main():
         audio=audio,
         api_key=args.api_key,
         dialogue=args.dialogue,
+        cut_times=args.cut_times,
+        first_frame_alignment=args.first_frame_alignment,
+        alignment_time_seconds=args.alignment_time,
+        music_video=args.music_video,
+        music_source=args.music_source,
+        lyrics=args.lyrics,
+        music_description=args.music_description,
+        append_exclusions=args.append_exclusions,
     )
 
     label_a = "official" if args.profile in ("official", "both_ab") else args.profile

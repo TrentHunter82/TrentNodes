@@ -1,13 +1,15 @@
 """
 Film-strip contact sheet for a detected shot list.
 
-Renders one labelled thumbnail per shot on sprocketed film rows, colour
-coded by how each shot is entered, over a proportional timeline ribbon
-that shows shot lengths and where the cuts land. Returns a ComfyUI IMAGE
+Renders labelled thumbnails on sprocketed film rows, colour coded by how
+each shot is entered, over a proportional timeline ribbon that shows shot
+lengths and where the cuts land. One thumbnail per shot by default;
+thumbs_per_shot samples further into long shots. Returns a ComfyUI IMAGE
 tensor so it can go straight into Preview Image or Save Image.
 """
 
 import os
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -25,12 +27,18 @@ SPROCKET_H = 16
 HEADER_H = 74
 RIBBON_H = 66
 MAX_SHEET_WIDTH = 2400
+# Ceiling on thumbnails per sheet. thumbs_per_shot degrades against it
+# rather than any shot being dropped.
+MAX_CARDS = 240
 
 BG = (18, 18, 20)
 FILM_BASE = (32, 32, 36)
 SPROCKET = (12, 12, 14)
 TEXT = (238, 238, 240)
 TEXT_DIM = (150, 150, 158)
+# Warning amber, for the subtitle note when the detector the user asked
+# for never ran.
+FALLBACK_COLOR = (255, 168, 64)
 
 # One colour per boundary kind, used on the card's top edge, its label
 # text, and its tick on the ribbon.
@@ -111,6 +119,80 @@ def _shot_caption(shot: Shot) -> Tuple[str, str]:
     return headline, f"{entry}   ({shot.duration:.2f}s)"
 
 
+@dataclass
+class _Card:
+    """One thumbnail on the sheet."""
+    shot: Shot
+    frame: int
+    lead: bool   # first card of its shot: coloured edge, full caption
+
+
+def _plan_cards(
+    shots: ShotList, thumbs_per_shot: int, max_cards: int = MAX_CARDS
+) -> Tuple[List[_Card], int]:
+    """
+    Choose which frames to show. Returns (cards, thumbs_actually_used).
+
+    The first card of a shot is always its start frame - the frame right
+    after the cut is what tells you the cut is real. Later cards are the
+    centres of equal slices. A shot with fewer frames than thumbs asked
+    for emits one card per frame rather than repeating one.
+
+    When the budget is tight the thumbs per shot degrade; a shot is
+    never dropped, because a missing shot misrepresents the detection.
+    """
+    count = max(1, len(shots.shots))
+    per = max(1, min(int(thumbs_per_shot), max_cards // count))
+
+    cards: List[_Card] = []
+    for shot in shots.shots:
+        span = max(1, shot.frame_count)
+        n = max(1, min(per, span))
+        cards.append(_Card(shot, shot.start_frame, True))
+        for i in range(1, n):
+            # Centre of slice i, so the samples spread across the shot.
+            offset = int(span * (i + 0.5) / n)
+            cards.append(
+                _Card(shot, shot.start_frame + min(offset, span - 1), False)
+            )
+    return cards, per
+
+
+def _ribbon_segments(
+    shots: ShotList,
+) -> List[Tuple[float, float, Tuple[int, int, int], bool]]:
+    """
+    Tile [0, duration] with no gaps: (start, end, colour, is_transition).
+
+    A transition's frames belong to no Shot - the shot starts where the
+    effect ends - so drawing shots alone left a hole at every dissolve.
+    Each transition is emitted as its own brighter slice, which reads as
+    a ramp rather than as missing footage.
+    """
+    segments = []
+    cursor = 0.0
+    for shot in shots.shots:
+        color = _kind_color(shot.entry)
+        if shot.transition_frames:
+            span = shot.transition_frames
+            t0 = max(cursor, span[0] / shot.fps)
+            t1 = min(shot.start_time, span[1] / shot.fps)
+            if t1 > cursor:
+                if t0 > cursor:
+                    segments.append((cursor, t0, _kind_color("start"), False))
+                segments.append((max(t0, cursor), t1, color, True))
+                cursor = t1
+        if shot.start_time > cursor:
+            # No labelled transition, but a gap all the same: hand it to
+            # the incoming shot so the bar stays continuous.
+            segments.append((cursor, shot.start_time, color, True))
+        segments.append((shot.start_time, shot.end_time, color, False))
+        cursor = max(cursor, shot.end_time)
+    if shots.duration > cursor and segments:
+        segments.append((cursor, shots.duration, segments[-1][2], False))
+    return segments
+
+
 def _draw_ribbon(
     draw: ImageDraw.ImageDraw, shots: ShotList, x0: int, y0: int, width: int
 ):
@@ -125,15 +207,21 @@ def _draw_ribbon(
 
     draw.rectangle([x0, y0, x0 + width, y0 + bar_h], fill=(40, 40, 46))
 
+    for start, end, color, is_transition in _ribbon_segments(shots):
+        seg_x0 = x0 + int(width * start / duration)
+        seg_x1 = x0 + int(width * end / duration)
+        # A transition slice reads brighter than the shot it opens, and
+        # gets a 2px floor - a 4-frame dissolve is sub-pixel otherwise.
+        scale = 0.72 if is_transition else 0.42
+        shade = tuple(int(c * scale) for c in color)
+        floor = 2 if is_transition else 1
+        draw.rectangle([seg_x0, y0, max(seg_x1, seg_x0 + floor), y0 + bar_h],
+                       fill=shade)
+
     label_slots: List[Tuple[int, int]] = []
     for shot in shots.shots:
         seg_x0 = x0 + int(width * shot.start_time / duration)
-        seg_x1 = x0 + int(width * shot.end_time / duration)
         color = _kind_color(shot.entry)
-        shade = tuple(int(c * 0.42) for c in color)
-        draw.rectangle([seg_x0, y0, max(seg_x1, seg_x0 + 1), y0 + bar_h],
-                       fill=shade)
-
         if shot.index == 1:
             continue
         draw.rectangle([seg_x0 - 1, y0 - 4, seg_x0 + 1, y0 + bar_h + 4],
@@ -161,6 +249,7 @@ def render_film_strip(
     columns: int = 0,
     show_timeline: bool = True,
     title: Optional[str] = None,
+    thumbs_per_shot: int = 1,
 ) -> torch.Tensor:
     """
     Render the contact sheet.
@@ -186,13 +275,17 @@ def render_film_strip(
     card_w = thumb_width
     card_h = thumb_h + LABEL_H
 
-    if columns and columns > 0:
-        cols = int(columns)
-    else:
-        usable = MAX_SHEET_WIDTH - 2 * PAGE_PAD
-        cols = max(1, (usable + CARD_GAP) // (card_w + CARD_GAP))
-    cols = max(1, min(cols, len(shots.shots)))
-    rows = (len(shots.shots) + cols - 1) // cols
+    cards, thumbs_used = _plan_cards(shots, thumbs_per_shot)
+
+    # The width cap used to apply only when fitting automatically, so an
+    # explicit columns=32 at thumb_width=640 rendered a 20,838px sheet
+    # that no preview could show.
+    fit_cols = max(
+        1, (MAX_SHEET_WIDTH - 2 * PAGE_PAD + CARD_GAP) // (card_w + CARD_GAP)
+    )
+    cols = min(int(columns), fit_cols) if columns and columns > 0 else fit_cols
+    cols = max(1, min(cols, len(cards)))
+    rows = (len(cards) + cols - 1) // cols
 
     strip_w = cols * card_w + (cols - 1) * CARD_GAP
     row_h = card_h + 2 * SPROCKET_H
@@ -216,15 +309,28 @@ def render_film_strip(
         f"{shots.duration:.2f}s at {shots.fps:.2f} fps  |  "
         f"detector: {shots.detector}"
     )
+    if thumbs_used < int(thumbs_per_shot):
+        # Never silently: the sheet shows fewer frames than was asked.
+        subtitle += f"  |  {thumbs_used}/{int(thumbs_per_shot)} thumbs per shot"
+    subtitle_font = _load_font(14)
     draw.text((PAGE_PAD, PAGE_PAD + 26), subtitle,
-              font=_load_font(14), fill=TEXT_DIM)
+              font=subtitle_font, fill=TEXT_DIM)
+    # Someone reading the sheet must not have to open the report to
+    # learn that the detector they asked for never ran.
+    if shots.fallback:
+        draw.text(
+            (PAGE_PAD + draw.textlength(subtitle, font=subtitle_font),
+             PAGE_PAD + 26),
+            f"  (fell back from {shots.requested})",
+            font=subtitle_font, fill=FALLBACK_COLOR,
+        )
 
     head_font = _load_font(14, bold=True)
     detail_font = _load_font(13)
 
     y = HEADER_H
     for row in range(rows):
-        row_shots = shots.shots[row * cols:(row + 1) * cols]
+        row_cards = cards[row * cols:(row + 1) * cols]
         _draw_sprockets(draw, PAGE_PAD, y, PAGE_PAD + strip_w, y + SPROCKET_H)
         body_y = y + SPROCKET_H
         draw.rectangle(
@@ -232,23 +338,32 @@ def render_film_strip(
             fill=FILM_BASE,
         )
 
-        for col, shot in enumerate(row_shots):
+        for col, card in enumerate(row_cards):
+            shot = card.shot
             x = PAGE_PAD + col * (card_w + CARD_GAP)
             sheet.paste(
-                _frame_to_pil(images, shot.start_frame,
-                              (thumb_width, thumb_h)),
+                _frame_to_pil(images, card.frame, (thumb_width, thumb_h)),
                 (x, body_y),
             )
 
             color = _kind_color(shot.entry)
-            # Coloured top edge: the cut this shot is entered through.
-            draw.rectangle([x, body_y, x + card_w - 1, body_y + 3], fill=color)
-
-            headline, detail = _shot_caption(shot)
-            draw.text((x + 6, body_y + thumb_h + 5), headline,
-                      font=head_font, fill=TEXT)
-            draw.text((x + 6, body_y + thumb_h + 22), detail,
-                      font=detail_font, fill=color)
+            if card.lead:
+                # Coloured top edge: the cut this shot is entered
+                # through. Only the lead card gets one, so a boundary
+                # stays the only coloured edge even when a shot wraps
+                # across rows.
+                draw.rectangle([x, body_y, x + card_w - 1, body_y + 3],
+                               fill=color)
+                headline, detail = _shot_caption(shot)
+                draw.text((x + 6, body_y + thumb_h + 5), headline,
+                          font=head_font, fill=TEXT)
+                draw.text((x + 6, body_y + thumb_h + 22), detail,
+                          font=detail_font, fill=color)
+            else:
+                within = card.frame / max(shot.fps, 1e-6)
+                draw.text((x + 6, body_y + thumb_h + 5),
+                          format_timecode(within),
+                          font=detail_font, fill=TEXT_DIM)
 
         _draw_sprockets(draw, PAGE_PAD, body_y + card_h,
                         PAGE_PAD + strip_w, body_y + card_h + SPROCKET_H)

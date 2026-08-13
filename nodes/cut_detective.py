@@ -110,13 +110,49 @@ class CutDetective:
                     "default": "",
                     "tooltip": "Film-strip header. Blank uses a default.",
                 }),
+                "thumbs_per_shot": ("INT", {
+                    "default": 1, "min": 1, "max": 8,
+                    "tooltip": (
+                        "Thumbnails sampled from each shot. 1 shows "
+                        "only the frame after the cut. Raise it to see "
+                        "what happens inside a long shot. Shots are "
+                        "never dropped to fit; the count degrades "
+                        "instead, and the sheet says so."
+                    ),
+                }),
+                "omnishotcut_overlap": ("INT", {
+                    "default": 20, "min": 0, "max": 90,
+                    "tooltip": (
+                        "Frames of overlap between OmniShotCut's "
+                        "100-frame inference windows. This is the knob "
+                        "that actually changes its results, since it "
+                        "predicts shot ranges directly and ignores "
+                        "sensitivity. Raise it if boundaries near a "
+                        "window edge look wrong; it costs proportional "
+                        "time. No effect on the other detectors."
+                    ),
+                }),
+                "fallback_policy": (["cascade", "neural_only", "strict"], {
+                    "default": "cascade",
+                    "tooltip": (
+                        "How far 'auto' may fall when a detector is "
+                        "unavailable. cascade tries all three. "
+                        "neural_only refuses the classic detector, which "
+                        "misses gradual boundaries and invents short "
+                        "shots. strict demands omnishotcut and errors "
+                        "instead of substituting. Ignored when you name "
+                        "a detector."
+                    ),
+                }),
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING", "STRING", "INT")
+    RETURN_TYPES = (
+        "STRING", "STRING", "IMAGE", "STRING", "STRING", "INT", "STRING",
+    )
     RETURN_NAMES = (
         "cut_times", "shot_table", "film_strip", "report", "cuts_json",
-        "num_shots",
+        "num_shots", "detector_used",
     )
     FUNCTION = "detect"
     CATEGORY = "Trent/Video"
@@ -142,7 +178,10 @@ class CutDetective:
         frames: Optional[torch.Tensor] = None,
         fps: float = 24.0,
         title: str = "",
-    ) -> Tuple[str, str, torch.Tensor, str, str, int]:
+        thumbs_per_shot: int = 1,
+        omnishotcut_overlap: int = 20,
+        fallback_policy: str = "cascade",
+    ) -> Tuple[str, str, torch.Tensor, str, str, int, str]:
         images, real_fps = self._resolve_frames(video, frames, fps)
         print(
             f"{LOG_PREFIX} analyzing {images.shape[0]} frames @ "
@@ -155,10 +194,30 @@ class CutDetective:
             detector=detector,
             sensitivity=sensitivity,
             min_shot_frames=min_shot_frames,
+            overlap=omnishotcut_overlap,
+            fallback_policy=fallback_policy,
         )
 
+        # Turning a knob that does nothing is a reasonable complaint.
+        # Say so where the other findings are, rather than hiding the
+        # widget from the canvas.
+        if shots.detector == "omnishotcut" and abs(sensitivity - 0.5) > 1e-6:
+            shots.notes.append(
+                "sensitivity was moved but omnishotcut predicts shot "
+                "ranges directly and ignores it; use min_shot_frames or "
+                "omnishotcut_overlap on this path"
+            )
+
+        # A fallback changes what every other output means, so it is a
+        # warning, not a note.
+        level = "WARNING:" if shots.fallback else "note:"
         for note in shots.notes:
-            print(f"{LOG_PREFIX} note: {note}")
+            print(f"{LOG_PREFIX} {level} {note}")
+        if shots.fallback:
+            print(
+                f"{LOG_PREFIX} WARNING: asked for '{shots.requested}', "
+                f"ran '{shots.detector}'"
+            )
         print(
             f"{LOG_PREFIX} {shots.detector} found {len(shots.shots)} shots "
             f"({shots.num_cuts} cuts) in {shots.duration:.3f}s"
@@ -170,6 +229,7 @@ class CutDetective:
             columns=columns,
             show_timeline=show_timeline,
             title=title.strip() or None,
+            thumbs_per_shot=thumbs_per_shot,
         )
 
         return (
@@ -179,6 +239,7 @@ class CutDetective:
             format_report(shots),
             shots_to_json(shots),
             len(shots.shots),
+            shots.detector,
         )
 
     def _resolve_frames(

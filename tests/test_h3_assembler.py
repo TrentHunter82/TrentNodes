@@ -8,6 +8,7 @@ no ComfyUI. Run from the ComfyUI root:
 import os
 import sys
 import types
+from dataclasses import replace
 
 ROOT = "/home/trent/ComfyUI"
 PKG = os.path.join(ROOT, "custom_nodes", "TrentNodes")
@@ -42,6 +43,17 @@ CTX = AssemblyContext(
     duration_seconds=6.0,
 )
 
+
+def _excl_ctx(**overrides):
+    """
+    CTX with the off-spec trailing exclusion block turned on.
+
+    The block is opt-in because no official example writes anything
+    after non_diegetic_music, so the tests that exercise it have to ask
+    for it. See the prompts module docstring.
+    """
+    return replace(CTX, append_exclusions=True, **overrides)
+
 GOOD = """subject_definitions:
 <Subject 1> is Aria Voss as shown in <Picture 1>. Preserve Aria Voss's exact facial identity, dark hair, skin tone, facial structure, apparent age, body proportions, and overall likeness. <Picture 1> also provides the exact wardrobe: a charcoal utility jacket over a slate-gray tee, black cargo pants, and scuffed black combat boots. Do not copy the background, pose, or lighting from <Picture 1>. <Video 1> supplies only the exact body movement, camera angles, framing, cut rhythm, and overall action. Do not copy any identity or facial features from the performer in <Video 1>.
 
@@ -70,9 +82,15 @@ def test_good_output_passes():
     assert result.prompt.startswith("subject_definitions:")
     for key in SECTION_ORDER:
         assert f"{key}:" in result.prompt, f"missing {key}"
-    # Exclusions padded from 4 up to the minimum
-    exclusion_count = result.prompt.count("No ")
-    assert exclusion_count >= MIN_EXCLUSIONS
+    # The official format ends at non_diegetic_music, so the model's
+    # trailing "No ..." block is dropped rather than padded.
+    assert result.prompt.rstrip().endswith("N/A"), result.prompt[-120:]
+    assert any("dropped" in f and "No ..." in f for f in result.applied_fixes)
+
+
+def test_exclusions_are_padded_when_asked_for():
+    result = process(GOOD, _excl_ctx())
+    assert result.prompt.count("No ") >= MIN_EXCLUSIONS
     assert "padded exclusions from stock pool" in result.applied_fixes
 
 
@@ -189,7 +207,27 @@ def test_char_cap_trim_ladder():
     )
     result = process(bloated, CTX)
     assert result.char_count <= 7000, result.char_count
-    assert any("trimmed non_diegetic_music" in f for f in result.applied_fixes)
+    assert any(
+        "shortened non_diegetic_music" in f for f in result.applied_fixes
+    ), result.applied_fixes
+    # It must shorten the score, not blank it: "N/A" is the guide's
+    # value for "there is no non-diegetic music", so writing it to save
+    # characters asserts a silence that is not true.
+    assert "non_diegetic_music:\nA sweeping orchestral score." in result.prompt
+
+
+def test_the_trim_ladder_never_blanks_a_music_video_score():
+    bloated = GOOD.replace(
+        "non_diegetic_music:\nN/A",
+        "non_diegetic_music:\n" + ("A driving synth pulse. " * 400),
+    )
+    result = process(bloated, replace(CTX, music_video=True))
+    music = result.prompt.split("non_diegetic_music:\n", 1)[1].strip()
+    assert not music.upper().startswith("N/A"), music[:80]
+    # And the music-video validator must not fire on text the ladder
+    # produced; it now runs after the ladder, on the final wording.
+    assert not any("non_diegetic_music is 'N/A'" in e
+                   for e in result.retry_errors), result.retry_errors
 
 
 def test_audio_disabled():
@@ -222,13 +260,14 @@ HOOK = (
 )
 
 
-def _aligned_ctx(hook=HOOK, profile="official"):
+def _aligned_ctx(hook=HOOK, profile="official", append_exclusions=True):
     return AssemblyContext(
         subject_name="Aria Voss",
         subject_wardrobe=CTX.subject_wardrobe,
         duration_seconds=6.0,
         profile=profile,
         alignment_hook=hook,
+        append_exclusions=append_exclusions,
     )
 
 
@@ -254,7 +293,7 @@ CONTRADICTING = (
 def test_alignment_drops_the_contradicting_exclusion():
     written = GOOD.rstrip() + CONTRADICTING
 
-    plain = process(written, CTX)
+    plain = process(written, _excl_ctx())
     assert "No copying of the background" in plain.prompt
 
     aligned = process(written, _aligned_ctx())
@@ -296,6 +335,83 @@ def test_alignment_removes_the_contradicting_prose():
     # The identity lock is untouched.
     assert "Aria Voss" in aligned.prompt
     assert "charcoal utility jacket" in aligned.prompt
+
+
+def _aligned_subject_definitions(body):
+    """Run one subject_definitions body through the alignment repair."""
+    written = GOOD.split("summary:", 1)[1]
+    return process(
+        f"subject_definitions:\n{body}\n\nsummary:{written}", _aligned_ctx()
+    )
+
+
+def test_alignment_removes_a_pronoun_follow_on():
+    # The denial lands in a second sentence that names no tag at all.
+    result = _aligned_subject_definitions(
+        "<Subject 1> is Aria Voss as shown in <Picture 1>. "
+        "Its background and lighting must not be reproduced. "
+        "<Video 1> supplies the motion."
+    )
+    assert "must not be reproduced" not in result.prompt, result.prompt[:400]
+    assert "<Video 1> supplies the motion." in result.prompt
+
+
+def test_alignment_keeps_an_unrelated_ignore_sentence():
+    # "Ignore" governs the camera shake, not the framing. The old
+    # unanchored \bignore\b deleted this correct sentence.
+    result = _aligned_subject_definitions(
+        "<Subject 1> is Aria Voss as shown in <Picture 1>. "
+        "Ignore any camera shake in <Video 1> while keeping the framing "
+        "from <Picture 1>."
+    )
+    assert "Ignore any camera shake" in result.prompt
+
+
+def test_alignment_removes_a_passive_denial():
+    result = _aligned_subject_definitions(
+        "<Subject 1> is Aria Voss as shown in <Picture 1>. "
+        "The background and lighting of <Picture 1> are not copied."
+    )
+    assert "are not copied" not in result.prompt
+
+
+def test_alignment_keeps_retention_analysis_line_breaks():
+    retention = (
+        "<Subject 1> (appears in [Shot 1]): fully_preserved - identity.\n"
+        "<Picture 1> supplies only identity and wardrobe.\n"
+        "<Video 1> (cut and pacing structure): attribute_transfer - motion."
+    )
+    written = GOOD.replace(
+        GOOD.split("retention_analysis:\n", 1)[1].split("\n\n", 1)[0],
+        retention,
+    )
+    result = process(written, _aligned_ctx())
+    body = result.prompt.split("retention_analysis:\n", 1)[1].split(
+        "\n\n", 1
+    )[0]
+    # The denial goes; the other two labels keep their own lines.
+    assert "supplies only identity" not in body, body
+    assert body.count("\n") == 1, repr(body)
+    lines = body.split("\n")
+    assert lines[0].startswith("<Subject 1> (appears in [Shot 1])")
+    assert lines[1].startswith("<Video 1> (cut and pacing structure)")
+
+
+def test_injected_wardrobe_lands_on_the_subject_line():
+    bare = (
+        "<Subject 1> (appears in [Shot 1]): fully_preserved - identity.\n"
+        "<Video 1> (cut and pacing structure): attribute_transfer - motion."
+    )
+    written = GOOD.replace(
+        GOOD.split("retention_analysis:\n", 1)[1].split("\n\n", 1)[0], bare
+    )
+    result = process(written, CTX)
+    body = result.prompt.split("retention_analysis:\n", 1)[1].split(
+        "\n\n", 1
+    )[0]
+    subject_line, video_line = body.split("\n")
+    assert "charcoal utility jacket" in subject_line, body
+    assert "charcoal utility jacket" not in video_line, body
 
 
 def test_alignment_leaves_unrelated_prose_byte_identical():

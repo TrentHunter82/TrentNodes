@@ -86,15 +86,19 @@ def run(images, fps, detector, args):
     shots = detect_shots(
         images, fps=fps, detector=detector,
         sensitivity=args.sensitivity, min_shot_frames=args.min_shot_frames,
+        overlap=args.overlap, fallback_policy=args.fallback_policy,
     )
     elapsed = time.time() - started
 
     print(f"\n{'=' * 62}\n{detector}  ({elapsed:.2f}s)\n{'=' * 62}")
+    if shots.fallback:
+        print(f"FALLBACK: asked for {shots.requested}, ran {shots.detector}")
     print(format_report(shots))
     print(f"\ncut_times: {format_cut_times(shots)}")
 
     strip = render_film_strip(
         images, shots, thumb_width=args.thumb_width,
+        thumbs_per_shot=args.thumbs_per_shot,
         title=f"{os.path.basename(args.video)} - {shots.detector}",
     )
     out = os.path.join(
@@ -127,6 +131,21 @@ def main():
     parser.add_argument("--min-shot-frames", type=int, default=4)
     parser.add_argument("--thumb-width", type=int, default=240)
     parser.add_argument(
+        "--thumbs-per-shot", type=int, default=1,
+        help="thumbnails sampled from each shot; 1 shows only the "
+             "frame after the cut",
+    )
+    parser.add_argument(
+        "--overlap", type=int, default=20,
+        help="OmniShotCut inference-window overlap in frames. The knob "
+             "that actually moves its results; sensitivity does not",
+    )
+    parser.add_argument(
+        "--fallback-policy", default="cascade",
+        choices=["cascade", "neural_only", "strict"],
+        help="how far 'auto' may fall when a detector is unavailable",
+    )
+    parser.add_argument(
         "--max-side", type=int, default=640,
         help="downscale on decode; detection resizes internally anyway",
     )
@@ -158,8 +177,9 @@ def main():
             kinds = {}
             for shot in shots.shots[1:]:
                 kinds[shot.entry] = kinds.get(shot.entry, 0) + 1
+            ran = "" if shots.detector == name else f" (ran {shots.detector})"
             print(
-                f"{name:13s} {len(shots.shots):3d} shots  "
+                f"{name:13s}{ran} {len(shots.shots):3d} shots  "
                 + (", ".join(f"{n}x {k}" for k, n in sorted(kinds.items()))
                    or "no cuts")
             )

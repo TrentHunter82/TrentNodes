@@ -10,7 +10,7 @@ work - no torch, no ComfyUI - so it is testable offline.
 import json
 import re
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .detectors import ShotList
 
@@ -93,6 +93,15 @@ def format_report(shots: ShotList) -> str:
         "Cut Detective - shot boundary report",
         "=" * 38,
         f"Detector:  {shots.detector}",
+    ]
+    # A fallback used to be visible only as one note among several, far
+    # below the numbers it invalidates. It belongs at the top.
+    if shots.fallback:
+        header.append(
+            f"FALLBACK:  asked for {shots.requested}, ran "
+            f"{shots.detector} - see Notes"
+        )
+    header += [
         f"Duration:  {shots.duration:.3f}s at {shots.fps:.3f} fps "
         f"({shots.total_frames} frames)",
         f"Shots:     {len(shots.shots)}  ({shots.num_cuts} cuts)",
@@ -117,6 +126,8 @@ def shots_to_json(shots: ShotList) -> str:
     """Structured dump, including the detector's untouched labels."""
     payload = {
         "detector": shots.detector,
+        "requested_detector": shots.requested,
+        "fallback": shots.fallback,
         "fps": round(shots.fps, 6),
         "total_frames": shots.total_frames,
         "duration_seconds": shots.duration,
@@ -168,13 +179,47 @@ def _kind_in(text: str) -> Optional[str]:
     return None
 
 
-def _from_json(text: str) -> Optional[List[ParsedCut]]:
-    """Read Cut Detective's JSON, a bare list of numbers, or neither."""
-    try:
-        data = json.loads(text)
-    except (ValueError, TypeError):
-        return None
+# What may legitimately sit around the times on a list line once the
+# times and any kind words are removed: separators, the "s" of "2.500s",
+# and the hyphen of the legacy "[0.000s-3.250s]" range form. A pipe is
+# absent on purpose - it marks a shot-table row, not a list.
+_LIST_RESIDUE_RE = re.compile(r"^[\s,;:\[\]{}()\-s]*$", re.IGNORECASE)
+# KIND_WORDS is ordered longest-first, so this alternation strips
+# "hard cut" before it can strip a bare "cut".
+_KIND_STRIP_RE = re.compile(
+    "|".join(re.escape(word) for word, _ in KIND_WORDS), re.IGNORECASE
+)
 
+
+def _is_time_list(cleaned: str) -> bool:
+    """
+    True when a line carries nothing but times, kinds and separators.
+
+    This replaced a "the whole input is one line" test, which silently
+    dropped every token but the first once a hand-typed list wrapped
+    onto a second line.
+    """
+    residue = _KIND_STRIP_RE.sub(" ", _TIME_RE.sub(" ", cleaned))
+    return bool(_LIST_RESIDUE_RE.match(residue))
+
+
+def _load_json(text: str) -> Tuple[bool, object]:
+    """
+    (True, data) when the text is JSON, (False, None) when it is not.
+
+    Kept separate from reading cuts out of it on purpose. The two
+    questions used to share one falsy return, so a valid payload that
+    simply held no cuts was retried as plain text - and the text reader
+    scraped "fps": 24.0 out of the JSON and called it a cut at 24s.
+    """
+    try:
+        return True, json.loads(text)
+    except (ValueError, TypeError):
+        return False, None
+
+
+def _cuts_from_json(data: object) -> List[ParsedCut]:
+    """Read Cut Detective's JSON or a bare list. [] when it holds none."""
     if isinstance(data, dict):
         if isinstance(data.get("shots"), list):
             cuts = []
@@ -188,15 +233,16 @@ def _from_json(text: str) -> Optional[List[ParsedCut]]:
                     float(time), str(entry.get("entry") or "hard cut")
                 ))
             return cuts
-        for key in ("cut_times", "hard_cut_times", "cuts", "times"):
+        for key in ("cut_times", "hard_cut_times", "cuts", "times",
+                    "shot_times", "boundaries"):
             if isinstance(data.get(key), list):
                 data = data[key]
                 break
         else:
-            return None
+            return []
 
     if not isinstance(data, list):
-        return None
+        return []
 
     cuts = []
     for entry in data:
@@ -238,15 +284,20 @@ def parse_cut_times(text: str) -> List[ParsedCut]:
     "[0.000s-3.250s]" form reads as two boundaries. Times past the end
     of the clip are the caller's to drop - this function has no duration
     to check them against.
+
+    Two rules worth knowing. Text that parses as JSON is answered from
+    the JSON alone, even when it holds no cuts; it is never retried as
+    plain text. And list-vs-row is decided per line from that line's own
+    shape, so a cut list wrapped across several lines keeps every time.
     """
     if not text or not text.strip():
         return []
 
     stripped = text.strip()
     if stripped[0] in "[{":
-        parsed = _from_json(stripped)
-        if parsed:
-            return _tidy(parsed)
+        is_json, data = _load_json(stripped)
+        if is_json:
+            return _tidy(_cuts_from_json(data))
 
     cuts: List[ParsedCut] = []
     lines = [ln for ln in stripped.splitlines() if ln.strip()]
@@ -262,8 +313,10 @@ def parse_cut_times(text: str) -> List[ParsedCut]:
         kind = _kind_in(cleaned) or "hard cut"
         # A pipe marks a shot-table row, where only the first time is the
         # shot start and the rest are its duration and transition length.
-        # Any other lone line is a list, so every token on it is a cut.
-        if len(lines) == 1 and "|" not in line:
+        # A line that is nothing but times is a list, so every token on
+        # it counts. Anything else is prose - "she lifts 3 crates" must
+        # not donate a 3.0s cut - so only its first time is taken.
+        if "|" not in line and _is_time_list(cleaned):
             cuts.extend(
                 ParsedCut(value, kind)
                 for value in (_parse_time_token(t) for t in tokens)

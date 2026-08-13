@@ -33,7 +33,9 @@ sequence". It runs on overlapping 100-frame windows, so each window's
 first span carries it; mid-video it means "no relation to the previous
 shot could be read", which is still an instantaneous boundary. Those map
 to entry "hard cut", and the untouched model labels stay in
-Shot.raw_labels so nothing is lost.
+Shot.raw_labels so nothing is lost: `intra`/`inter` are the shot's own,
+and a shot entered through a folded transition also carries that span's
+labels as `transition_intra`/`transition_inter`.
 """
 
 from dataclasses import dataclass, field
@@ -49,6 +51,10 @@ DETECTOR_CHOICES = ("auto", "omnishotcut", "transnetv2", "classic")
 # up front keeps a long clip from ever being materialized at full size.
 OSC_PROCESS_SIZE = (128, 96)  # width, height
 OSC_HF_REPO = "uva-cv-lab/OmniShotCut"
+# engine.py asserts overlap < the 100-frame inference window. Stay well
+# under it: past roughly half the window the extra passes cost time
+# without changing the boundaries.
+OSC_MAX_OVERLAP = 90
 
 # TransNetV2's fixed input geometry.
 TNV2_SIZE = (48, 27)  # width, height
@@ -112,6 +118,12 @@ class ShotList:
     total_frames: int = 0
     detector: str = "classic"
     notes: List[str] = field(default_factory=list)
+    # What the caller asked for ("auto" when the cascade chose), and
+    # whether a stronger detector was skipped to get here. A note string
+    # only reaches the report; a field reaches the node's outputs, which
+    # is what a workflow can act on.
+    requested: str = "auto"
+    fallback: bool = False
 
     @property
     def duration(self) -> float:
@@ -195,12 +207,24 @@ def _load_omnishotcut():
     return _osc_model
 
 
+def _clamp_overlap(overlap: int) -> int:
+    """
+    Hold overlap inside the model's inference window.
+
+    omnishotcut/engine.py:72 asserts 0 <= overlap < chunk_size, where
+    chunk_size is the model's max_process_window_length (100 frames).
+    A typo in a widget should not surface as an AssertionError raised
+    from inside a third-party package.
+    """
+    return int(min(max(int(overlap), 0), OSC_MAX_OVERLAP))
+
+
 def _detect_omnishotcut(
     frames: np.ndarray, fps: float, overlap: int, min_shot_frames: int
 ) -> ShotList:
     model = _load_omnishotcut()
     ranges, intra_labels, inter_labels = model.inference(
-        frames, mode="default", overlap=overlap
+        frames, mode="default", overlap=_clamp_overlap(overlap)
     )
 
     spans = [
@@ -260,7 +284,15 @@ def _spans_to_shots(
             # artifact over an instantaneous boundary. See module docs.
             entry = "hard cut"
 
-        raw = pending_raw or {"intra": intra, "inter": inter}
+        # Both label sets matter and they answer different questions:
+        # the shot's own say what the model made of the shot, the
+        # transition span's say what kind of boundary opened it.
+        # "pending_raw or {...}" kept only the transition's and dropped
+        # the shot's, which made this module's "nothing is lost" untrue.
+        raw = {"intra": intra, "inter": inter}
+        if pending_raw:
+            raw["transition_intra"] = pending_raw["intra"]
+            raw["transition_inter"] = pending_raw["inter"]
         # A transition's frames sit before the new shot's clean start, so
         # the shot begins where the effect ends.
         shot_start = (
@@ -323,8 +355,6 @@ def _load_transnetv2():
 def _detect_transnetv2(
     frames: np.ndarray, fps: float, threshold: float, min_shot_frames: int
 ) -> ShotList:
-    from transnetv2_pytorch import TransNetV2
-
     model = _load_transnetv2()
     with torch.no_grad():
         single_frame_pred, _ = model.predict_frames(
@@ -335,8 +365,12 @@ def _detect_transnetv2(
         else single_frame_pred
     ).reshape(-1)
 
-    # predictions_to_scenes returns inclusive [start, end] pairs.
-    scenes = TransNetV2.predictions_to_scenes(predictions, threshold=threshold)
+    # predictions_to_scenes returns inclusive [start, end] pairs. It is a
+    # staticmethod, so reaching it through the loaded instance keeps the
+    # only import of the package inside _load_transnetv2, whose
+    # ImportError handler carries the pip hint. A module-level import
+    # here ran first and made that hint unreachable.
+    scenes = model.predictions_to_scenes(predictions, threshold=threshold)
 
     shots = []
     for start, end in np.asarray(scenes).reshape(-1, 2).tolist():
@@ -402,6 +436,11 @@ def _detect_classic(
 
     if not shots:
         shots = [Shot(index=1, start_frame=0, end_frame=total, fps=fps)]
+    # detect_boundaries only suppresses cuts that land closer together
+    # than min_shot_frames; it never length-checks the shot that runs to
+    # the end of the clip. Folding runts here is what makes the widget
+    # mean the same thing on this path as on the other two.
+    shots = _merge_runts(shots, min_shot_frames)
     return ShotList(
         shots=shots, fps=fps, total_frames=total, detector="classic",
         notes=[
@@ -457,6 +496,7 @@ def detect_shots(
     sensitivity: float = 0.5,
     min_shot_frames: int = 4,
     overlap: int = 20,
+    fallback_policy: str = "cascade",
 ) -> ShotList:
     """
     Detect shots in a (B, H, W, C) [0,1] image batch.
@@ -471,28 +511,40 @@ def detect_shots(
             threshold to turn - it predicts shot ranges directly.
         min_shot_frames: shots shorter than this fold into the previous.
         overlap: OmniShotCut inference window overlap, in frames.
+        fallback_policy: how far 'auto' may fall. 'cascade' tries all
+            three, 'neural_only' refuses the classic detector, 'strict'
+            demands OmniShotCut. Ignored when a detector is named.
 
     Returns:
-        ShotList. Never raises for an unavailable detector under 'auto';
+        ShotList, with .requested and .fallback recording whether a
+        stronger detector was skipped. Never raises for an unavailable
+        detector under 'auto' unless the policy runs out of backends;
         it falls through and records why in .notes.
     """
     fps = float(fps) if fps and fps > 0 else 24.0
     total = int(images.shape[0])
     if total == 0:
-        return ShotList(fps=fps, total_frames=0, detector=detector, notes=[
-            "no frames to analyze"
-        ])
+        return ShotList(fps=fps, total_frames=0, detector=detector,
+                        requested=detector, notes=["no frames to analyze"])
     if total == 1:
         return ShotList(
             shots=[Shot(index=1, start_frame=0, end_frame=1, fps=fps)],
-            fps=fps, total_frames=1, detector=detector,
+            fps=fps, total_frames=1, detector=detector, requested=detector,
         )
 
     sensitivity = min(max(float(sensitivity), 0.0), 1.0)
-    order = (
-        ["omnishotcut", "transnetv2", "classic"] if detector == "auto"
-        else [detector]
-    )
+    if detector == "auto":
+        # The classic detector is a safety net, not a peer: on the demo
+        # clip it produced false 0.13s shots and missed two real cuts.
+        # A policy lets a workflow refuse a silent drop that far.
+        cascade = ["omnishotcut", "transnetv2", "classic"]
+        order = {
+            "cascade": cascade,
+            "neural_only": cascade[:2],
+            "strict": cascade[:1],
+        }.get(fallback_policy, cascade)
+    else:
+        order = [detector]
 
     notes: List[str] = []
     for name in order:
@@ -526,6 +578,8 @@ def detect_shots(
             continue
 
         result.notes = notes + result.notes
+        result.requested = detector
+        result.fallback = bool(notes)
         return result
 
     raise RuntimeError(

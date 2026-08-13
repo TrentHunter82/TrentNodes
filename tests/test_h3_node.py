@@ -263,16 +263,19 @@ def test_first_frame_alignment_prepends_the_hook():
 
 
 def test_alignment_time_names_the_shot_it_lands_in():
-    # Cuts at 0.0 / 0.5 / 1.2; 1.3s falls inside shot 3.
+    # Cuts at 0.0 / 0.5 / 1.2; 1.3s falls inside shot 3. A non-zero
+    # moment is the official L2VA sentence, not the I2VA one with a
+    # substituted time - that hybrid appears in no MiniMax guide.
     fake = FakeBackend()
     prompt, _b, _d, _f, _a = _run_node(
         fake, first_frame_alignment=True, alignment_time_seconds=1.3,
         cut_times="0.0, 0.5, 1.2",
     )
     assert prompt.startswith(
-        "For the target video, at 1.30 seconds into the target video, "
-        "<Picture 1> (from [Shot 3]) is fully referenced."
-    )
+        "How the reference pictures align with the target video - "
+        "<Picture 1> (from [Shot 3]) aligns with the 1.30-second mark "
+        "of the target video."
+    ), prompt[:160]
 
 
 def test_alignment_time_past_the_clip_is_clamped():
@@ -281,8 +284,9 @@ def test_alignment_time_past_the_clip_is_clamped():
         fake, first_frame_alignment=True, alignment_time_seconds=99.0
     )
     assert prompt.startswith(
-        "For the target video, at 2.00 seconds"  # clip is 2.000s
-    )
+        "How the reference pictures align with the target video - "
+        "<Picture 1> (from [Shot 1]) aligns with the 2.00-second mark"
+    ), prompt[:160]
     assert any(
         "past the" in w and "clamped" in w
         for w in json.loads(analysis_json)["warnings"]
