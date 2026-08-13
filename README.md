@@ -282,7 +282,7 @@ Analyzes animation sequences to detect duplicate frames and replaces them with g
 
 Removes padding frames inserted by the Enhanced Animation Timing Processor. Connect the `removal_indices` output from the processor to automatically strip the temporary padding frames after video generation, returning to the original frame count while preserving the generated content.
 
-### 🖼️ Trent/Image (13 nodes)
+### 🖼️ Trent/Image (14 nodes)
 
 **Image+Text Grid**
 
@@ -349,6 +349,12 @@ Returns the first frame from a batch of images. One input, one output, zero sett
 <img src="assets/images/nodes/JustPadOrCropIt.png" width="233" alt="Just Pad or Crop It node">
 
 Pad or crop an image to match a reference image's dimensions. Each axis is handled independently: axes smaller than the target are padded with configurable gray fill, axes larger are center-cropped. Outputs a binary mask (1.0 = real pixel, 0.0 = padded region). Supports center or top-left alignment.
+
+**Multi-Load Cowboy**
+
+<img src="assets/images/nodes/MultiLoadCowboy.png" width="286" alt="Multi-Load Cowboy node">
+
+Six image loaders in one node, with one shared resize. The node face is a grid of slots sitting beside the output column, so eleven outputs cost no extra height: click a slot to browse the input folder or upload, drop files straight onto a slot, drag one slot onto another to swap, and clear a slot with the X in its corner. Dropping several files at once fills the empty slots in order. Empty slots are skipped instead of raising, so a half-filled grid is a valid graph and an all-empty grid still returns a black frame plus a count of 0. Resizing follows the same fit modes as KJ's Resize Image V2 - stretch, resize, pad, pad_edge, crop and total_pixels - with crop position, pad colour and a divisible_by rounding. Outputs the filled slots as one batch (padded up to a common size when a fit mode leaves them uneven), the alpha masks with padding marked as 1.0, the count, the batch width and height, and each slot on its own IMAGE output for wiring to separate branches.
 
 **Ref Folder Cowboy**
 
