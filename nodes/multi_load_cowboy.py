@@ -346,23 +346,28 @@ class MultiLoadCowboy:
         "image_1", "image_2", "image_3", "image_4", "image_5", "image_6",
     )
     OUTPUT_TOOLTIPS = (
-        "Every filled slot as one batch, all at the same size",
-        "Alpha of each filled slot; padding reads as 1.0",
-        "How many slots are filled",
-        "Width of the batch",
-        "Height of the batch",
-        "Slot 1 on its own (empty slot outputs nothing)",
-        "Slot 2 on its own (empty slot outputs nothing)",
-        "Slot 3 on its own (empty slot outputs nothing)",
-        "Slot 4 on its own (empty slot outputs nothing)",
-        "Slot 5 on its own (empty slot outputs nothing)",
-        "Slot 6 on its own (empty slot outputs nothing)",
+        "All the filled slots in one batch. Every image has the same "
+        "size.",
+        "The alpha of each filled slot. A padded area reads as 1.0.",
+        "The number of filled slots.",
+        "The width of the batch.",
+        "The height of the batch.",
+        "Slot 1 on its own. An empty slot gives no image.",
+        "Slot 2 on its own. An empty slot gives no image.",
+        "Slot 3 on its own. An empty slot gives no image.",
+        "Slot 4 on its own. An empty slot gives no image.",
+        "Slot 5 on its own. An empty slot gives no image.",
+        "Slot 6 on its own. An empty slot gives no image.",
     )
 
     DESCRIPTION = (
-        "Load up to six images in one node and resize them all to the "
-        "same target. Drop files on a cell, or click a cell to browse. "
-        "Empty slots are skipped instead of raising an error. The batch "
+        "Loads up to six images and resizes them all to one size.\n"
+        "\n"
+        "Click a slot to choose a file or to upload one.\n"
+        "Drop files on a slot to fill it and the empty slots after it.\n"
+        "Drag one slot onto another to swap the two images.\n"
+        "\n"
+        "An empty slot is not an error. The node skips it. The batch "
         "output holds only the filled slots."
     )
 
@@ -372,8 +377,8 @@ class MultiLoadCowboy:
         slots = {
             name: (files, {
                 "default": EMPTY,
-                "tooltip": f"Image for grid slot {index}. "
-                           f"{EMPTY} leaves the slot out.",
+                "tooltip": f"Selects the image for slot {index}.\n"
+                           f"Leave it at {EMPTY} to skip the slot.",
             })
             for index, name in enumerate(slot_names(), start=1)
         }
@@ -383,45 +388,96 @@ class MultiLoadCowboy:
                 "width": ("INT", {
                     "default": 1024, "min": 0, "max": MAX_RESOLUTION,
                     "step": 8,
-                    "tooltip": "Target width. 0 takes it from the height.",
+                    "tooltip": "Sets the target width in pixels.\n"
+                               "Set it to 0 to calculate the width from "
+                               "the height.",
                 }),
                 "height": ("INT", {
                     "default": 1024, "min": 0, "max": MAX_RESOLUTION,
                     "step": 8,
-                    "tooltip": "Target height. 0 takes it from the width.",
+                    "tooltip": "Sets the target height in pixels.\n"
+                               "Set it to 0 to calculate the height from "
+                               "the width.",
                 }),
                 "resize_mode": (RESIZE_MODES, {
                     "default": "pad",
-                    "tooltip": "stretch ignores the aspect ratio. resize "
-                               "fits inside the box. pad and pad_edge fit "
-                               "then fill the rest. crop fills the box and "
-                               "cuts the overflow. total_pixels keeps the "
-                               "aspect and matches width x height in area.",
+                    "tooltip": (
+                        "Sets how each image fits the target size.\n"
+                        "\n"
+                        "stretch - fills the box exactly. This changes "
+                        "the aspect ratio.\n"
+                        "resize - fits inside the box. This keeps the "
+                        "aspect ratio. The result can be smaller than "
+                        "the box.\n"
+                        "pad - fits inside the box. The pad colour fills "
+                        "the empty space.\n"
+                        "pad_edge - fits inside the box. The edge pixels "
+                        "stretch into the empty space.\n"
+                        "crop - fills the box exactly. The node cuts off "
+                        "the parts that do not fit.\n"
+                        "total_pixels - keeps the aspect ratio. The area "
+                        "matches width x height."
+                    ),
                 }),
                 "upscale_method": (UPSCALE_METHODS, {
                     "default": "lanczos",
-                    "tooltip": "Sampler used for the resize.",
+                    "tooltip": (
+                        "Sets the method that scales the pixels.\n"
+                        "\n"
+                        "lanczos - the sharpest result. Use it for "
+                        "photos. It runs on the CPU only.\n"
+                        "bicubic - smooth and clean. Use it as a second "
+                        "choice.\n"
+                        "bilinear - softer than bicubic. It is fast.\n"
+                        "area - averages the pixels. Use it to make an "
+                        "image much smaller.\n"
+                        "nearest-exact - copies the nearest pixel. It "
+                        "keeps hard edges. Use it for pixel art."
+                    ),
                 }),
                 "crop_position": (CROP_POSITIONS, {
                     "default": "center",
-                    "tooltip": "Which part to keep when cropping, and "
-                               "where to sit the image when padding.",
+                    "tooltip": (
+                        "Sets which part of the image the node keeps, "
+                        "and where the node puts the image.\n"
+                        "\n"
+                        "In the crop mode, the node keeps this part and "
+                        "cuts off the rest.\n"
+                        "In a pad mode, the node moves the image to this "
+                        "side of the box.\n"
+                        "\n"
+                        "center - keeps the middle. Use it for most "
+                        "images.\n"
+                        "top, bottom, left, right - keeps that edge."
+                    ),
                 }),
                 "pad_color": ("STRING", {
                     "default": "0, 0, 0",
-                    "tooltip": "Pad colour as R, G, B or #rrggbb.",
+                    "tooltip": "Sets the colour of the empty space in "
+                               "the pad mode.\n"
+                               "Write three numbers from 0 to 255, for "
+                               "example 0, 0, 0.\n"
+                               "A hex code also works, for example "
+                               "#101010.",
                 }),
                 "divisible_by": ("INT", {
                     "default": 8, "min": 0, "max": 512, "step": 1,
-                    "tooltip": "Round the output down to a multiple of "
-                               "this. Use 8 or 16 for most models.",
+                    "tooltip": "Rounds the output size down to a "
+                               "multiple of this number.\n"
+                               "Most models need 8 or 16.\n"
+                               "Set it to 0 or 1 to stop the rounding.",
                 }),
             },
             "optional": {
                 "device": (["cpu", "gpu"], {
                     "default": "cpu",
-                    "tooltip": "Where to run the resize. lanczos is CPU "
-                               "only and falls back on its own.",
+                    "tooltip": "Selects where the resize runs.\n"
+                               "\n"
+                               "cpu - works with every method.\n"
+                               "gpu - faster for a large batch.\n"
+                               "\n"
+                               "The lanczos method always runs on the "
+                               "CPU.",
                 }),
             },
         }
