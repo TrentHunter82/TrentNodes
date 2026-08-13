@@ -49,6 +49,17 @@ No face morphing of Aria Voss. No wardrobe changes. No extra characters. No text
 """
 
 
+# The same reply for a clip with no cuts: one shot, no [Shot 2].
+ONE_SHOT = CANNED.replace(
+    " [Shot 2] At 00:01.000, a handheld camera tracks left; Aria Voss "
+    "<Subject 1> moves to the right third of frame, midground, and "
+    "reaches for a crate.",
+    " Aria Voss <Subject 1> stays center frame, midground, and reaches "
+    "for a crate.",
+)
+assert "[Shot 2]" not in ONE_SHOT
+
+
 class FakeBackend:
     name = "fake"
     supports_audio = False
@@ -62,11 +73,13 @@ class FakeBackend:
         # last, or it will match on error text instead.
         self.first_user_text = ""
         self.image_labels = []
+        self.seeds = []
         self.reply = CANNED
 
     def generate(self, system, images, user_text, max_tokens=4096, seed=0,
                  audio=None, video=None):
         self.calls += 1
+        self.seeds.append(seed)
         self.last_user_text = user_text
         if self.calls == 1:
             self.first_user_text = user_text
@@ -241,6 +254,54 @@ def test_boundaries_only_cut_list_regains_shot_one():
     analysis = json.loads(analysis_json)
     assert analysis["cut_timestamps"] == [0.0, 1.5]
     assert analysis["cut_kinds"][0] == "start"
+
+
+def test_a_no_cut_clip_is_stated_as_one_continuous_shot():
+    # Cut Detective on a clip with no cuts emits "0.000": one shot, and
+    # a measurement, not a blank. The context has to say so in words,
+    # since the format example in the system prompt writes two shots.
+    fake = FakeBackend()
+    fake.reply = ONE_SHOT
+    prompt, _b, _d, _f, analysis_json = _run_node(fake, cut_times="0.000")
+
+    assert fake.calls == 1  # no retry: the measured count matched
+    assert "[Shot 1]" in prompt and "[Shot 2]" not in prompt
+    assert "MEASURED SHOT LIST - 1 shot." in fake.first_user_text
+    assert "ONE continuous shot" in fake.first_user_text
+
+    analysis = json.loads(analysis_json)
+    assert analysis["cut_source"] == "measured"
+    assert analysis["cut_timestamps"] == [0.0]
+    assert analysis["cut_kinds"] == ["start"]
+    assert analysis["variants"]["official"]["unresolved_errors"] == []
+
+
+def test_a_no_cut_clip_that_invents_a_cut_is_told_to_delete_it():
+    # The canned reply writes two shots; the detector found no cuts.
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(fake, cut_times="0.000")
+    assert fake.calls == 2  # one retry, and the fake never corrects itself
+
+    analysis = json.loads(analysis_json)
+    unresolved = analysis["variants"]["official"]["unresolved_errors"]
+    assert any("one continuous shot" in e for e in unresolved), unresolved
+    assert not any("has 1 shots" in e for e in unresolved), unresolved
+
+
+def test_a_no_cut_shot_table_reads_as_a_measurement():
+    # Cut Detective's shot_table and cuts_json outputs for the same clip.
+    for text in (
+        "Shot 1 | 00:00.000 | 2.000s | start",
+        json.dumps({"num_shots": 1, "cut_times": [0.0], "shots": [
+            {"index": 1, "start_time": 0.0, "entry": "start"}
+        ]}),
+    ):
+        fake = FakeBackend()
+        fake.reply = ONE_SHOT
+        _p, _b, _d, _f, analysis_json = _run_node(fake, cut_times=text)
+        analysis = json.loads(analysis_json)
+        assert analysis["cut_source"] == "measured", text
+        assert analysis["cut_timestamps"] == [0.0], text
 
 
 def test_alignment_toggle_is_off_by_default():
@@ -516,6 +577,39 @@ def test_node_class_contract():
         "node COMBO and backend registry drifted apart"
     )
     assert "TrentH3AutoPromptGenerator" in h3_auto_prompt.NODE_CLASS_MAPPINGS
+
+
+def test_an_oversized_seed_is_folded_into_int32_range():
+    # Gemini types generation_config.seed as int32 and answers a bigger
+    # one with a 400, after the images are already uploaded. 4025457457
+    # is a real ComfyUI seed that failed this way.
+    from TrentNodes.utils.h3_prompt.backends import SEED_MAX, normalize_seed
+
+    assert normalize_seed(0) == 0            # 0 still means "no seed"
+    assert normalize_seed(42) == 42
+    assert normalize_seed(SEED_MAX) == SEED_MAX
+    assert normalize_seed(4025457457) == 4025457457 % (SEED_MAX + 1)
+    assert 0 < normalize_seed(SEED_MAX + 1) <= SEED_MAX  # never reads as 0
+    for raw in (1, 2 ** 31, 2 ** 32 - 1, 2 ** 63, 0xFFFFFFFFFFFFFFFF):
+        assert 0 <= normalize_seed(raw) <= SEED_MAX, raw
+
+
+def test_the_seed_widget_stops_at_the_api_limit():
+    from TrentNodes.utils.h3_prompt.backends import SEED_MAX
+
+    spec = h3_auto_prompt.H3AutoPromptGenerator.INPUT_TYPES()
+    assert spec["optional"]["seed"][1]["max"] == SEED_MAX
+
+
+def test_an_oversized_seed_warns_and_reaches_the_backend_folded():
+    fake = FakeBackend()
+    _p, _b, _d, _f, analysis_json = _run_node(fake, seed=4025457457)
+    analysis = json.loads(analysis_json)
+    assert analysis["seed"] == 4025457457 % (2 ** 31)
+    assert any("folded to" in w for w in analysis["warnings"]), analysis[
+        "warnings"
+    ]
+    assert fake.seeds and all(s <= 0x7FFFFFFF for s in fake.seeds), fake.seeds
 
 
 def test_backend_registry():

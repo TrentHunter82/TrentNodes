@@ -208,6 +208,20 @@ class CutDetective:
                 "omnishotcut_overlap on this path"
             )
 
+        cut_times = format_cut_times(shots, include_first=include_first_shot)
+
+        # A clip with no cuts and no leading 0.000 leaves nothing to
+        # emit. Downstream that blank string is indistinguishable from
+        # an unconnected widget, so the H3 node throws away this
+        # measured "one shot" answer and guesses its own cuts instead.
+        if shots.shots and not cut_times:
+            shots.notes.append(
+                "no cuts were found and include_first_shot is off, so "
+                "cut_times is empty; a downstream node cannot tell that "
+                "apart from nothing being connected. Turn "
+                "include_first_shot on to send the single shot at 0.000"
+            )
+
         # A fallback changes what every other output means, so it is a
         # warning, not a note.
         level = "WARNING:" if shots.fallback else "note:"
@@ -233,7 +247,7 @@ class CutDetective:
         )
 
         return (
-            format_cut_times(shots, include_first=include_first_shot),
+            cut_times,
             format_shot_table(shots),
             strip,
             format_report(shots),

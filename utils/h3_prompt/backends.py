@@ -80,6 +80,32 @@ PROVIDER_ENV_VARS = {
 }
 
 
+# Every provider that takes a seed types the field as a signed 32-bit
+# int. ComfyUI seed widgets run far past that, and Gemini answers an
+# oversized one with a hard 400 (INVALID_ARGUMENT on
+# generation_config.seed) rather than clamping it, which kills the run
+# after the images are already uploaded.
+SEED_MAX = 0x7FFFFFFF
+
+
+def normalize_seed(seed: int) -> int:
+    """
+    Fold any ComfyUI seed into the signed-int32 range every API accepts.
+
+    Folded, not clamped: clamping maps every large seed onto one value,
+    so "randomize" would stop changing anything above the limit. Folding
+    already collides (2**31 + 1 and 1 agree), so a fold that lands on 0
+    moves to 1 rather than reading as "no seed at all".
+    """
+    try:
+        folded = int(seed) % (SEED_MAX + 1)
+    except (TypeError, ValueError):
+        return 0
+    if folded == 0 and seed:
+        return 1
+    return folded
+
+
 @dataclass
 class VLMImage:
     label: str
@@ -297,7 +323,7 @@ class GeminiBackend(VLMBackend):
             temperature=0.0,
         )
         if seed:
-            config.seed = seed
+            config.seed = normalize_seed(seed)
 
         start = time.time()
         response = self._client.models.generate_content(
@@ -388,7 +414,7 @@ class OpenAICompatibleBackend(VLMBackend):
 
         kwargs = {}
         if seed and self._supports_seed:
-            kwargs["seed"] = seed
+            kwargs["seed"] = normalize_seed(seed)
         start = time.time()
         try:
             response = self._client.chat.completions.create(

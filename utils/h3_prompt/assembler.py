@@ -367,13 +367,26 @@ def _apply_known_times(
             )
         return list(known)
 
-    retry_errors.append(
-        f"detailed_description has {len(times)} [Shot N] labels but the "
-        f"measured shot list has {len(known)} shots. Write exactly "
-        f"{len(known)} shots, starting at these times in seconds: "
-        + ", ".join(f"{t:.3f}" for t in known)
-        + "."
-    )
+    labels = f"{len(times)} [Shot N] label{'' if len(times) == 1 else 's'}"
+    if len(known) == 1:
+        # A single measured shot is a clip with no cuts at all. Naming a
+        # count and a list of one time reads as an off-by-one to fix;
+        # what the model has to do is delete shots, so say that.
+        retry_errors.append(
+            f"detailed_description has {labels}, but the shot-boundary "
+            "detector found no cuts: the clip is one continuous shot. "
+            "Write [Shot 1] once, with no timestamp, and delete every "
+            "later [Shot N] label. Describe the whole clip inside that "
+            "one shot."
+        )
+    else:
+        retry_errors.append(
+            f"detailed_description has {labels} but the measured shot "
+            f"list has {len(known)} shots. Write exactly {len(known)} "
+            "shots, starting at these times in seconds: "
+            + ", ".join(f"{t:.3f}" for t in known)
+            + "."
+        )
 
     snapped = [
         min(known, key=lambda k: abs(k - t)) if t == t else t

@@ -36,6 +36,11 @@ KIND_WORDS = [
 _SHOT_PREFIX_RE = re.compile(r"\[?\s*shot\s+\d+\s*\]?", re.IGNORECASE)
 _AT_RE = re.compile(r"\bat\b", re.IGNORECASE)
 _TIME_RE = re.compile(r"\d{1,3}:\d{1,2}(?:\.\d+)?|\d+(?:\.\d+)?")
+# The first line of format_report(). Its header and notes carry numbers
+# that are not cut times, so the report is read from its table rows only.
+_REPORT_HEAD_RE = re.compile(
+    r"cut detective\s*-\s*shot boundary report", re.IGNORECASE
+)
 
 
 @dataclass
@@ -301,6 +306,14 @@ def parse_cut_times(text: str) -> List[ParsedCut]:
 
     cuts: List[ParsedCut] = []
     lines = [ln for ln in stripped.splitlines() if ln.strip()]
+
+    # The whole report, wired in by mistake or on purpose. Its header
+    # says "Duration: 5.000s at 24.000 fps" and "Shots: 1 (0 cuts)",
+    # which read line by line as cuts at 5s, 24s and 1s - a clip with no
+    # cuts at all used to come out of here with two invented shots. Only
+    # the shot-table rows are cut data, so drop everything else.
+    if _REPORT_HEAD_RE.search(stripped):
+        lines = [ln for ln in lines if "|" in ln]
 
     for line in lines:
         # "[Shot 3] At 00:05.083" - the shot number is not a timestamp.

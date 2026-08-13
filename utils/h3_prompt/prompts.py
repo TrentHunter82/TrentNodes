@@ -449,15 +449,27 @@ def build_user_context(
     measured = cut_source == "measured" and bool(cut_timestamps)
     if measured:
         count = len(cut_timestamps)
+        # One measured shot means the detector found no cuts anywhere.
+        # That has to be said in words: the format example above writes
+        # two shots, so a model reading only the list is happy to invent
+        # a second one, which the assembler then has to reject.
+        instruction = (
+            "It found NO cuts: this clip is ONE continuous shot. Write "
+            "a single [Shot 1] label covering the whole clip, and "
+            "nothing after it - no [Shot 2], no second timestamp, no "
+            "cut, and no scene change of any kind:"
+            if count == 1 else
+            "Write exactly these shots, in this order, with these start "
+            "times. Do not add a shot, do not drop one, do not shift a "
+            "time:"
+        )
         lines.append(
             f"- MEASURED SHOT LIST - {count} "
             f"{'shot' if count == 1 else 'shots'}. A "
             "shot-boundary detector read every frame of the clip to "
             "produce this. It is ground truth, more reliable than the "
             "sampled frames and more reliable than the attached video. "
-            "Write exactly these shots, in this order, with these start "
-            "times. Do not add a shot, do not drop one, do not shift a "
-            "time:\n"
+            + instruction + "\n"
             + build_shot_list_block(
                 cut_timestamps, duration_seconds, cut_kinds
             )

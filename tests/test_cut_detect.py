@@ -386,6 +386,40 @@ def test_zero_frame_detection_round_trips_to_no_cuts():
     assert parse_cut_times(shots_to_json(shots)) == []
 
 
+def test_a_no_cut_clip_round_trips_as_one_shot():
+    # Every format the node emits for a clip with no cuts has to read
+    # back as the single shot at 0.000 - not as an empty list, which the
+    # H3 node treats as "no measurement" and replaces with its own guess.
+    shots = detect_shots(_solid(60, 0.4), fps=24.0, detector="classic")
+    for text in (format_cut_times(shots), format_shot_table(shots),
+                 shots_to_json(shots), format_report(shots)):
+        parsed = parse_cut_times(text)
+        assert [p.time for p in parsed] == [0.0], (text, parsed)
+
+
+def test_the_report_header_does_not_donate_phantom_cuts():
+    # "Duration: 2.500s at 24.000 fps" and "Shots: 1  (0 cuts)" used to
+    # read as cuts at 2.5s and 1.0s, so a clip with no cuts arrived at
+    # the H3 node as a two-shot timeline.
+    shots = detect_shots(_solid(60, 0.4), fps=24.0, detector="classic")
+    report = format_report(shots)
+    assert "Duration:" in report and "Shots:" in report
+    assert [p.time for p in parse_cut_times(report)] == [0.0]
+
+
+def test_the_report_still_gives_up_its_real_cut_times():
+    report = format_report(_sample_list())
+    assert [p.time for p in parse_cut_times(report)] == [0.0, 1.25, 2.5]
+
+
+def test_a_report_with_notes_ignores_their_numbers():
+    shots = _sample_list()
+    shots.notes.append("frames 0-95 were resized to 48x48")
+    assert [p.time for p in parse_cut_times(format_report(shots))] == [
+        0.0, 1.25, 2.5
+    ]
+
+
 def test_unrecognized_json_yields_nothing_rather_than_junk():
     assert parse_cut_times('{"detector": "classic", "fps": 24.0}') == []
 
@@ -650,6 +684,31 @@ def test_film_strip_marks_a_fallback():
     # Same geometry, different pixels: the marker is drawn in the header.
     assert flagged.shape == clean.shape
     assert not torch.equal(flagged, clean)
+
+
+def test_a_no_cut_clip_leaves_the_node_with_a_usable_cut_times():
+    from TrentNodes.nodes import cut_detective
+    node = cut_detective.CutDetective()
+    out = node.detect(
+        detector="classic", sensitivity=0.5, min_shot_frames=4,
+        thumb_width=96, columns=0, show_timeline=True,
+        include_first_shot=True, frames=_solid(48, 0.4), fps=24.0,
+    )
+    assert out[0] == "0.000", out[0]      # cut_times
+    assert out[5] == 1                    # num_shots
+    assert [p.time for p in parse_cut_times(out[0])] == [0.0]
+
+
+def test_dropping_the_first_shot_of_a_no_cut_clip_says_why_it_is_blank():
+    from TrentNodes.nodes import cut_detective
+    node = cut_detective.CutDetective()
+    out = node.detect(
+        detector="classic", sensitivity=0.5, min_shot_frames=4,
+        thumb_width=96, columns=0, show_timeline=True,
+        include_first_shot=False, frames=_solid(48, 0.4), fps=24.0,
+    )
+    assert out[0] == ""                   # cut_times: nothing to send
+    assert "include_first_shot" in out[3], out[3]   # report carries the note
 
 
 def test_node_is_registered_under_its_trent_key():

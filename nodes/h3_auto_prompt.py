@@ -41,9 +41,11 @@ from ..utils.cut_detect.formats import ParsedCut, parse_cut_times
 from ..utils.h3_prompt import assembler, audio_io, prompts, video_io
 from ..utils.h3_prompt.backends import (
     DEFAULT_MODELS,
+    SEED_MAX,
     VLMAudio,
     VLMImage,
     get_backend,
+    normalize_seed,
 )
 from ..utils.h3_prompt.video_io import VLMVideo
 from ..utils.h3_prompt.imaging import (
@@ -303,8 +305,14 @@ class H3AutoPromptGenerator:
                     )
                 }),
                 "seed": ("INT", {
-                    "default": 0, "min": 0, "max": 0xFFFFFFFF,
-                    "tooltip": "Passed to providers that support seeding"
+                    "default": 0, "min": 0, "max": SEED_MAX,
+                    "tooltip": (
+                        "Passed to providers that support seeding. 0 "
+                        "sends no seed at all. The ceiling is the "
+                        "signed 32-bit limit every provider API types "
+                        "this field as; a larger seed from an older "
+                        "workflow is folded into range, not clamped."
+                    ),
                 }),
                 "music_source": (
                     ["auto", "generate_score", "reuse_audio_1"], {
@@ -406,6 +414,19 @@ class H3AutoPromptGenerator:
         first_frame_image: Optional[torch.Tensor] = None,
     ) -> Tuple[str, str, float, int, str]:
         warnings = []
+
+        # A workflow saved before the widget ceiling dropped can still
+        # carry a uint32 seed. Gemini 400s on it (INVALID_ARGUMENT on
+        # generation_config.seed) after the images are already uploaded,
+        # so fold it here and say so rather than losing the run.
+        effective_seed = normalize_seed(seed)
+        if effective_seed != seed:
+            warnings.append(
+                f"seed {seed} is past the {SEED_MAX} limit every "
+                f"provider API types this field as; folded to "
+                f"{effective_seed}"
+            )
+        seed = effective_seed
 
         # A silent music video is a contradiction; the mode wins, since
         # nobody enables it hoping for blanked audio sections.
@@ -661,6 +682,7 @@ class H3AutoPromptGenerator:
             "detection_method": keyframes.method,
             "provider": vlm_provider,
             "model": last_usage.get("model", model),
+            "seed": seed,
             "profile_mode": prompt_profile,
             "video_mode": "full_clip" if vlm_video else "keyframes",
             "video_mb": round(vlm_video.size_mb, 3) if vlm_video else 0.0,
