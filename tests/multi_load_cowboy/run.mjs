@@ -136,8 +136,14 @@ console.log("Node creation");
 
     check("grid widget was added", !!grid);
     check("lift widget was added", !!lift);
-    check("lift then grid sit above the settings",
-        node.widgets[0] === lift && node.widgets[1] === grid);
+    check("lift then grid are the last two widgets",
+        node.widgets.at(-2) === lift && node.widgets.at(-1) === grid);
+    /* The frontend saves widget values by absolute index but loads them
+       compacted, so a non-serializable widget in front of a real one
+       shifts every value on reload. */
+    check("no serializable widget sits behind ours",
+        node.widgets.findIndex((w) => w.serialize === false) ===
+        node.widgets.filter((w) => w.serialize !== false).length);
     check("grid is not serialised", grid.serialize === false &&
         grid.options.serialize === false);
     check("lift is not serialised", lift.serialize === false &&
@@ -171,10 +177,16 @@ console.log("Node creation");
 
     /* The lift pulls the grid up beside the output labels. */
     const pull = -lift.computeSize(node.size[0])[1];
-    check("lift pulls the grid up", pull > 100,
-        `pull ${pull}`);
-    check("lift never rides into the title bar",
-        pull <= node.outputs.length * 20 - 12, `pull ${pull}`);
+    const liftY = node.outputs.length * 20 +
+        node.widgets.filter((w) => !w.hidden && w.serialize !== false).length * 24 + 6;
+    check("lift pulls the grid up", pull > 100, `pull ${pull}`);
+    /* The frontend adds 4px to every widget box, including the lift's,
+       so the grid's real top is liftY - (pull - 4). */
+    check("lift lands the grid just under the title",
+        liftY - (pull - 4) === 12, `lift at ${liftY}, pull ${pull}`);
+    check("grid can never reach the settings below it",
+        size[1] - 20 <= node.outputs.length * 20 - 16,
+        `grid ${size[1] - 20} vs band ${node.outputs.length * 20}`);
     check("lift matches its layout hook",
         lift.computeLayoutSize().minHeight === -pull);
     check("panel leaves room for the output labels",
@@ -330,6 +342,71 @@ console.log("\nRedraw and resize");
     const size = [240, 10];
     node.onResize(size);
     check("resize keeps the grid visible", size[1] > 100, `got ${size[1]}`);
+}
+
+console.log("\nSaving and loading");
+
+/* Mirrors of the two halves of the frontend, which disagree: the saver
+   writes by absolute index and leaves a hole for every non-serializable
+   widget, the loader walks the serializable widgets and consumes the
+   array in order. */
+function serializeLikeFrontend(node) {
+    const out = [];
+    node.widgets.forEach((w, i) => {
+        if (w.serialize === false) return;
+        out[i] = w.value ?? null;
+    });
+    return JSON.parse(JSON.stringify(out));  // holes become nulls
+}
+function loadLikeFrontend(node, values) {
+    let i = 0;
+    for (const w of node.widgets) {
+        if (w.serialize === false) continue;
+        if (i >= values.length) break;
+        w.value = values[i++];
+    }
+}
+function readAll(node) {
+    return node.widgets
+        .filter((w) => w.serialize !== false)
+        .map((w) => [w.name, w.value]);
+}
+
+{
+    const a = create(["a.png", EMPTY, "b.png"]);
+    a.node.widgets.find((w) => w.name === "width").value = 777;
+    a.node.widgets.find((w) => w.name === "height").value = 555;
+    const before = readAll(a.node);
+    const saved = serializeLikeFrontend(a.node);
+
+    equal("a save holds one value per real widget",
+        saved.length, a.node.widgets.filter((w) => w.serialize !== false).length);
+    check("a save has no leading holes", saved[0] !== null, JSON.stringify(saved[0]));
+
+    const b = create();
+    b.nodeType.prototype.configure.call(b.node, { widgets_values: saved });
+    loadLikeFrontend(b.node, saved);
+    equal("save then load is an identity", readAll(b.node), before);
+
+    // A workflow written by the build that put the grid widgets first.
+    const legacy = [null, null, ...saved];
+    const c = create();
+    c.nodeType.prototype.configure.call(c.node, { widgets_values: legacy });
+    loadLikeFrontend(c.node, legacy);
+    equal("an older shifted save is repaired on load", readAll(c.node), before);
+
+    // One leading hole, from the build before the lift existed.
+    const older = [null, ...saved];
+    const d = create();
+    d.nodeType.prototype.configure.call(d.node, { widgets_values: older });
+    loadLikeFrontend(d.node, older);
+    equal("a one-hole save is repaired too", readAll(d.node), before);
+
+    // A clean array must be left alone.
+    const e = create();
+    const untouched = [...saved];
+    e.nodeType.prototype.configure.call(e.node, { widgets_values: untouched });
+    equal("a healthy save is not touched", untouched, saved);
 }
 
 console.log("\nOther node types are untouched");

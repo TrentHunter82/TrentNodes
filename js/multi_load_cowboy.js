@@ -30,7 +30,10 @@ const CELL_RATIO = 0.72;   /* cell height / cell width */
 const SLOT_H = 20;         /* one output row */
 const LABEL_RESERVE = 96;  /* keep the output labels clear of the grid */
 const MIN_GRID_BOX = 170;  /* narrower than this, sit under the slots */
+const MIN_BAND = 90;       /* too little room to bother sharing the band */
 const TOP_INSET = 12;      /* never ride up into the title bar */
+const CLEARANCE = 8;       /* gap kept between the grid and the settings */
+const ROW_SPACING = 4;     /* the frontend adds this to every widget box */
 
 /* Bumped on every upload so replaced files re-fetch instead of showing
    a stale browser cache entry. */
@@ -593,21 +596,54 @@ function layout(boxWidth) {
 /**
  * Where the panel sits, and how far to pull it up.
  *
- * With no inputs, the band beside the output labels is dead space. A
- * spacer widget with a negative height moves the grid up into it, so the
- * outputs end up alongside the grid instead of stacked above it. On a
- * node too narrow to share that band, the grid drops back underneath.
+ * With no inputs, the band beside the output labels is dead space. The
+ * grid widget lives at the end of the widget list, where it cannot
+ * disturb saved values, and a lift widget with a negative height moves
+ * it up into that band. The height is capped to the band so the grid can
+ * never land on top of the settings below it. A node too narrow to share
+ * the band keeps the grid where it sits, under everything else.
+ *
+ * `liftY` is where the lift itself lands and `settingsTop` is where the
+ * first real widget sits. Both depend only on the widgets before them,
+ * so feeding them back in here cannot oscillate.
  */
-function plan(node, elementWidth) {
+function plan(node, elementWidth, liftY, settingsTop) {
     const elemW = elementWidth ||
         Math.max(120, (node.size?.[0] || 380) - DOM_MARGIN * 2);
-    const beside = elemW - LABEL_RESERVE >= MIN_GRID_BOX;
-    const geometry = layout(beside ? elemW - LABEL_RESERVE : elemW);
     const band = (node.outputs?.length || 0) * SLOT_H;
-    const pull = beside
-        ? Math.max(0, Math.min(geometry.height, band - TOP_INSET))
+    const ceiling = settingsTop || band + 6;
+    /* The widget box is the panel plus the frontend's margins, and it
+       has to clear the first setting below it. */
+    const roomBeside = Math.max(
+        0, ceiling - TOP_INSET - DOM_MARGIN * 2 - ROW_SPACING - CLEARANCE
+    );
+    const beside = elemW - LABEL_RESERVE >= MIN_GRID_BOX &&
+        roomBeside >= MIN_BAND;
+    const available = beside ? elemW - LABEL_RESERVE : elemW;
+    let geometry = layout(available);
+    let height = geometry.height;
+
+    if (beside) {
+        /* The band sets the height, so a very wide node would stretch
+           the cells into letterboxes. Hold the panel to the width that
+           keeps them in proportion and leave the slack to the labels. */
+        height = Math.min(height, roomBeside);
+        const rows = geometry.rows;
+        const cellH = (height - HEAD_H - PAD * 2 - GAP * (rows - 1)) / rows;
+        const ideal = Math.round(
+            geometry.cols * (cellH / CELL_RATIO) + PAD * 2 +
+            GAP * (geometry.cols - 1)
+        );
+        const box = Math.max(MIN_GRID_BOX, Math.min(available, ideal));
+        if (box !== available) geometry = { ...layout(box), cols: geometry.cols };
+    }
+
+    /* The lift's own box also gains ROW_SPACING, so ask for that much
+       more to land the grid on TOP_INSET. */
+    const pull = beside && liftY > 0
+        ? Math.max(0, liftY - TOP_INSET + ROW_SPACING)
         : 0;
-    return { ...geometry, beside, pull, elemW };
+    return { ...geometry, natural: geometry.height, height, beside, pull, elemW };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1033,10 +1069,34 @@ function attachGrid(node) {
 
     /* --- widget --- */
 
+    /* Where the lift lands naturally: after every real widget. Measured
+       once the frontend has laid out, estimated before that. */
+    function liftY() {
+        if (spacer && typeof spacer.y === "number" && spacer.y > 0) {
+            return spacer.y;
+        }
+        const band = (node.outputs?.length || 0) * SLOT_H;
+        const rows = (node.widgets || []).filter(
+            (w) => !w.hidden && w !== spacer && w !== widget
+        ).length;
+        return band + rows * 24 + 6;
+    }
+
+    /* Top of the first real widget below the band: the line the grid
+       must stay above. Measured once laid out, estimated before that. */
+    function settingsTop() {
+        let top = Infinity;
+        for (const w of node.widgets || []) {
+            if (w === spacer || w === widget || w.hidden) continue;
+            if (typeof w.y === "number" && w.y > 0) top = Math.min(top, w.y);
+        }
+        return Number.isFinite(top) ? top : 0;
+    }
+
     /* The panel is measured from the widget box the frontend hands us,
        never from our own guess at its margins, so nothing gets clipped. */
     function currentPlan() {
-        return plan(node, root.clientWidth || 0);
+        return plan(node, root.clientWidth || 0, liftY(), settingsTop());
     }
 
     /** Height to ask for: the panel plus the frontend's own margins. */
@@ -1060,13 +1120,16 @@ function attachGrid(node) {
         return next;
     }
 
+    let spacer;
+    let widget;
+
     const spacerEl = document.createElement("div");
     spacerEl.className = "mlc-spacer";
     spacerEl.style.pointerEvents = "none";
 
     /* A negative height moves everything after it up, which lifts the
        grid into the empty band beside the output labels. */
-    const spacer = node.addDOMWidget("multi_load_lift", "mlc_lift", spacerEl, {
+    spacer = node.addDOMWidget("multi_load_lift", "mlc_lift", spacerEl, {
         serialize: false,
         hideOnZoom: false,
         getMinHeight: () => -currentPlan().pull,
@@ -1079,7 +1142,7 @@ function attachGrid(node) {
         return { minHeight: pull, maxHeight: pull, minWidth: 0 };
     };
 
-    const widget = node.addDOMWidget("multi_load_grid", "mlc_grid", root, {
+    widget = node.addDOMWidget("multi_load_grid", "mlc_grid", root, {
         serialize: false,
         hideOnZoom: false,
         getMinHeight: () => requestHeight(),
@@ -1089,17 +1152,16 @@ function attachGrid(node) {
        flag off the widget itself. Core's audio widget sets both. */
     widget.serialize = false;
 
-    /* The grid is the face of the node, so it goes above the settings,
-       with its lift immediately before it. Widget values are stored
-       positionally, and this runs before the graph configures the node,
-       so save and load agree on the order. */
-    for (const w of [widget, spacer]) {
-        const at = node.widgets.indexOf(w);
-        if (at > 0) {
-            node.widgets.splice(at, 1);
-            node.widgets.unshift(w);
-        }
-    }
+    /*
+     * Both of ours stay at the END of node.widgets, and nothing may be
+     * inserted in front of a real widget. The frontend saves widget
+     * values by absolute index, leaving a hole for anything with
+     * serialize === false, but loads them compacted - it walks the
+     * serializable widgets and consumes the array in order. Those two
+     * only agree while every non-serializable widget sits last;
+     * anywhere else, one reload shifts every value along by one and a
+     * number widget ends up holding a string.
+     */
 
     widget.computeSize = function (width) {
         applyLayout();
@@ -1174,6 +1236,39 @@ function attachGrid(node) {
     widget.mlcRefresh = refresh;
     node.mlcContentBottom = contentBottom;
     return { widget, spacer, refresh, currentPlan, fitHeight, contentBottom };
+}
+
+/**
+ * Repair widgets_values saved by a build that put the grid widgets in
+ * front of the real ones.
+ *
+ * Those saves carry a leading null per non-serializable widget, while
+ * the loader expects a compacted array, so every value lands one or two
+ * widgets late. Dropping the leading nulls until the array matches the
+ * widget count puts them back where they belong. Only leading nulls go:
+ * none of this node's widgets ever holds a null of its own.
+ */
+function repairWidgetValues(node, info) {
+    const values = info?.widgets_values;
+    if (!Array.isArray(values)) return 0;
+
+    const expected = (node.widgets || [])
+        .filter((w) => w.serialize !== false).length;
+    if (!expected || values.length <= expected) return 0;
+
+    let dropped = 0;
+    while (values.length > expected &&
+           (values[0] === null || values[0] === undefined)) {
+        values.shift();
+        dropped += 1;
+    }
+    if (dropped) {
+        console.info(
+            `[MultiLoadCowboy] repaired ${dropped} shifted widget ` +
+            "value(s) from an older save"
+        );
+    }
+    return dropped;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1266,6 +1361,18 @@ app.registerExtension({
                 : undefined;
             hidden.forEach((w, i) => (w.type = saved[i]));
             return result;
+        };
+
+        /* configure() applies widgets_values, so the repair has to run
+           before it, not in onConfigure which fires afterwards. */
+        const configure = nodeType.prototype.configure;
+        nodeType.prototype.configure = function (info) {
+            try {
+                repairWidgetValues(this, info);
+            } catch (err) {
+                console.error("[MultiLoadCowboy] value repair failed", err);
+            }
+            return configure ? configure.apply(this, arguments) : undefined;
         };
 
         const onConfigure = nodeType.prototype.onConfigure;
