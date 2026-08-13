@@ -623,13 +623,19 @@ The prompt is pruned on the client, the same approach rgthree uses: everything o
 
 Calls the FAL AI Kling O3 Pro video-to-video reference API to generate new video from a reference video and text prompt. Encodes input IMAGE batch frames to mp4, uploads to FAL CDN, and returns the generated video as frames. Supports optional style reference images (@Image1, @Image2) and character/element injection (@Element1, @Element2) with frontal face + reference image pairs. Optional AUDIO input embeds audio into the uploaded video via ffmpeg muxing -- use with keep_audio=True to preserve it in the generated output. Features auto-appending of @tags for connected inputs so you can write natural prompts, plus a built-in @ autocomplete dropdown in the prompt widget that shows available tags based on which inputs are connected. Images are auto-compressed to JPEG and downscaled if needed to stay within FAL's 10 MB upload limit. Costs $0.336 per second of generated video.
 
-### 🔊 Trent/Audio (1 node)
+### 🔊 Trent/Audio (2 nodes)
 
 **Audio Length in Seconds**
 
 <img src="assets/images/nodes/AudioLength.png" width="233" alt="Audio Length in Seconds node">
 
 Calculates the duration of an audio input. Returns both the rounded-up integer (always ceiling to the nearest second) and the exact float duration. Handles all ComfyUI audio formats including VideoHelperSuite LazyAudioMap.
+
+**Transcribe Lyrics (Whisper)**
+
+Transcribes any AUDIO input with OpenAI Whisper and returns four outputs: plain `text`, LRC-timed `lrc` lyrics, `segments_json` (start/end/text records), and the `duration` in seconds. Audio over 30 seconds uses transformers' sequential long-form decoding, so timestamps stay absolute and words are not cut at a chunk boundary.
+
+Model choice covers large-v3 (most accurate), large-v3-turbo (much faster), medium, small and base, plus any folder dropped into `ComfyUI/models/whisper/` which appears as `local:<name>`. The model stays cached in VRAM between runs unless you turn off `keep_model_loaded`. `precision` defaults to fp16 on CUDA and fp32 on CPU; the features are always cast to the model dtype, which is what makes this work on transformers 5.x (a plain `from_pretrained` there loads the fp16 checkpoint and then crashes with "Input type (float) and bias type (c10::Half) should be the same"). `hint_prompt` biases Whisper toward names or spellings you supply — note that on clips under 30 seconds a prompt disables timestamps, an upstream transformers limitation. Logic is covered by `tests/test_transcribe_lyrics.py`.
 
 ### 🎤 Trent/LipSync (11 nodes)
 
