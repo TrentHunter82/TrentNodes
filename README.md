@@ -368,7 +368,7 @@ Loads up to six reference images from a folder (or folder/<filename_key>/) onto 
 
 None-tolerant multi-image preview, the companion to Ref Folder Cowboy. Six optional IMAGE inputs; previews whichever slots hold images, in slot order, and silently skips None or unconnected inputs - so an empty or partial ref folder never aborts the run. Each slot is saved separately, so mixed image sizes are fine.
 
-### 🔧 Trent/Utilities (11 nodes)
+### 🔧 Trent/Utilities (12 nodes)
 
 **Smart File Transfer (Auto-Rename)**
 
@@ -435,6 +435,10 @@ Adjusts frame amount to always satisfy Wan 4x+1 requirements by adding gray fram
 <img src="assets/images/nodes/MiniH3FrameAdjusterNode.png" width="260" alt="MiniH3 Magic (Frame Adjuster) node">
 
 MiniMax H3 counterpart of the Wan2.1 Frame Adjuster. Rounds a batch up to the next valid H3 frame count (17n+5: 5, 22, 39, 56, ...) by adding gray frames to the end, and also outputs the resulting duration in seconds at H3's native 24 fps. H3 can pad up to 16 frames (~0.67 s), so trim back to the original frame count after generation.
+
+**WSL Path Converter**
+
+Turns a Windows path into the Linux path a ComfyUI running under WSL can actually open, so pasted paths work in Load Video (Path), Load Image From Path and friends. Handles `\\wsl.localhost\<distro>\...` and legacy `\\wsl$\...` UNC paths, drive letters (`C:\Users\...` → `/mnt/c/Users/...`, honouring a custom `[automount] root` in `/etc/wsl.conf`), `file://` URIs, and quotes from Explorer's "Copy as path". Set `direction` to `to_windows` to go the other way, or leave it on `auto` to always get the host's native form. The optional `append` input joins a file name onto a folder, and the `exists`/`kind` outputs report whether the target is a file, a dir, or missing.
 
 ### 🎭 Trent/Masks (4 nodes)
 
