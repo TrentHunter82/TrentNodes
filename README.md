@@ -544,7 +544,21 @@ Generates 10 test prompts specifically designed to validate different types of L
 
 Outputs 10 individual prompt strings plus a combined `all_prompts` output for easy batch processing. Includes optional quality suffix to append tags like "8k, detailed" to all prompts.
 
-### 👁️ Trent/VLM (7 nodes)
+### 👁️ Trent/VLM (8 nodes)
+
+**Ultimate H3 Cowboy Promptor**
+
+Writes a MiniMax H3 prompt for any kind of shot, not just character replacement, and hands the assets straight on to the sampler. Where H3 Auto Prompt Generator does one job well (replace the performer in a video with the person in a reference image), this writes any job the H3 spec describes — and both are installed on purpose.
+
+**Subjects are rows, not syntax.** Each row is a kind, an optional name, and a description. `character` and `environment` sit at the top of the kind list and become the guide's own `person` and `scene`; animal, object, wardrobe, interface, effect, style, action, expression and pose are all there too. Rows appear as you use them: fill the last one and the next arrives, wire `subject_4_image` and rows 1–4 are waiting. One rule runs the whole way through — **row N is `<Subject N>` is `subject_N_image` is `<Picture N>`** — so a skipped row leaves a hole rather than closing it, and says so. A row needs no image, which is how you ask for a style or an action. The typed `subjects` field is still there behind **Show advanced**, for the seventh subject or one citing two pictures at once.
+
+**Two formats, one node.** `h3_mode` picks the skeleton. `ref` writes the six-section Ref2VA format from reference assets. The four `base_*` modes write the three-field base format — T2VA from text alone, I2VA from a first frame, FL2VA between a first and a last frame, L2VA onto a last frame — and need a different H3 checkpoint, which `h3_checkpoint_hint` names. All six of the guides' own worked examples pass this node with zero errors.
+
+**`music_video`** is the same mode the older node has, rewritten for several subjects: the singer is whichever subject can actually sing, not an assumed `<Subject 1>`. `non_diegetic_music` becomes the lead audio section and can no longer be `N/A`, `overall_soundscape` thins to what is audible under the track, cuts land on the beat, and performance to camera becomes the action. `lyrics` reach a `<d>[Language] ...</d>` block in the shot where they are heard or the run retries; `music_source` decides whether the song is declared to H3 as `<Audio 1>`, which is what adds `audio reuse` to the task type.
+
+**Nothing is wired twice.** The images, video and audio you plug in come back out as `ref_image_1..6`, `ref_video` (as IMAGE frames, which is what the sampler takes), `ref_video_audio` and `ref_audio`, with the `width`, `height` and `length` MiniMaxH3ReferenceToVideo wants and a `label_map` you can read against the prompt. The old five outputs never move. `length` sits on H3's 17k+5 frame grid, and `snap_duration_to_h3_grid` (on by default) makes the prompt state the duration that grid really produces — ask for 2.00 seconds and H3 renders 2.33.
+
+Wire Cut Detective into `cut_times` to pin the shot timeline. Backends are the same seven as the older node.
 
 **H3 Auto Prompt Generator**
 

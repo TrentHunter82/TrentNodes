@@ -597,6 +597,41 @@ def test_no_measured_times_keeps_proportional_repair():
     assert any("non-monotonic" in w for w in result.warnings), result.warnings
 
 
+# ---------------------------------------------------------------------------
+# Golden-output lock
+# ---------------------------------------------------------------------------
+
+# Ultimate H3 Cowboy Promptor shares this module's subject-agnostic helpers
+# rather than forking them, and a later phase moves those helpers into a
+# common core. These hashes turn "I think that refactor was mechanical"
+# into a fact: the old node's output must not shift by one byte.
+#
+# Regenerate ONLY when the old node's behaviour is deliberately changed,
+# and say so in the commit message.
+GOLDEN_PROMPTS = {
+    "GOOD/CTX": "afdd2c59da732367a22e7c12653c2c5a5638e38ef66df6e2c7b3545868e76d15",
+    "SPEC/CTX": "f92bcc353e6f69852452843c6669a5d552bd97a5c153f6dfef29489b0cb1d9c4",
+}
+
+
+def test_the_old_assembler_output_is_byte_stable():
+    import hashlib
+    from test_h3_format import SPEC as FORMAT_SPEC, CTX as FORMAT_CTX
+
+    for label, raw, ctx in (
+        ("GOOD/CTX", GOOD, CTX),
+        ("SPEC/CTX", FORMAT_SPEC, FORMAT_CTX),
+    ):
+        digest = hashlib.sha256(process(raw, ctx).prompt.encode()).hexdigest()
+        assert digest == GOLDEN_PROMPTS[label], (
+            f"{label} output changed.\n"
+            f"  expected {GOLDEN_PROMPTS[label]}\n"
+            f"  got      {digest}\n"
+            "If this was deliberate, update GOLDEN_PROMPTS and say so in the "
+            "commit. If you were extracting shared helpers, it was not."
+        )
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
