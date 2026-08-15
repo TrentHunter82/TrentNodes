@@ -1,8 +1,8 @@
 # Ultimate H3 Cowboy Promptor — handoff
 
-**Status:** Phases 0–3, 5 and 6 built, tested and working. Phase 4 (extraction
-and tooling) is **not built** — see §7. Written 2026-08-14, on top of
-`0cded8a`; Phases 5 and 6 landed the same day. Everything below is verified
+**Status:** Phases 0–6 built, tested and working. Phase 4 (extraction and
+tooling) landed 2026-08-15 — see §7; only its node card is still open.
+Written 2026-08-14, on top of `0cded8a`; Phases 5 and 6 landed the same day. Everything below is verified
 unless a line says otherwise — and nothing here has yet driven a real H3
 generation.
 
@@ -288,12 +288,18 @@ the two rules a later change must not break, and the canvas checklist — the
 visibility extension is verified against a mock and against the frontend's own
 source, never yet in a browser.
 
-### Phase 4 — extraction and tooling — **not built**
+### Phase 4 — extraction and tooling — **built** (2026-08-15, except the node card)
 
-- Move genuinely shared helpers to `utils/h3_prompt/core.py`, re-export from
-  `assembler.py`, verify against the golden hashes.
-- `tools/h3_cowboy_dev_run.py` on the `tools/h3_prompt_dev_run.py` model.
-- A node card. The README entry landed with Phase 6.
+- The shared helpers now live in `utils/h3_prompt/core.py`, moved verbatim
+  by line range. `assembler.py` re-exports every moved name, so its public
+  surface is unchanged; `utils/h3_cowboy/assembler.py` imports from `core`
+  directly. The golden hashes never moved — the extraction was mechanical.
+- `tools/h3_cowboy_dev_run.py` exists, on the `tools/h3_prompt_dev_run.py`
+  model, plus a `--reply @file` canned-backend mode that runs the full
+  pipeline on hand-written text with no API spend. Smoke-tested offline in
+  both ref mode (synthetic clip + the node test's reply) and base_T2VA
+  (spec's own official example).
+- A node card is still open. The README entry landed with Phase 6.
 
 ### Deliberate non-goals
 

@@ -156,10 +156,11 @@ configuration that made real videos. Those are not the same thing. Read
 2. **A real H3 generation**, and the SPONG A/B this node was built for — the
    hand-written REF2VA prompt against this node's output on the same clip. See
    the `spong-h3-remaster-project` memory and `projects/spong_h3/`.
-3. **Phase 4 — extraction and tooling** (`docs/H3_COWBOY_HANDOFF.md` §7). Move
-   the genuinely shared helpers to `utils/h3_prompt/core.py` and verify against
-   the golden hashes in `tests/test_h3_assembler.py`. Those hashes exist for
-   exactly this refactor. Also `tools/h3_cowboy_dev_run.py`.
+3. ~~**Phase 4 — extraction and tooling**~~ Done 2026-08-15: the shared
+   helpers live in `utils/h3_prompt/core.py`, the golden hashes never moved,
+   and `tools/h3_cowboy_dev_run.py` exists (its `--reply @file` mode runs the
+   pipeline on canned text with no API spend). See
+   `docs/H3_COWBOY_HANDOFF.md` §7.
 4. **A node card** — screenshot for the README, like the other nodes have.
 5. **Possible, not decided:** hide the unused `subject_N_image` sockets above
    the visible rows. Sockets are riskier than widgets — a hidden socket with a

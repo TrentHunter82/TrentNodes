@@ -44,7 +44,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from ..h3_prompt.assembler import (
+from ..h3_prompt.core import (
     _FENCE_RE,
     _SENTENCE_SPLIT_RE,
     _SHOT_LABEL_RE,
