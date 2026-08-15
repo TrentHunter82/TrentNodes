@@ -67,6 +67,10 @@ export class El {
         this.classList.set = new Set(String(value).split(/\s+/).filter(Boolean));
     }
 
+    get parentElement() {
+        return this.parent;
+    }
+
     appendChild(child) {
         child.parent = this;
         this.children.push(child);

@@ -428,6 +428,44 @@ function readAll(node) {
     equal("a healthy save is not touched", untouched, saved);
 }
 
+console.log("\nThe canvas keeps its pointer");
+
+{
+    /* The widget box is wider than the panel drawn in it. Anything the
+       frame or the frontend's wrapper catches is a dead patch of canvas
+       over the output labels: no panning, no dragging out of a socket. */
+    const { node, grid, root, panel } = create();
+
+    check("the frame is styled out of the way",
+        /\.mlc-root\s*{[^}]*pointer-events:\s*none/s.test(
+            document.head.children[0].textContent),
+        "no pointer-events:none on .mlc-root");
+    check("the panel takes events back",
+        /\.mlc-panel\s*{\s*pointer-events:\s*auto/s.test(
+            document.head.children[0].textContent),
+        "no pointer-events:auto on .mlc-panel");
+    check("the panel is narrower than the box it sits in",
+        parseInt(panel.style.width) < node.size[0],
+        `panel ${panel.style.width} in node ${node.size[0]}`);
+
+    /* Mount it the way the frontend does and redraw. */
+    const wrapper = document.createElement("div");
+    wrapper.className = "dom-widget size-full";
+    wrapper.appendChild(root);
+    grid.computeSize(node.size[0]);
+    equal("the frontend's wrapper is switched off",
+        wrapper.style.pointerEvents, "none");
+
+    /* A container we do not recognise is left alone. */
+    const other = create();
+    const foreign = document.createElement("div");
+    foreign.className = "someone-elses-container";
+    foreign.appendChild(other.root);
+    other.grid.computeSize(other.node.size[0]);
+    equal("an unfamiliar parent is untouched",
+        foreign.style.pointerEvents, undefined);
+}
+
 console.log("\nHealing a damaged node");
 
 {

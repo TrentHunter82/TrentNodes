@@ -100,7 +100,10 @@ const CSS = `
 }
 
 /* The root fills the widget box and is only a positioning frame; the
-   panel inside is the part that gets a width and the soft-ui shell. */
+   panel inside is the part that gets a width and the soft-ui shell.
+   The frame takes no pointer events: it is wider than the panel, and
+   anything it caught would be a dead patch of canvas over the output
+   labels - no panning, no dragging a wire out of a socket. */
 .mlc-root {
     width: 100%;
     height: 100%;
@@ -110,10 +113,21 @@ const CSS = `
     color: var(--mlc-text);
     user-select: none;
     -webkit-font-smoothing: antialiased;
+    pointer-events: none;
 }
 .mlc-root * { box-sizing: border-box; }
 
+/* The frontend sizes its own wrapper to the whole widget box and writes
+   pointer-events: auto onto it from a Vue computed style on every
+   render, so the only way to hand that strip back to the canvas is a
+   rule that outranks an inline style. */
+.dom-widget:has(> .mlc-root),
+.dom-widget:has(> .mlc-spacer) {
+    pointer-events: none !important;
+}
+
 .mlc-panel {
+    pointer-events: auto;
     width: 100%;
     height: 100%;
     min-height: 0;
@@ -429,6 +443,27 @@ function injectCSS() {
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Let the canvas have the pointer back.
+ *
+ * The frontend wraps every DOM widget in its own div sized to the whole
+ * widget box, which is wider than the panel we draw in it. The stylesheet
+ * rule above is what actually holds that wrapper open, because the
+ * frontend rewrites its inline pointer-events on every render. This is
+ * the fallback for an engine without :has(), and it only ever switches
+ * the wrapper off: the panel inside sets pointer-events back to auto,
+ * and a descendant that does so is still a target.
+ */
+function releaseWrapper(element) {
+    const parent = element?.parentElement;
+    if (!parent || !parent.style) return;
+    const name = typeof parent.className === "string" ? parent.className : "";
+    if (name && !name.includes("dom-widget")) return;
+    if (parent.style.pointerEvents !== "none") {
+        parent.style.pointerEvents = "none";
+    }
+}
 
 /** Tell the user something went wrong, without a modal if possible. */
 function report(message) {
@@ -1105,6 +1140,10 @@ function attachGrid(node) {
     }
 
     function applyLayout() {
+        /* The wrappers appear when the elements mount, so keep asking. */
+        releaseWrapper(root);
+        releaseWrapper(spacerEl);
+
         const next = currentPlan();
         if (lastLayout &&
             next.cols === lastLayout.cols &&
