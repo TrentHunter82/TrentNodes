@@ -368,7 +368,23 @@ Loads up to six reference images from a folder (or folder/<filename_key>/) onto 
 
 None-tolerant multi-image preview, the companion to Ref Folder Cowboy. Six optional IMAGE inputs; previews whichever slots hold images, in slot order, and silently skips None or unconnected inputs - so an empty or partial ref folder never aborts the run. Each slot is saved separately, so mixed image sizes are fine.
 
-### 🔧 Trent/Utilities (12 nodes)
+### 🔧 Trent/Utilities (14 nodes)
+
+**Save for Next Time**
+
+Stashes data in a named slot so a *later* queue run can pick it up. Connect any mix of IMAGE, MASK, STRING, AUDIO, VIDEO and LATENT — whatever arrives together becomes one entry under `output/for_next_time/<slot_name>/`. Keeps the newest `max_entries` saves (default 10) and deletes the rest.
+
+Entries are published by an atomic folder rename, so a run killed mid-save never leaves a half-written entry. Rename an entry folder by hand to something without the `00000001-` prefix and it becomes a permanent pin: still reachable by name, never pruned.
+
+Has no outputs on purpose — wire your data to this node *and* to whatever else needs it.
+
+**Take from Last Time**
+
+Reads back what Save for Next Time stashed on an earlier run. Defaults to the most recent entry; set `steps_back` to reach further back (1 = the one before newest), or type an `entry_name` (a unique prefix is enough) to pin an exact entry.
+
+Sockets the chosen entry holds no data for are *blocked*, so only the branches that need a missing member get skipped — the rest of the graph runs normally. `found`, `entry_name` and `entry_count` always report, so you can branch on them. `fallback_mode` decides what happens when the slot is empty or `steps_back` overruns: `block` (default), `empty` (blank values), or `error`.
+
+Save and Take on the same slot in the *same* prompt is not supported — ComfyUI does not order two unconnected nodes. The pair is for consecutive runs.
 
 **Smart File Transfer (Auto-Rename)**
 
