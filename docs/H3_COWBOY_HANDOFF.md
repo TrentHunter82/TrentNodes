@@ -106,12 +106,12 @@ changed, and say so in the commit.
 | `utils/h3_cowboy/assembler.py` | `CowboyContext`, `_process_ref`, `_process_base`, the R1–R5 budget, `enforce_task_type_set`, `enforce_video_edit`, the base parse/emit |
 | `nodes/ultimate_h3_cowboy_promptor.py` | The node: 6 subject rows and image slots, roles, music video, both skeletons, retry loop, 18 outputs |
 | `js/h3_cowboy.js` | Which widgets are visible: rows grow as you fill them, music appears with `music_video`, each mode hides the other's settings |
-| `tests/test_h3_cowboy_subjects.py` | DSL parsing and image binding (18) |
+| `tests/test_h3_cowboy_subjects.py` | The subject DSL, the rows, and image binding (25) |
 | `tests/test_h3_cowboy_ref.py` | Ref conformance, anchored on both official examples (32) |
-| `tests/test_h3_cowboy_node.py` | End-to-end against a fake backend (16) |
-| `tests/test_h3_cowboy_base.py` | Base conformance, anchored on all four official cases (41) |
-| `tests/test_h3_wiring.py` | The sampler arithmetic, checked against a re-implementation of the original (20) |
-| `tests/h3_cowboy_js/run.mjs` | `js/h3_cowboy.js` against a mocked frontend (`node tests/h3_cowboy_js/run.mjs`) |
+| `tests/test_h3_cowboy_node.py` | End-to-end against a fake backend: rows, music, pass-through (37) |
+| `tests/test_h3_cowboy_base.py` | Base conformance, anchored on all four official cases (45) |
+| `tests/test_h3_wiring.py` | The sampler arithmetic, checked against a re-implementation of the original (9) |
+| `tests/h3_cowboy_js/run.mjs` | `js/h3_cowboy.js` against a mocked frontend, 26 checks (`node tests/h3_cowboy_js/run.mjs`) |
 
 **Reused unchanged** (verified subject-agnostic): `utils/h3_prompt/keyframes.py`,
 `backends.py`, `imaging.py`, `audio_io.py`, and
@@ -282,6 +282,11 @@ The rest is visibility, in `js/h3_cowboy.js` and in `"advanced": True` on the
 widgets nobody touches twice. Nothing is hidden that changes an outcome
 silently — Python reads all six rows whatever the row count says, and every
 ignored widget still warns.
+
+`docs/H3_NODE_FACE_HANDOFF.md` is the record: the numbering chain end to end,
+the two rules a later change must not break, and the canvas checklist — the
+visibility extension is verified against a mock and against the frontend's own
+source, never yet in a browser.
 
 ### Phase 4 — extraction and tooling — **not built**
 

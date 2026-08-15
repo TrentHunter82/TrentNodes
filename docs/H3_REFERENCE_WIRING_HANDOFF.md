@@ -364,7 +364,7 @@ tooltips, because it looks like a fault and is not.
 
 ## 6. What already exists — do not rewrite it
 
-`utils/h3_cowboy/wiring.py`, with 20 tests in `tests/test_h3_wiring.py`. Pure
+`utils/h3_cowboy/wiring.py`, with 9 tests in `tests/test_h3_wiring.py`. Pure
 functions, no torch, no ComfyUI. Every one is a deliberate copy of sampler code
 with the source lines named, so an upstream change fails a test here instead of
 mis-sizing a real generation.
