@@ -61,3 +61,6 @@ tests/_void_feasibility/
 
 # Local-only node (lihaoyun6 cache port, synced to local mask-core branch)
 nodes/minimax_h3_cache.py
+
+# Hermes director local state (preflight results, plans)
+.hermes/
