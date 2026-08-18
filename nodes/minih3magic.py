@@ -14,19 +14,39 @@ class MiniH3FrameAdjusterNode:
     audio duration matches the adjusted clip length at 24 fps.
     """
 
+    DESCRIPTION = (
+        "Rounds a clip up to the next MiniMax H3-valid frame count ((n*17)+5: "
+        "5, 22, 39, 56, 73, ...) by appending blank gray frames. Optional audio "
+        "is padded with silence or trimmed to match the new length at 24 fps."
+    )
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
+                "images": ("IMAGE", {
+                    "tooltip": "Video frames to pad. Gray frames are appended "
+                               "until the count hits the next (n*17)+5 value.",
+                }),
             },
             "optional": {
-                "audio": ("AUDIO",),
+                "audio": ("AUDIO", {
+                    "tooltip": "Optional audio track. Padded with trailing "
+                               "silence (or trimmed) to match the adjusted "
+                               "clip length at 24 fps.",
+                }),
             }
         }
 
     RETURN_TYPES = ("IMAGE", "AUDIO", "INT", "INT", "INT")
     RETURN_NAMES = ("adjusted_images", "adjusted_audio", "final_frame_count", "frames_added", "duration_seconds")
+    OUTPUT_TOOLTIPS = (
+        "Original frames plus appended gray padding frames.",
+        "Audio padded/trimmed to the adjusted clip length (None if no audio was connected).",
+        "Total frame count after padding — always of the form (n*17)+5.",
+        "Number of gray frames that were appended (0 if the input count was already valid).",
+        "Adjusted clip duration at 24 fps, rounded to the nearest whole second.",
+    )
     FUNCTION = "adjust_frame_count"
     CATEGORY = "Trent/Utilities"
 
