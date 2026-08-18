@@ -38,6 +38,7 @@ See docs/H3_COWBOY_HANDOFF.md.
 """
 
 import json
+import time
 from fractions import Fraction
 from typing import List, Optional, Tuple
 
@@ -82,6 +83,22 @@ from ..utils.h3_prompt.keyframes import frame_label, select_keyframes
 MAX_RETRIES = 1
 NUM_SUBJECT_SLOTS = 6      # matches RefFolderCowboy, so one wire-up drives both
 LOG_PREFIX = "[H3Cowboy]"
+
+# Providers throw typed exceptions we never import (google.genai
+# ServerError, openai APIError, ...), but all of them carry the HTTP
+# status somewhere; 5xx and 429 are worth a second try, everything
+# else is the caller's problem.
+TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
+TRANSIENT_TRIES = 3
+TRANSIENT_BACKOFF_S = (5.0, 15.0)
+
+
+def _transient_status(exc) -> Optional[int]:
+    for attr in ("status_code", "code", "status"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int) and value in TRANSIENT_STATUSES:
+            return value
+    return None
 
 # Base mode: nothing in an image says whether it is the first frame or
 # the last one, so it is declared. The first value doubles as "unset",
@@ -1243,8 +1260,8 @@ class UltimateH3CowboyPromptor:
         attempts = []
         prompt_text = user_context
         for attempt in range(MAX_RETRIES + 1):
-            reply = backend.generate(
-                system, images, prompt_text, seed=seed, audio=audio,
+            reply = self._generate_with_backoff(
+                backend, system, images, prompt_text, seed, audio,
             )
             result = process(reply.text, ctx)
             attempts.append({
@@ -1269,6 +1286,32 @@ class UltimateH3CowboyPromptor:
                 + "\n".join(f"- {e}" for e in result.retry_errors)
             )
         return best, attempts
+
+    def _generate_with_backoff(self, backend, system, images, prompt_text,
+                               seed, audio):
+        """
+        One VLM call, retried only for transient provider failures.
+
+        Distinct from the validation retry above: that one fixes what the
+        model wrote, this one rides out 500s the provider throws before
+        the model writes anything.
+        """
+        for attempt in range(TRANSIENT_TRIES):
+            try:
+                return backend.generate(
+                    system, images, prompt_text, seed=seed, audio=audio,
+                )
+            except Exception as exc:
+                status = _transient_status(exc)
+                if status is None or attempt == TRANSIENT_TRIES - 1:
+                    raise
+                wait = TRANSIENT_BACKOFF_S[attempt]
+                print(
+                    f"{LOG_PREFIX} provider returned {status}; retrying "
+                    f"in {wait:.0f}s "
+                    f"(attempt {attempt + 2}/{TRANSIENT_TRIES})"
+                )
+                time.sleep(wait)
 
     def _build_images(self, subjects, subject_images, keyframes, frames,
                       warnings) -> List[VLMImage]:

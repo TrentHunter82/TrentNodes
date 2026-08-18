@@ -234,3 +234,33 @@ async def validate_path(request):
         result["valid"] = False
 
     return web.json_response(result)
+
+
+@server.PromptServer.instance.routes.post("/trent/text_holdup")
+async def text_holdup_submit(request):
+    """
+    Release a TextHoldupCowboy node that is waiting mid-run.
+
+    Body: {"gate_id": str, "text": str}
+    """
+    from .nodes.text_holdup_cowboy import resolve_gate
+
+    try:
+        data = await request.json()
+    except ValueError:
+        return web.json_response({"ok": False, "error": "bad json"}, status=400)
+
+    gate_id = data.get("gate_id")
+    text = data.get("text")
+    if not gate_id or not isinstance(text, str):
+        return web.json_response(
+            {"ok": False, "error": "gate_id and text required"}, status=400
+        )
+
+    ok = resolve_gate(gate_id, text)
+    if not ok:
+        return web.json_response(
+            {"ok": False, "error": "gate not found (already released?)"},
+            status=404,
+        )
+    return web.json_response({"ok": True})
