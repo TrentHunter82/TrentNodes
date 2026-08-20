@@ -1,7 +1,7 @@
 [project]
 name = "trentnodes"
 description = "Comprehensive custom nodes for video processing, keyframe management, scene detection, and video analysis in ComfyUI"
-version = "1.11.0"
+version = "1.12.0"
 license = { file = "LICENSE" }
 # Keep this list in sync with the uncommented lines of
 # requirements.txt. The Comfy Registry installs from THIS file, so
