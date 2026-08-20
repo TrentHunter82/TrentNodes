@@ -428,6 +428,79 @@ def test_fallback_modes():
               str(exc))
 
 
+def test_fallback_image():
+    seed = torch.rand(1, 16, 16, 3)
+
+    # Empty slot, block mode: image carries the seed, the rest block.
+    slot = fresh_slot("seed_slot")
+    out = take_all(slot, fallback_image=seed)
+    check("seed image fills an empty slot", out[0] is seed)
+    check("seed image leaves found False", out[7] is False)
+    check("seed image leaves other sockets blocked",
+          all(blocked(out[i]) for i in range(1, 6)))
+
+    # Empty mode: the seed beats the 64x64 blank.
+    out = take_all(slot, fallback_mode="empty", fallback_image=seed)
+    check("seed image beats the blank in empty mode", out[0] is seed)
+
+    # Error mode still stops - the user asked to be stopped.
+    try:
+        take_all(slot, fallback_mode="error", fallback_image=seed)
+        check("error mode ignores the seed image", False, "no error")
+    except ValueError:
+        check("error mode ignores the seed image", True)
+
+    # An entry without an image also gets the seed, but found is True.
+    store.save_entry(slot, {"text": "words only"})
+    out = take_all(slot, fallback_image=seed)
+    check("seed image fills a text-only entry", out[0] is seed)
+    check("a text-only entry still reports found", out[7] is True)
+
+    # A saved image wins over the seed.
+    store.save_entry(slot, {"image": torch.rand(1, 8, 8, 3)})
+    out = take_all(slot, fallback_image=seed)
+    check("a saved image beats the seed",
+          out[0] is not seed and tuple(out[0].shape) == (1, 8, 8, 3),
+          str(getattr(out[0], "shape", out[0])))
+
+
+# ---- clearing ----
+
+
+def test_clear_slot():
+    slot = fresh_slot("clear_slot")
+    for text in ("one", "two", "three"):
+        store.save_entry(slot, {"text": text})
+    path = store.slot_dir(slot, create=False)
+
+    # Pin one entry by renaming it, the documented keeper trick.
+    victim = store.list_entries(path)[0]
+    os.rename(os.path.join(path, victim), os.path.join(path, "keeper"))
+
+    removed, kept = store.clear_slot(slot)
+    check("clear removes the numbered entries", len(removed) == 2,
+          str(removed))
+    check("clear keeps the pinned entry", kept == ["keeper"], str(kept))
+    check("only the pin remains on disk",
+          store.list_entries(path) == ["keeper"],
+          str(store.list_entries(path)))
+
+    removed, kept = store.clear_slot(slot, include_pinned=True)
+    check("include_pinned removes the pin", removed == ["keeper"],
+          str(removed))
+    check("the slot is empty after a full clear",
+          store.list_entries(path) == [], str(store.list_entries(path)))
+
+    # A cleared slot behaves like a fresh one: seq restarts safely
+    # and Take reports nothing found.
+    store.save_entry(slot, {"text": "after clear"})
+    out = take_all(slot)
+    check("a cleared slot accepts new saves", out[2] == "after clear")
+
+    removed, kept = store.clear_slot("never_used_slot")
+    check("clearing a missing slot is a no-op", removed == [] and kept == [])
+
+
 # ---- caching ----
 
 
@@ -550,6 +623,8 @@ if __name__ == "__main__":
         test_stale_staging_is_swept()
         test_entry_name_lookup()
         test_fallback_modes()
+        test_fallback_image()
+        test_clear_slot()
         test_is_changed()
         test_node_contract()
         test_save_node_end_to_end()

@@ -236,6 +236,41 @@ async def validate_path(request):
     return web.json_response(result)
 
 
+@server.PromptServer.instance.routes.post("/trent/for_next_time/clear")
+async def for_next_time_clear(request):
+    """
+    Clear a Save for Next Time slot from the node's Clear button.
+
+    Body: {"slot_name": str, "include_pinned": bool (optional)}
+
+    Returns {ok, removed, kept_pinned} where removed/kept_pinned
+    are entry-name lists.
+    """
+    from .utils import for_next_time as store
+
+    try:
+        data = await request.json()
+    except ValueError:
+        return web.json_response({"ok": False, "error": "bad json"}, status=400)
+
+    slot_name = data.get("slot_name")
+    if not isinstance(slot_name, str) or not slot_name.strip():
+        return web.json_response(
+            {"ok": False, "error": "slot_name required"}, status=400
+        )
+
+    try:
+        removed, kept = store.clear_slot(
+            slot_name, include_pinned=bool(data.get("include_pinned"))
+        )
+    except ValueError as exc:
+        return web.json_response({"ok": False, "error": str(exc)}, status=400)
+
+    return web.json_response(
+        {"ok": True, "removed": removed, "kept_pinned": kept}
+    )
+
+
 @server.PromptServer.instance.routes.post("/trent/text_holdup")
 async def text_holdup_submit(request):
     """

@@ -220,8 +220,15 @@ class TakeFromLastTime:
     instead of being fed a wrong value. found tells you whether
     an entry was read at all.
 
+    fallback_image seeds the loop: connect a Load Image to it and
+    the image socket carries that image whenever there is no saved
+    image - a cleared slot, steps_back gone too far, or an entry
+    that holds only text. Once a save with an image lands, the
+    saved image wins again. found stays False on a fallback, so
+    you can still branch on it.
+
     Use case: pick up the image, prompt or latent you saved on the
-    previous queue run.
+    previous queue run, starting from a seed image on run one.
     """
 
     CATEGORY = "Trent/Utilities"
@@ -249,7 +256,8 @@ class TakeFromLastTime:
         "Read back data saved by Save for Next Time on an earlier "
         "queue run. Defaults to the most recent save. Sockets the "
         "saved entry has no data for are blocked, so only the "
-        "branches that need them are skipped."
+        "branches that need them are skipped. Connect a seed image "
+        "to fallback_image to start a loop from a cleared slot."
     )
 
     @classmethod
@@ -292,6 +300,15 @@ class TakeFromLastTime:
                         "steps_back goes too far. block = skip "
                         "the branches downstream. empty = return "
                         "blank values. error = stop with an error"
+                    ),
+                }),
+                "fallback_image": ("IMAGE", {
+                    "tooltip": (
+                        "Seed image for the first run. Fills the "
+                        "image output whenever there is no saved "
+                        "image (empty slot, or an entry without "
+                        "one). Ignored in error mode when the "
+                        "entry is missing"
                     ),
                 }),
             },
@@ -341,6 +358,7 @@ class TakeFromLastTime:
         steps_back: int = 0,
         entry_name: str = "",
         fallback_mode: str = "block",
+        fallback_image=None,
     ) -> Tuple[Any, ...]:
         path = store.slot_dir(slot_name, create=True)
         entries = store.list_entries(path)
@@ -348,7 +366,8 @@ class TakeFromLastTime:
 
         if name is None:
             return self._handle_missing(
-                slot_name, steps_back, entry_name, fallback_mode, len(entries)
+                slot_name, steps_back, entry_name, fallback_mode,
+                len(entries), fallback_image,
             )
 
         loaded = store.load_entry(path, name)
@@ -356,6 +375,9 @@ class TakeFromLastTime:
             log.warning(
                 "Entry %s in slot %r has no readable members", name, slot_name
             )
+
+        if "image" not in loaded and fallback_image is not None:
+            loaded["image"] = fallback_image
 
         outputs = [
             loaded.get(member, ExecutionBlocker(None))
@@ -372,6 +394,7 @@ class TakeFromLastTime:
         entry_name: str,
         mode: str,
         count: int,
+        fallback_image=None,
     ) -> Tuple[Any, ...]:
         if mode == "error":
             if entry_name.strip():
@@ -399,6 +422,11 @@ class TakeFromLastTime:
                 )
         else:
             outputs = [ExecutionBlocker(None) for _ in store.MEMBER_NAMES]
+
+        # The seed image beats a block or a 64x64 blank. error mode
+        # never reaches here - the user asked to be stopped.
+        if fallback_image is not None:
+            outputs[store.MEMBER_NAMES.index("image")] = fallback_image
 
         return tuple(outputs) + ("", False, count)
 

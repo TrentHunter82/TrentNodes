@@ -358,6 +358,50 @@ def prune(slot_path: str, max_entries: int) -> List[str]:
     return removed
 
 
+def clear_slot(
+    slot_name: str,
+    include_pinned: bool = False,
+) -> Tuple[List[str], List[str]]:
+    """
+    Delete entries from a slot, for a fresh start.
+
+    By default only numbered entries go; hand-renamed keepers
+    (unparseable names, see the module docstring) survive, the
+    same way prune treats them. include_pinned removes those too.
+
+    Uses the same rename-to-trash dance as prune so a reader that
+    already enumerated an entry never sees it half-deleted.
+
+    Returns:
+        (removed entry names, kept pinned entry names)
+    """
+    path = slot_dir(slot_name, create=True)
+
+    with _slot_lock(path):
+        removed = []
+        kept = []
+        for name in list_entries(path):
+            if not include_pinned and not _ENTRY_RE.match(name):
+                kept.append(name)
+                continue
+            source = os.path.join(path, name)
+            trash = os.path.join(
+                path, "{}{}-{}".format(TRASH_PREFIX, name, os.getpid())
+            )
+            try:
+                os.rename(source, trash)
+            except OSError:
+                continue
+            shutil.rmtree(trash, ignore_errors=True)
+            removed.append(name)
+
+        # Default age only: max_age=0 would also kill the staging
+        # folder of a save that is running right now.
+        sweep_stale(path)
+
+    return removed, kept
+
+
 def save_entry(
     slot_name: str,
     members: Dict[str, Any],
