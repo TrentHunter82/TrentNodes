@@ -3,7 +3,7 @@ Cowboy Multi-Line String Concatenate -- join strings with newlines.
 
 Two flavours of the same rope trick:
 
-* CowboyMultiLineStringConcatenate - six fixed string slots. Type into
+* CowboyMultiLineStringConcatenate - ten fixed string slots. Type into
   them or wire them up; each filled slot becomes one line.
 * CowboyMultiLineStringConcatenateDynamic - starts with one input and
   grows a fresh socket every time you connect the last one. The UI for
@@ -14,7 +14,7 @@ blank lines in the middle of the text.
 """
 from ..utils.any_type import any_typ
 
-SLOT_COUNT = 6
+SLOT_COUNT = 10
 
 
 def join_lines(values, skip_empty=True):
@@ -38,7 +38,7 @@ def join_lines(values, skip_empty=True):
 
 
 class CowboyMultiLineStringConcatenate:
-    """Join up to six strings, one per line."""
+    """Join up to ten strings, one per line."""
 
     CATEGORY = "Trent/Text"
     DISPLAY_NAME = "Cowboy Multi-Line String Concatenate"
@@ -48,7 +48,7 @@ class CowboyMultiLineStringConcatenate:
     OUTPUT_TOOLTIPS = ("All the filled slots joined with newlines.",)
 
     DESCRIPTION = (
-        "Joins up to six strings into one string.\n"
+        "Joins up to ten strings into one string.\n"
         "Each filled slot becomes one line.\n"
         "Type into a slot, or connect a string to it.\n"
         "An empty slot is skipped when skip_empty is on."
