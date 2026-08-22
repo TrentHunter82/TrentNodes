@@ -4,7 +4,10 @@ Server routes for TrentNodes.
 Provides API endpoints for folder browsing and file listing.
 """
 
+import asyncio
 import os
+import re
+import shutil
 
 import server
 
@@ -269,6 +272,80 @@ async def for_next_time_clear(request):
     return web.json_response(
         {"ok": True, "removed": removed, "kept_pinned": kept}
     )
+
+
+@server.PromptServer.instance.routes.post("/trent/first_frame")
+async def extract_first_frame(request):
+    """
+    Extract frame 1 of a video into the input folder as a PNG.
+
+    Body: {"video": str} -- a VHS `video` widget value. Either an
+    annotated input filename ("clip.mp4", "clip.mp4 [input]") or a
+    filesystem path (the *Path node variants).
+
+    Returns {ok, filename} where filename lives in the input folder,
+    ready for a LoadImage node.
+    """
+    import folder_paths
+
+    try:
+        data = await request.json()
+    except ValueError:
+        return web.json_response({"ok": False, "error": "bad json"}, status=400)
+
+    video = data.get("video")
+    if not isinstance(video, str) or not video.strip():
+        return web.json_response(
+            {"ok": False, "error": "video required"}, status=400
+        )
+    video = strip_path(video)
+
+    # Resolve like VHS does: direct path first (Path nodes), then the
+    # annotated-filename form used by the upload nodes.
+    path = None
+    expanded = os.path.expanduser(video)
+    if os.path.isfile(expanded):
+        path = os.path.abspath(expanded)
+    else:
+        try:
+            candidate = folder_paths.get_annotated_filepath(video)
+        except Exception:  # noqa: BLE001 - any resolve failure means "not found"
+            candidate = None
+        if candidate and os.path.isfile(candidate):
+            path = candidate
+    if path is None or not is_safe_path(path):
+        return web.json_response(
+            {"ok": False, "error": f"video not found: {video}"}, status=404
+        )
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        try:
+            from imageio_ffmpeg import get_ffmpeg_exe
+            ffmpeg = get_ffmpeg_exe()
+        except Exception:  # noqa: BLE001
+            return web.json_response(
+                {"ok": False, "error": "ffmpeg not found"}, status=500
+            )
+
+    stem = os.path.splitext(os.path.basename(path))[0]
+    stem = re.sub(r"[^\w.-]+", "_", stem) or "video"
+    out_name = f"{stem}_firstframe.png"
+    out_path = os.path.join(folder_paths.get_input_directory(), out_name)
+
+    proc = await asyncio.create_subprocess_exec(
+        ffmpeg, "-y", "-i", path, "-frames:v", "1", out_path,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0 or not os.path.isfile(out_path):
+        tail = (stderr or b"").decode(errors="replace")[-400:]
+        return web.json_response(
+            {"ok": False, "error": f"ffmpeg failed: {tail}"}, status=500
+        )
+
+    return web.json_response({"ok": True, "filename": out_name})
 
 
 @server.PromptServer.instance.routes.post("/trent/text_holdup")
