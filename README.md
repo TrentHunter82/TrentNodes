@@ -544,7 +544,27 @@ Generates 10 test prompts specifically designed to validate different types of L
 
 Outputs 10 individual prompt strings plus a combined `all_prompts` output for easy batch processing. Includes optional quality suffix to append tags like "8k, detailed" to all prompts.
 
-### 👁️ Trent/VLM (8 nodes)
+### 👁️ Trent/VLM (11 nodes)
+
+**H3 Audio Soundscaper (Local GGUF)**
+
+Hears a clip's audio track with a local omni model (built for Qwen3-Omni-30B GGUF under llama-server) and writes the audio parts of a MiniMax H3 prompt: a skill-budgeted `overall_soundscape` (1-4 sentences, diegetic only), `non_diegetic_music` (1-3 sentences or N/A), verbatim `dialogue` lines ready for `<d>` tags, and a full timestamped sound-design log. An optional `scene_context` input tells it what is on screen, used only to sort diegetic from non-diegetic.
+
+Runs on its own llama-server port (8736) so it coexists with the H3 Skill Promptor's text-VLM server (8735) — the server manager is per-port. Same contract as the promptor: one corrective retry against the output rules, never a silent rewrite, everything reported. The model is told the clip's exact duration and to ignore analysis-window padding (every audio captioner tested fabricates events past the real clip end otherwise).
+
+**H3 Skill Promptor (Local GGUF)**
+
+Writes an official MiniMax H3 prompt (Ref2VA six-section or any of the four base three-field modes) with a local GGUF vision LLM - built for Qwen3.8-27B + its mmproj, served by a managed `llama-server` process. Fully offline: no API keys, no cloud.
+
+**The skill is the system prompt.** Instead of a hand-maintained prompt, the node loads the `h3-prompting` skill document itself (live from `~/.claude/skills/h3-prompting/SKILL.md`, falling back to a vendored snapshot) and sends it as the spec, together with exactly one of MiniMax's own worked examples for the selected mode. Update the skill and the node follows.
+
+**No silent rewrites.** Output is checked against the skill's review checklist by a deterministic validator (`utils/h3_skill/checklist.py`). Violations go back to the model once, with the numbered error list; whatever comes back is returned as-is with a full `validation_report`. The only pipeline-side additions are the transport cleanups it reports (a stripped code fence or leaked `<think>` block) and the base-mode alignment line, which per the guide is rendered after the body exists.
+
+**The server is managed for you.** Pick a `.gguf` from `models/LLM` in the dropdown; the mmproj pairs by filename. The node spawns `llama-server` on port 8735 with the right flags for this family (`--jinja`, Unsloth instruct sampling, `reasoning_effort` via chat_template_kwargs), health-checks it, reuses it across runs, and refuses to spawn when free VRAM is too low. `base_url` attaches to any OpenAI-compatible server instead (LM Studio, vLLM, a llama-server you started by hand). Needs a current CUDA build of llama.cpp — see the comment block in `requirements.txt`.
+
+**H3 Local LLM Stop (free VRAM)**
+
+Stops the managed llama-server (or an orphaned one a crashed session left behind). Process death releases all of its VRAM at once. Wire any upstream output into its `after` input to control when it runs — an output node with no inputs is scheduled *first* in the queue, which would kill the server before the promptor uses it.
 
 **Ultimate H3 Cowboy Promptor**
 

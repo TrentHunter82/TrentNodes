@@ -63,3 +63,12 @@ openai>=2.0.0
 google-genai>=1.75.0
 # ollama>=0.6.0        # optional local provider (needs an ollama server)
 # Local Qwen3-VL needs transformers>=5.0 + accelerate (in the ComfyUI venv)
+
+# For H3 Skill Promptor (Trent/VLM) - local GGUF LLM via llama-server.
+# No pip dependency beyond openai (above): the node spawns and talks to
+# an external llama-server process. That binary is a SYSTEM prerequisite,
+# not a pip package: build a current CUDA llama.cpp (>= b10450 for the
+# qwen35 arch family) and either put llama-server on PATH, set
+# LLAMA_SERVER_BIN, or keep it at ~/llama.cpp/build/bin/llama-server.
+# A zero-sudo build recipe (CUDA toolchain from pip wheels) is in
+# docs/H3_SKILL_PROMPTOR_HANDOFF.md.
