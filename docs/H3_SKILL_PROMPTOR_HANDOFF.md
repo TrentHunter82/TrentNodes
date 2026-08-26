@@ -1,5 +1,54 @@
 # H3 Skill Promptor — handoff
 
+## NEXT SESSION — open bug: reasoning_effort medium/xhigh returns an empty prompt
+
+**Symptom (Trent, 2026-08-26):** the promptor "doesn't work" on any
+reasoning_effort except `low` — VALIDATION FAILED with an empty
+h3_prompt.
+
+**Diagnosed, measured live:** llama-server's `max_tokens` counts
+reasoning AND content together. The node's default is 3072; `low`
+thinks ~1-1.5k tokens and fits, but on a complex task at `xhigh` the
+model spent ALL 3072 tokens thinking (11,056 chars of
+reasoning_content, `finish_reason: "length"`, content: 0 chars —
+measured against the live 8735 server). Medium sits near the cliff:
+a trivial task finished at 801 tokens, but H3-sized payloads (~6k-token
+system prompt + images) think far more. Empty content → checklist says
+"empty prompt" → the retry usually starves the same way.
+
+**Fix plan (not yet implemented):**
+1. In `nodes/h3_skill_promptor.py`: scale the request budget with the
+   widget — e.g. effective_max_tokens = max_tokens + {low: 0,
+   medium: 3072, xhigh: 7168}[reasoning_effort]. Keep the widget
+   meaning "prompt-text budget".
+2. In `utils/h3_skill/client.py`: surface `finish_reason` in the usage
+   dict. In the node, treat `finish_reason == "length"` with empty
+   content as its own actionable error ("thinking consumed the token
+   budget - raise max_tokens or lower reasoning_effort"), instead of
+   the generic checklist "empty prompt". Put finish_reason in the
+   report line.
+3. Check whether current llama.cpp has a separate reasoning-budget
+   control (a `--reasoning-budget` / per-request equivalent existed in
+   some builds); if so, capping thinking directly beats inflating
+   max_tokens.
+4. Add a loopback test: fake reply with empty content +
+   finish_reason length → assert the actionable error, not a
+   checklist violation. (The fake currently always returns
+   finish_reason "stop".)
+5. Same audit for the Audio Soundscaper (max_tokens 1500): the omni
+   Instruct model does not think, so it is likely fine — verify.
+
+**Session state 2026-08-26:** repo at `bfd6a53` on `main`
+(v1.15.0 + README model links) — both nodes, per-port server manager,
+5 offline suites green, live E2Es done. Servers likely still resident:
+8735 Qwen3.8 (shell-spawned; ComfyUI attaches to it as a foreign
+server), 8736 omni (spawned inside ComfyUI's process on first
+Soundscaper run). Models in `models/LLM/` (Qwen3.8 V3 quant, omni
+pair, audio-flamingo-3-hf [16 GB, deletable - superseded by AF-Next],
+audio-flamingo-next-captioner-hf). V1 Qwen3.8 quant still on
+F:\Models. Demo workflow: Downloads/H3_Skill_Promptor.json; A/B
+results: Downloads/H3_audio_captioner_AB.md.
+
 > **2026-08-26 addendum — H3 Audio Soundscaper.** New sibling node
 > `nodes/h3_audio_soundscaper.py` + `utils/h3_skill/{audio_io,audio_prompts}.py`:
 > hears a clip's audio with Qwen3-Omni-30B (A/B winner, see
