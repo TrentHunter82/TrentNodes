@@ -552,6 +552,10 @@ Hears a clip's audio track with a local omni model (built for Qwen3-Omni-30B GGU
 
 Runs on its own llama-server port (8736) so it coexists with the H3 Skill Promptor's text-VLM server (8735) — the server manager is per-port. Same contract as the promptor: one corrective retry against the output rules, never a silent rewrite, everything reported. The model is told the clip's exact duration and to ignore analysis-window padding (every audio captioner tested fabricates events past the real clip end otherwise).
 
+**Models** (put both files in `models/LLM`, from [ggml-org/Qwen3-Omni-30B-A3B-Instruct-GGUF](https://huggingface.co/ggml-org/Qwen3-Omni-30B-A3B-Instruct-GGUF)):
+- [`Qwen3-Omni-30B-A3B-Instruct-Q4_K_M.gguf`](https://huggingface.co/ggml-org/Qwen3-Omni-30B-A3B-Instruct-GGUF/blob/main/Qwen3-Omni-30B-A3B-Instruct-Q4_K_M.gguf) (~17.3 GB, MoE — only ~3B active)
+- [`mmproj-Qwen3-Omni-30B-A3B-Instruct-Q8_0.gguf`](https://huggingface.co/ggml-org/Qwen3-Omni-30B-A3B-Instruct-GGUF/blob/main/mmproj-Qwen3-Omni-30B-A3B-Instruct-Q8_0.gguf) (~1.2 GB — carries the AUDIO encoder; required)
+
 **H3 Skill Promptor (Local GGUF)**
 
 Writes an official MiniMax H3 prompt (Ref2VA six-section or any of the four base three-field modes) with a local GGUF vision LLM - built for Qwen3.8-27B + its mmproj, served by a managed `llama-server` process. Fully offline: no API keys, no cloud.
@@ -561,6 +565,12 @@ Writes an official MiniMax H3 prompt (Ref2VA six-section or any of the four base
 **No silent rewrites.** Output is checked against the skill's review checklist by a deterministic validator (`utils/h3_skill/checklist.py`). Violations go back to the model once, with the numbered error list; whatever comes back is returned as-is with a full `validation_report`. The only pipeline-side additions are the transport cleanups it reports (a stripped code fence or leaked `<think>` block) and the base-mode alignment line, which per the guide is rendered after the body exists.
 
 **The server is managed for you.** Pick a `.gguf` from `models/LLM` in the dropdown; the mmproj pairs by filename. The node spawns `llama-server` on port 8735 with the right flags for this family (`--jinja`, Unsloth instruct sampling, `reasoning_effort` via chat_template_kwargs), health-checks it, reuses it across runs, and refuses to spawn when free VRAM is too low. `base_url` attaches to any OpenAI-compatible server instead (LM Studio, vLLM, a llama-server you started by hand). Needs a current CUDA build of llama.cpp — see the comment block in `requirements.txt`.
+
+**Models** (put both files in `models/LLM`, from [unsloth/Qwen3.8-27B-GGUF](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF) — grab the current "UD V3.0" upload):
+- [`Qwen3.8-27B-UD-Q4_K_XL.gguf`](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/blob/main/Qwen3.8-27B-UD-Q4_K_XL.gguf) (~16.4 GB)
+- [`mmproj-F16.gguf`](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/blob/main/mmproj-F16.gguf) (~0.9 GB — the vision encoder for image inputs; rename it next to the model, e.g. `Qwen3.8-27B-mmproj-F16.gguf`, or let auto-pairing pick it as the only mmproj in the folder)
+
+Any current vision GGUF that llama.cpp serves works here; these are the pair the node was built and tested against (arch `qwen35` needs llama.cpp ≥ b10450).
 
 **H3 Local LLM Stop (free VRAM)**
 
