@@ -218,8 +218,16 @@ class H3AudioSoundscaper:
             raw, usage2 = chat(handle.base_url, messages, **chat_kwargs)
             sections, errors = parse_response(raw)
             report.append(f"retry latency: {usage2.get('latency_s')} s")
+            usage = usage2
 
         report.append(f"corrective retry used: {'yes' if retried else 'no'}")
+        # The omni Instruct model does not think, so max_tokens is pure
+        # reply budget - hitting it means the sound log got cut.
+        if usage.get("finish_reason") == "length":
+            report.append(
+                f"WARNING: reply truncated at max_tokens ({max_tokens}) "
+                "- raise it."
+            )
         if errors:
             report.append("CONTRACT VIOLATIONS REMAIN:")
             report.extend(f"  - {error}" for error in errors)

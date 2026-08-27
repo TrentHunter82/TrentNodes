@@ -24,7 +24,12 @@ from ..utils.h3_skill.skill_loader import (
     build_user_context,
 )
 from ..utils.h3_skill.checklist import assemble_final, validate
-from ..utils.h3_skill.client import build_user_message, chat
+from ..utils.h3_skill.client import (
+    BUDGET_MESSAGE,
+    THINKING_ALLOWANCE,
+    build_user_message,
+    chat,
+)
 
 try:
     import folder_paths
@@ -71,6 +76,30 @@ def _resolve_gguf(name: str) -> str:
         f"Could not resolve '{name}' to a .gguf file. Put it in "
         "ComfyUI/models/LLM or give an absolute path."
     )
+
+
+def _check_finish(body: str, usage: dict, max_tokens: int,
+                  reasoning_effort: str):
+    """Turn finish_reason == "length" into an actionable signal.
+
+    Empty body: thinking ate the whole token budget - raise instead of
+    letting the checklist report a generic "empty prompt" (a retry
+    starves the same way). Non-empty body: the prompt text itself got
+    cut; return a report warning."""
+    if usage.get("finish_reason") != "length":
+        return []
+    if not body:
+        raise RuntimeError(
+            "The model hit the token limit while still thinking and "
+            "returned no prompt text (finish_reason length, "
+            f"{usage.get('completion_tokens', '?')} completion tokens at "
+            f"reasoning_effort {reasoning_effort}). Raise max_tokens "
+            f"(now {max_tokens}) or lower reasoning_effort."
+        )
+    return [
+        "WARNING: the reply hit the token limit - the prompt may be cut "
+        "short. Raise max_tokens."
+    ]
 
 
 def _strip_transport_wrapper(text: str):
@@ -197,8 +226,10 @@ class H3SkillPromptor:
                 "max_tokens": ("INT", {
                     "default": 3072, "min": 256, "max": 8192,
                     "tooltip": (
-                        "Thinking tokens count against this too; low "
-                        "reasoning spends ~1.5k before the prompt starts."
+                        "Budget for the prompt text itself. Thinking gets "
+                        "its own capped allowance on top (low +2048, "
+                        "medium +3072, xhigh +7168), so it cannot starve "
+                        "the prompt."
                     ),
                 }),
                 "source_soundscape": ("STRING", {
@@ -402,14 +433,20 @@ class H3SkillPromptor:
             {"role": "system", "content": system},
             build_user_message(context, image_pairs),
         ]
+        allowance = THINKING_ALLOWANCE.get(reasoning_effort, 0)
         chat_kwargs = {
             "seed": seed,
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_tokens": int(max_tokens) + allowance,
             "reasoning_effort": reasoning_effort,
+            "reasoning_budget": allowance or None,
+            "reasoning_budget_message": BUDGET_MESSAGE,
             "model": model_name,
             "log_path": getattr(handle, "log_path", None),
         }
+        report.append(
+            f"token budget: {int(max_tokens)} prompt + {allowance} thinking"
+        )
 
         raw, usage = chat(handle.base_url, messages, **chat_kwargs)
         body, notes = _strip_transport_wrapper(raw)
@@ -417,8 +454,11 @@ class H3SkillPromptor:
         report.append(
             f"latency: {usage.get('latency_s')} s, tokens: "
             f"{usage.get('prompt_tokens', '?')} in / "
-            f"{usage.get('completion_tokens', '?')} out"
+            f"{usage.get('completion_tokens', '?')} out, "
+            f"finish: {usage.get('finish_reason', '?')}"
         )
+        report.extend(_check_finish(body, usage, int(max_tokens),
+                                    reasoning_effort))
 
         errors = validate(body, mode, float(duration_seconds))
         retried = False
@@ -437,7 +477,12 @@ class H3SkillPromptor:
             raw, usage2 = chat(handle.base_url, messages, **chat_kwargs)
             body, notes = _strip_transport_wrapper(raw)
             report.extend(notes)
-            report.append(f"corrective retry latency: {usage2.get('latency_s')} s")
+            report.append(
+                f"corrective retry latency: {usage2.get('latency_s')} s, "
+                f"finish: {usage2.get('finish_reason', '?')}"
+            )
+            report.extend(_check_finish(body, usage2, int(max_tokens),
+                                        reasoning_effort))
             errors = validate(body, mode, float(duration_seconds))
 
         final_prompt = assemble_final(body, mode, float(duration_seconds))

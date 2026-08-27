@@ -38,7 +38,7 @@ from TrentNodes.nodes.h3_skill_promptor import H3SkillPromptor  # noqa: E402
 
 class _Fake(BaseHTTPRequestHandler):
     requests = []          # captured chat bodies
-    replies = []           # queue of texts to answer with
+    replies = []           # queue: str, or (text, finish_reason) tuples
 
     def log_message(self, *args):
         pass
@@ -63,14 +63,18 @@ class _Fake(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length))
         _Fake.requests.append(body)
-        text = _Fake.replies.pop(0) if _Fake.replies else "EMPTY"
+        reply = _Fake.replies.pop(0) if _Fake.replies else "EMPTY"
+        if isinstance(reply, tuple):
+            text, finish = reply
+        else:
+            text, finish = reply, "stop"
         self._send({
             "id": "chatcmpl-fake",
             "object": "chat.completion",
             "model": "fake-model",
             "choices": [{
                 "index": 0,
-                "finish_reason": "stop",
+                "finish_reason": finish,
                 "message": {"role": "assistant", "content": text},
             }],
             "usage": {"prompt_tokens": 10, "completion_tokens": 20,
@@ -101,10 +105,13 @@ def test_chat_wire_shape():
             temperature=0.7,
             max_tokens=1234,
             reasoning_effort="low",
+            reasoning_budget=777,
+            reasoning_budget_message="budget spent",
             model="fake-model",
         )
         assert text == "hello"
         assert usage["completion_tokens"] == 20
+        assert usage["finish_reason"] == "stop"
         sent = _Fake.requests[-1]
         assert sent["messages"][0] == {"role": "system", "content": "sys"}
         parts = sent["messages"][1]["content"]
@@ -115,6 +122,8 @@ def test_chat_wire_shape():
         assert sent["max_tokens"] == 1234
         assert sent["seed"] == (2**33 + 7) % (SEED_MAX + 1)
         assert sent["chat_template_kwargs"] == {"reasoning_effort": "low"}
+        assert sent["reasoning_budget_tokens"] == 777
+        assert sent["reasoning_budget_message"] == "budget spent"
     finally:
         server.shutdown()
 
@@ -133,7 +142,8 @@ def test_chat_connection_refused_is_actionable():
 
 # ------------------------------------------------------------------ node flow
 
-def _run_node(replies, mode="ref2va", duration=30.0, **extra):
+def _run_node(replies, mode="ref2va", duration=30.0,
+              reasoning_effort="low", **extra):
     server, base_url = _start_fake()
     try:
         _Fake.requests.clear()
@@ -147,7 +157,7 @@ def _run_node(replies, mode="ref2va", duration=30.0, **extra):
             duration_seconds=duration,
             max_frames_to_analyze=8,
             temperature=0.7,
-            reasoning_effort="low",
+            reasoning_effort=reasoning_effort,
             seed=1,
             base_url=base_url,
             **extra,
@@ -226,6 +236,46 @@ def test_video_batch_on_reference_input_auto_routes():
     parts = requests[0]["messages"][1]["content"]
     frames = [p for p in parts if p.get("type") == "image_url"]
     assert 2 <= len(frames) <= 8  # keyframed, not 27 pictures
+
+
+def test_node_scales_token_budget_with_reasoning_effort():
+    # The widget means "prompt-text budget"; each effort adds its own
+    # capped thinking allowance on top of the default 3072.
+    good = EXAMPLE_REF_GENERATION.strip()
+    for effort, allowance in (("low", 2048), ("medium", 3072),
+                              ("xhigh", 7168)):
+        _, _, report, requests = _run_node([good], reasoning_effort=effort)
+        sent = requests[0]
+        assert sent["max_tokens"] == 3072 + allowance, effort
+        assert sent["reasoning_budget_tokens"] == allowance, effort
+        assert "thinking budget is exhausted" in sent["reasoning_budget_message"]
+        assert f"3072 prompt + {allowance} thinking" in report
+
+
+def test_node_starved_thinking_is_actionable():
+    # Empty content + finish_reason length must raise the specific
+    # "thinking ate the budget" error, not fail the checklist - and
+    # must NOT burn a corrective retry (it would starve the same way).
+    try:
+        _run_node([("", "length")], reasoning_effort="xhigh")
+        assert False, "must raise"
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "thinking" in message
+        assert "max_tokens" in message
+        assert "reasoning_effort" in message
+        assert "checklist" not in message
+    assert len(_Fake.requests) == 1
+
+
+def test_node_reports_truncated_nonempty_reply():
+    # Non-empty text cut off by the limit: warn in the report, do not
+    # raise - the checklist still judges what arrived.
+    good = EXAMPLE_REF_GENERATION.strip()
+    prompt, _, report, _ = _run_node([(good, "length")])
+    assert prompt == good
+    assert "finish: length" in report
+    assert "WARNING" in report and "token limit" in report
 
 
 def test_stop_node_reports_when_idle():

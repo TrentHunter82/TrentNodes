@@ -70,10 +70,14 @@ class _Fake(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         _Fake.requests.append(json.loads(self.rfile.read(length)))
-        text = _Fake.replies.pop(0) if _Fake.replies else "EMPTY"
+        reply = _Fake.replies.pop(0) if _Fake.replies else "EMPTY"
+        if isinstance(reply, tuple):
+            text, finish = reply
+        else:
+            text, finish = reply, "stop"
         self._send({
             "id": "x", "object": "chat.completion", "model": "fake-omni",
-            "choices": [{"index": 0, "finish_reason": "stop",
+            "choices": [{"index": 0, "finish_reason": finish,
                          "message": {"role": "assistant", "content": text}}],
             "usage": {"prompt_tokens": 5, "completion_tokens": 9,
                       "total_tokens": 14},
@@ -161,6 +165,16 @@ def test_node_retries_on_contract_violation():
     assert "corrective retry used: yes" in report
     assert "output contract: PASS" in report
     assert "violates the output contract" in requests[1]["messages"][-1]["content"]
+
+
+def test_node_warns_on_truncated_reply():
+    # finish_reason length = the sound log got cut at max_tokens (the
+    # omni Instruct model does not think, so the cap is pure reply
+    # budget). Warn, never raise - the parsed sections still stand.
+    (_, _, _, _, report), _ = _run([(GOOD_REPLY, "length")])
+    assert "WARNING" in report and "max_tokens" in report
+    (_, _, _, _, report), _ = _run([GOOD_REPLY])
+    assert "WARNING" not in report
 
 
 def test_node_surfaces_unparseable_reply():

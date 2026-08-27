@@ -32,7 +32,12 @@ if "TrentNodes" not in sys.modules:
 
 from TrentNodes.utils import llamacpp_server  # noqa: E402
 from TrentNodes.utils.h3_skill.checklist import assemble_final, validate  # noqa: E402
-from TrentNodes.utils.h3_skill.client import build_user_message, chat  # noqa: E402
+from TrentNodes.utils.h3_skill.client import (  # noqa: E402
+    BUDGET_MESSAGE,
+    THINKING_ALLOWANCE,
+    build_user_message,
+    chat,
+)
 from TrentNodes.utils.h3_skill.skill_loader import (  # noqa: E402
     CHECKPOINT_FOR_MODE,
     MODES,
@@ -120,10 +125,18 @@ def main() -> int:
         {"role": "system", "content": system},
         build_user_message(context, pairs),
     ]
+    # Same budget policy as the node: max_tokens means prompt-text
+    # budget; thinking rides a capped allowance on top.
+    allowance = THINKING_ALLOWANCE.get(args.reasoning_effort, 0)
     kwargs = dict(
         seed=args.seed, temperature=args.temperature,
-        max_tokens=args.max_tokens, reasoning_effort=args.reasoning_effort,
+        max_tokens=args.max_tokens + allowance,
+        reasoning_effort=args.reasoning_effort,
+        reasoning_budget=allowance or None,
+        reasoning_budget_message=BUDGET_MESSAGE,
     )
+    print(f"token budget: {args.max_tokens} prompt + {allowance} thinking",
+          file=sys.stderr)
 
     raw, usage = chat(handle.base_url, messages, **kwargs)
     body, notes = _strip(raw)
