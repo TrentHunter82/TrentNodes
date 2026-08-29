@@ -562,6 +562,8 @@ Outputs 10 individual prompt strings plus a combined `all_prompts` output for ea
 
 Hears a clip's audio track with a local omni model (built for Qwen3-Omni-30B GGUF under llama-server) and writes the audio parts of a MiniMax H3 prompt: a skill-budgeted `overall_soundscape` (1-4 sentences, diegetic only), `non_diegetic_music` (1-3 sentences or N/A), verbatim `dialogue` lines ready for `<d>` tags, and a full timestamped sound-design log. An optional `scene_context` input tells it what is on screen, used only to sort diegetic from non-diegetic.
 
+**Design mode** — leave `audio` unconnected and fill `video_prompt` with an H3 prompt (or any scene description) and the node flips from transcribing to inventing: same four sections, but now a sound designer's plan for the described visuals, cue sheet keyed to the prompt's shots, dialogue copied verbatim from the prompt (never invented — H3 renders `<d>` words literally). No mmproj needed in this mode, so any chat GGUF works, including attaching to the promptor's server on 8735 via `base_url`. With audio connected, `video_prompt` instead rides along as extra scene context.
+
 Runs on its own llama-server port (8736) so it coexists with the H3 Skill Promptor's text-VLM server (8735) — the server manager is per-port. Same contract as the promptor: one corrective retry against the output rules, never a silent rewrite, everything reported. The model is told the clip's exact duration and to ignore analysis-window padding (every audio captioner tested fabricates events past the real clip end otherwise).
 
 **Models** (put both files in `models/LLM`, from [ggml-org/Qwen3-Omni-30B-A3B-Instruct-GGUF](https://huggingface.co/ggml-org/Qwen3-Omni-30B-A3B-Instruct-GGUF)):

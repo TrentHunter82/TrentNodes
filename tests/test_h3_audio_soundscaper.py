@@ -90,7 +90,7 @@ def _audio(seconds=2.0, rate=16000):
     return {"waveform": wave.view(1, 1, -1), "sample_rate": rate}
 
 
-def _run(replies, **overrides):
+def _run(replies, audio="default", **overrides):
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Fake)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base_url = f"http://127.0.0.1:{server.server_address[1]}/v1"
@@ -99,7 +99,8 @@ def _run(replies, **overrides):
         _Fake.replies[:] = list(replies)
         node = H3AudioSoundscaper()
         result = node.analyze(
-            audio=_audio(), gguf_model="ignored", mmproj="auto",
+            audio=_audio() if audio == "default" else audio,
+            gguf_model="ignored", mmproj="auto",
             temperature=0.6, seed=1, base_url=base_url, **overrides,
         )
         return result, list(_Fake.requests)
@@ -175,6 +176,41 @@ def test_node_warns_on_truncated_reply():
     assert "WARNING" in report and "max_tokens" in report
     (_, _, _, _, report), _ = _run([GOOD_REPLY])
     assert "WARNING" not in report
+
+
+def test_node_design_mode_text_only():
+    prompt = ("[Shot 1] A blacksmith hammers a glowing blade on an "
+              "anvil, sparks flying.")
+    (scape, music, dialogue, log, report), requests = _run(
+        [GOOD_REPLY], audio=None, video_prompt=prompt,
+    )
+    assert "mode: design" in report
+    assert "output contract: PASS" in report
+    sent = requests[0]
+    # Text-only wire shape: plain string content, no input_audio part.
+    assert isinstance(sent["messages"][1]["content"], str)
+    assert prompt in sent["messages"][1]["content"]
+    assert "sound designer" in sent["messages"][0]["content"]
+
+
+def test_node_design_mode_needs_a_prompt():
+    try:
+        _run([GOOD_REPLY], audio=None)
+    except RuntimeError as exc:
+        assert "video_prompt" in str(exc)
+    else:
+        raise AssertionError("no-audio + no-prompt should raise")
+
+
+def test_node_listening_merges_video_prompt_into_context():
+    (_, _, _, _, report), requests = _run(
+        [GOOD_REPLY], scene_context="A door closes.",
+        video_prompt="[Shot 1] A shop interior.",
+    )
+    assert "mode: listening" in report
+    text = requests[0]["messages"][1]["content"][0]["text"]
+    assert "A door closes." in text
+    assert "[Shot 1] A shop interior." in text
 
 
 def test_node_surfaces_unparseable_reply():

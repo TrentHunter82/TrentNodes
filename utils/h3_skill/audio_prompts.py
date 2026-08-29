@@ -1,12 +1,19 @@
 """
 Prompts + parsing for the H3 Audio Soundscaper.
 
-The model hears a clip's audio track and returns four labeled sections
-that drop straight into the H3 prompting pipeline. Every rule below is
-the h3-prompting skill's audio spec, restated for an audio-only model:
+Two modes share one output contract (the four labeled sections below),
+so parsing, the corrective retry, and the node outputs are identical:
+
+- listening (SYSTEM_PROMPT): the model hears a clip's audio track and
+  transcribes what is there.
+- design (DESIGN_SYSTEM_PROMPT): no audio exists; the model reads a
+  video prompt and invents the soundtrack that fits it.
+
+Every rule below is the h3-prompting skill's audio spec:
 overall_soundscape 1-4 sentences of diegetic sound; non_diegetic_music
-1-3 sentences or exactly N/A; dialogue never repeated inside the audio
-sections; diegetic music (music the characters can hear) belongs in the
+1-3 sentences or exactly N/A (music-video mode inverts the balance and
+is never N/A); dialogue never repeated inside the audio sections;
+diegetic music (music the characters can hear) belongs in the
 soundscape, not the music section.
 """
 
@@ -50,6 +57,60 @@ Hard rules:
 - Describe only what is audible. Never invent visual content.
 - No markdown emphasis, no bullet symbols other than the log lines,
   nothing before the first header or after the last section."""
+
+
+DESIGN_SYSTEM_PROMPT = """\
+You are a film sound designer feeding a MiniMax H3 video-prompt
+pipeline. You will read the text of a video prompt or scene
+description. No audio exists yet: your job is to DESIGN the soundtrack
+that best serves the described visuals. Answer with exactly these four
+lowercase section headers, each alone on its line, in this order, with
+the content on the following lines:
+
+sound_log:
+overall_soundscape:
+non_diegetic_music:
+dialogue:
+
+Section rules:
+- sound_log: a sound designer's cue sheet for the described video -
+  every planned audible event in order, keyed to the prompt's shots
+  ([Shot 1], [Shot 2] ...) or rough MM:SS timing, each with texture
+  and a category (Foley / SFX / Ambience / Music / Speech). Ground
+  every cue in something the prompt shows on screen.
+- overall_soundscape: 1-4 sentences of DIEGETIC sound only (sound that
+  exists in the scene's world: foley, ambience, effects, and any music
+  the characters could hear), each tied to a visible event from the
+  prompt. Never quote dialogue words or lyrics.
+- non_diegetic_music: 1-3 sentences on the score's instrumentation,
+  tempo, and how it develops across the shots - or exactly N/A when a
+  score would not serve the scene. Music that plays inside the scene
+  is diegetic and belongs in overall_soundscape instead. If the prompt
+  is a music video, the music leads: give genre, instruments, tempo,
+  and arrangement against the shot list, never N/A, and keep
+  overall_soundscape thin.
+- dialogue: copy each spoken or sung line the video prompt already
+  contains, verbatim, one per line, as
+  (S1) [Language] Exact words.
+  Number speakers (S1), (S2) in order of first appearance. For sung
+  lyrics write (lyrics) instead of a speaker ID. Never translate, and
+  NEVER invent lines the prompt does not contain. Write N/A when the
+  prompt has no dialogue.
+
+Hard rules:
+- Design sound only for what the prompt describes. Never add events,
+  props, or characters the prompt does not show.
+- If the prompt has shot timestamps, keep every cue inside them and in
+  order.
+- No markdown emphasis, no bullet symbols other than the log lines,
+  nothing before the first header or after the last section."""
+
+
+def build_design_context(video_prompt: str) -> str:
+    return (
+        "Here is the video prompt. Design its soundtrack now, "
+        "following the section rules exactly.\n\n" + video_prompt.strip()
+    )
 
 
 def build_user_context(duration_s: float, scene_context: str = "",

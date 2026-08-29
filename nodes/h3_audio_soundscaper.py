@@ -1,8 +1,13 @@
 """
-H3 Audio Soundscaper - hear a clip's audio track with a local omni GGUF
-(Qwen3-Omni under llama-server) and emit the audio parts of a MiniMax H3
-prompt: overall_soundscape, non_diegetic_music, verbatim dialogue, and a
-timestamped sound-design log.
+H3 Audio Soundscaper - two modes, one output contract:
+
+- listening: hear a clip's audio track with a local omni GGUF
+  (Qwen3-Omni under llama-server) and transcribe the audio parts of a
+  MiniMax H3 prompt: overall_soundscape, non_diegetic_music, verbatim
+  dialogue, and a timestamped sound-design log.
+- design: no audio connected + video_prompt filled -> read the video
+  prompt and DESIGN the soundtrack from text alone (same four
+  sections; no mmproj needed).
 
 Companion to the H3 Skill Promptor: wire `overall_soundscape` /
 `non_diegetic_music` prose into your brief (or downstream prompt
@@ -16,7 +21,9 @@ import os
 from ..utils import llamacpp_server
 from ..utils.h3_skill.audio_io import audio_to_wav_b64
 from ..utils.h3_skill.audio_prompts import (
+    DESIGN_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
+    build_design_context,
     build_retry_message,
     build_user_context,
     parse_response,
@@ -63,26 +70,25 @@ def _resolve_gguf(name: str) -> str:
 
 
 class H3AudioSoundscaper:
-    """Describe a clip's audio as H3-ready soundscape/music/dialogue text."""
+    """Hear a clip (or read a prompt) -> H3 soundscape/music/dialogue."""
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "audio": ("AUDIO", {
-                    "tooltip": "The clip's audio track (LoadAudio / VHS).",
-                }),
                 "gguf_model": (_model_choices(), {
                     "tooltip": (
                         "An AUDIO-capable (omni) .gguf from models/LLM. "
-                        "Text-only models will reject the audio input."
+                        "Text-only models will reject the audio input "
+                        "(design mode works with any chat model)."
                     ),
                 }),
                 "mmproj": (_mmproj_choices(), {
                     "default": "auto",
                     "tooltip": (
                         "The model's mmproj (must contain an AUDIO "
-                        "encoder). auto = pair by filename."
+                        "encoder). auto = pair by filename. Design mode "
+                        "(no audio connected) does not need one."
                     ),
                 }),
                 "temperature": ("FLOAT", {
@@ -93,6 +99,13 @@ class H3AudioSoundscaper:
                 }),
             },
             "optional": {
+                "audio": ("AUDIO", {
+                    "tooltip": (
+                        "The clip's audio track (LoadAudio / VHS). "
+                        "Leave unconnected and fill video_prompt to "
+                        "design a soundtrack from text instead."
+                    ),
+                }),
                 "scene_context": ("STRING", {
                     "default": "", "multiline": True,
                     "tooltip": (
@@ -119,6 +132,17 @@ class H3AudioSoundscaper:
                 "max_tokens": ("INT", {
                     "default": 1500, "min": 256, "max": 4096,
                 }),
+                # New widget stays LAST: widget values save positionally.
+                "video_prompt": ("STRING", {
+                    "default": "", "multiline": True,
+                    "tooltip": (
+                        "An H3 video prompt or scene description. With "
+                        "no audio connected, the node designs the "
+                        "soundtrack for it from text (design mode). "
+                        "With audio connected, it adds to "
+                        "scene_context."
+                    ),
+                }),
             },
         }
 
@@ -132,32 +156,49 @@ class H3AudioSoundscaper:
         "llama-server, port 8736) and writes the audio parts of an H3 "
         "prompt: skill-budgeted overall_soundscape and non_diegetic_music, "
         "verbatim dialogue for <d> tags, and a timestamped sound log. "
+        "No audio + a video_prompt = design mode: the same sections are "
+        "invented to fit the described visuals. "
         "One corrective retry, no silent rewrites."
     )
 
     def analyze(
         self,
-        audio,
         gguf_model,
         mmproj,
         temperature,
         seed,
+        audio=None,
         scene_context="",
         base_url="",
         ctx_size=16384,
         port=DEFAULT_PORT,
         free_vram_first=False,
         max_tokens=1500,
+        video_prompt="",
     ):
         report = []
-        wav_b64, duration, truncated = audio_to_wav_b64(audio)
-        report.append(f"audio: {duration:.2f}s @16kHz mono"
-                      + (" (truncated)" if truncated else ""))
+        design_mode = audio is None
+        if design_mode:
+            source_text = (video_prompt or "").strip() or \
+                (scene_context or "").strip()
+            if not source_text:
+                raise RuntimeError(
+                    "Nothing to analyze: connect the clip's audio to "
+                    "hear it, or fill video_prompt to design a "
+                    "soundtrack from text."
+                )
+            report.append("mode: design (no audio; soundtrack invented "
+                          "from the video prompt)")
+        else:
+            report.append("mode: listening")
+            wav_b64, duration, truncated = audio_to_wav_b64(audio)
+            report.append(f"audio: {duration:.2f}s @16kHz mono"
+                          + (" (truncated)" if truncated else ""))
 
         if base_url.strip():
             handle = llamacpp_server.attach(base_url.strip())
             model_name = handle.alias or "default"
-            if handle.vision is False:
+            if not design_mode and handle.vision is False:
                 raise RuntimeError(
                     f"The server at {handle.base_url} reports no "
                     "multimodal capability; it cannot hear audio."
@@ -171,7 +212,7 @@ class H3AudioSoundscaper:
                 mmproj_path = None
             else:
                 mmproj_path = _resolve_gguf(mmproj)
-            if mmproj_path is None:
+            if mmproj_path is None and not design_mode:
                 raise RuntimeError(
                     "Audio input needs the model's mmproj (it carries the "
                     "audio encoder). Put it next to the model in "
@@ -190,13 +231,26 @@ class H3AudioSoundscaper:
             model_name = llamacpp_server._stem(model_path)
             report.append(f"server: {handle.base_url} ({model_name})")
 
-        context = build_user_context(
-            duration, scene_context=scene_context, truncated=truncated
-        )
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            build_user_message(context, audio_parts=[wav_b64]),
-        ]
+        if design_mode:
+            messages = [
+                {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
+                build_user_message(build_design_context(source_text)),
+            ]
+        else:
+            # A filled video_prompt still helps in listening mode: it
+            # rides along as extra scene context for the diegetic sort.
+            context_text = "\n\n".join(
+                part for part in
+                ((scene_context or "").strip(), (video_prompt or "").strip())
+                if part
+            )
+            context = build_user_context(
+                duration, scene_context=context_text, truncated=truncated
+            )
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                build_user_message(context, audio_parts=[wav_b64]),
+            ]
         chat_kwargs = {
             "seed": seed,
             "temperature": temperature,
