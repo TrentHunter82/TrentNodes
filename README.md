@@ -7,6 +7,18 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
+### NEW: Ask Local LLM (GGUF)
+
+> General-purpose chat with the same local GGUF LLM the H3 Skill
+> Promptor uses — ask it anything, no H3 contract attached. Write or
+> refine prompts for any model, describe attached images, brainstorm.
+> Defaults mirror the promptor's server spec exactly (port 8735,
+> ctx 32768, mmproj auto), so a resident Qwen3.8 server is reused with
+> **zero reload** in either direction. Editable system prompt, optional
+> `input_text` wire-in for "improve this prompt" flows, and a
+> `history_json` output that chains node-to-node for multi-turn
+> follow-ups. Find it under **Trent/VLM**.
+
 ### NEW: Batch Loader Cowboys (Text File / Ref Folder / Ref Preview)
 
 > Filename-keyed batch loading for per-clip render pipelines. Wire
@@ -544,7 +556,7 @@ Generates 10 test prompts specifically designed to validate different types of L
 
 Outputs 10 individual prompt strings plus a combined `all_prompts` output for easy batch processing. Includes optional quality suffix to append tags like "8k, detailed" to all prompts.
 
-### 👁️ Trent/VLM (11 nodes)
+### 👁️ Trent/VLM (13 nodes)
 
 **H3 Audio Soundscaper (Local GGUF)**
 
@@ -571,6 +583,16 @@ Writes an official MiniMax H3 prompt (Ref2VA six-section or any of the four base
 - [`mmproj-F16.gguf`](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/blob/main/mmproj-F16.gguf) (~0.9 GB — the vision encoder for image inputs; rename it next to the model, e.g. `Qwen3.8-27B-mmproj-F16.gguf`, or let auto-pairing pick it as the only mmproj in the folder)
 
 Any current vision GGUF that llama.cpp serves works here; these are the pair the node was built and tested against (arch `qwen35` needs llama.cpp ≥ b10450).
+
+**Ask Local LLM (GGUF)**
+
+The H3 Skill Promptor's engine with the H3 contract removed: a general-purpose chat node over the same managed llama-server. Type a question, get an answer. Use it to write or refine prompts for any other model, describe attached images, summarize wired-in text, or brainstorm — the editable system prompt decides who the model is for that call.
+
+**Zero-reload server sharing.** The defaults match the promptor's `ServerSpec` field for field (port 8735, ctx 32768, mmproj auto-paired), and the server manager respawns only when the spec changes — so if the promptor's Qwen3.8-27B is already resident, this node answers immediately, and vice versa. `reasoning_effort` is deliberately excluded from that comparison, so changing it never forces a reload. `base_url` attaches to any OpenAI-compatible server instead (LM Studio, vLLM, a hand-started llama-server).
+
+**Multi-turn by wiring.** The `history_json` output carries the conversation as a readable JSON turn list; wire it into another Ask Local LLM node's `history_json` input to ask a follow-up with full context. History stays text-only — attached images become a `[N image(s) were attached]` note rather than re-sent base64, so chained turns don't balloon the context. Malformed history errors loudly instead of being silently dropped.
+
+**Same guardrails as the promptor.** Thinking gets its own capped token allowance on top of `max_tokens` (low +2048 / medium +3072 / xhigh +7168), so a long think can never starve the visible reply; hitting the limit mid-think raises an actionable error instead of returning an empty string. A leaked `<think>` block is stripped and reported — but markdown fences are kept, since in a chat answer they're usually intentional code. The `info` output reports latency, token counts, and any warnings. Bump `seed` for a fresh answer to the same prompt (the node caches on identical inputs).
 
 **H3 Local LLM Stop (free VRAM)**
 
