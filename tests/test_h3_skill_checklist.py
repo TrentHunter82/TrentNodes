@@ -62,6 +62,20 @@ def test_official_ref_example_passes():
     assert errors == [], f"official ref example must pass, got: {errors}"
 
 
+def test_word_budget_scales_with_duration():
+    # A 60 s timeline cannot fit the short-clip 350-500-word target;
+    # the ceiling must grow with duration while short clips keep it.
+    body = EXAMPLE_REF_GENERATION.strip()
+    head, description = body.split("detailed_description:\n", 1)
+    filler = ("The palette holds warm ambers and deep teals throughout "
+              "the sequence. " * 50)
+    padded = head + "detailed_description:\n" + filler + description
+    long_errors = validate(padded, "ref2va", 60.0)
+    assert not any("checklist 6" in e and "words" in e for e in long_errors)
+    short_errors = validate(padded, "ref2va", 12.0)
+    assert any("checklist 6" in e and "words" in e for e in short_errors)
+
+
 def test_official_ref_editing_example_passes():
     errors = validate(EXAMPLE_REF_EDITING.strip(), "ref2va")
     assert errors == [], f"official editing example must pass, got: {errors}"

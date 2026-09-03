@@ -178,6 +178,24 @@ def test_node_warns_on_truncated_reply():
     assert "WARNING" not in report
 
 
+def test_verbose_mirrors_report_and_dumps_payloads():
+    import contextlib
+    import io
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        _run([GOOD_REPLY], verbose=True)
+    out = buffer.getvalue()
+    assert "[H3AudioSoundscaper] mode: listening" in out
+    assert "---- system prompt" in out
+    assert "---- user context" in out
+    assert "---- raw reply (pass 1)" in out
+    # default stays silent
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        _run([GOOD_REPLY])
+    assert buffer.getvalue() == ""
+
+
 def test_node_design_mode_text_only():
     prompt = ("[Shot 1] A blacksmith hammers a glowing blade on an "
               "anvil, sparks flying.")

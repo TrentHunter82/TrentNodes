@@ -278,6 +278,28 @@ def test_node_reports_truncated_nonempty_reply():
     assert "WARNING" in report and "token limit" in report
 
 
+def test_verbose_mirrors_report_and_dumps_payloads():
+    import contextlib
+    import io
+    good = EXAMPLE_REF_GENERATION.strip()
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        _run_node([good], verbose=True)
+    out = buffer.getvalue()
+    assert "[H3SkillPromptor] mode: ref2va" in out
+    assert "---- system prompt" in out
+    assert "---- user context" in out
+    assert "---- raw reply (pass 1)" in out
+    assert "[H3SkillPromptor] validation: PASS" in out
+    # thinking is None on the fake server - its dump must be skipped
+    assert "---- thinking" not in out
+    # default stays silent
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        _run_node([good])
+    assert buffer.getvalue() == ""
+
+
 def test_stop_node_reports_when_idle():
     from TrentNodes.nodes.h3_skill_promptor import H3LocalLLMStop
     llamacpp_server._slots.clear()

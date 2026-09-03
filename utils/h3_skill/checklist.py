@@ -319,10 +319,16 @@ def _validate_ref(text: str, duration_s: Optional[float]) -> List[str]:
 
     _check_shots(sections["detailed_description"], duration_s, errors)
     words = len(sections["detailed_description"].split())
-    if words < 90 or words > 560:
+    # The official 350-500-word target is calibrated to short clips
+    # (every worked example runs well under ~12 s). A longer timeline
+    # needs more shots, so the ceiling grows ~12 words per second past
+    # 12 s; the floor stays put.
+    max_words = 560 + max(0.0, (duration_s or 0.0) - 12.0) * 12.0
+    if words < 90 or words > max_words:
         errors.append(
             f"checklist 6: detailed_description is {words} words; target "
-            "350-500 (a tight 120-300 profile is acceptable)."
+            "350-500 for a short clip (a tight 120-300 profile is "
+            f"acceptable), up to ~{int(max_words)} at this duration."
         )
 
     soundscape = sections["overall_soundscape"]

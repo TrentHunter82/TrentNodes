@@ -21,6 +21,7 @@ from ..utils.h3_skill.client import (
     build_user_message,
     chat,
 )
+from ..utils.h3_skill.reporting import VerboseReport
 
 try:
     import folder_paths
@@ -243,6 +244,15 @@ class LocalLLMChat:
                         "Unload ComfyUI models before spawning the server."
                     ),
                 }),
+                # New widgets stay LAST: widget values save positionally.
+                "verbose": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Mirror the info lines to the ComfyUI console as "
+                        "they happen, and dump the full payloads: system "
+                        "prompt, user message, model thinking, raw reply."
+                    ),
+                }),
             },
         }
 
@@ -276,8 +286,9 @@ class LocalLLMChat:
         ctx_size=llamacpp_server.DEFAULT_CTX,
         port=llamacpp_server.DEFAULT_PORT,
         free_vram_first=False,
+        verbose=False,
     ):
-        info = []
+        info = VerboseReport("AskLocalLLM", verbose)
 
         # ---- user turn -------------------------------------------------
         user_text = prompt.strip()
@@ -346,6 +357,8 @@ class LocalLLMChat:
         history = _parse_history(history_json)
         if history:
             info.append(f"history turns carried in: {len(history)}")
+        info.dump("system prompt", system_prompt)
+        info.dump("user message", user_text)
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
         messages.append(build_user_message(user_text, image_pairs))
@@ -363,6 +376,8 @@ class LocalLLMChat:
             model=model_name,
             log_path=getattr(handle, "log_path", None),
         )
+        info.dump("thinking", usage.get("reasoning_content"))
+        info.dump("raw reply", raw)
         body, stripped = _strip_think(raw)
         if stripped:
             info.append("stripped a leaked <think> block")

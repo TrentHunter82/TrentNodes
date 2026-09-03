@@ -131,11 +131,15 @@ def chat(
             f"crashed or been stopped.{hint}"
         ) from exc
 
-    text = (response.choices[0].message.content or "").strip()
+    message = response.choices[0].message
+    text = (message.content or "").strip()
     usage = {
         "model": getattr(response, "model", model),
         "latency_s": round(time.time() - start, 2),
         "finish_reason": response.choices[0].finish_reason,
+        # llama-server puts thinking here (an extra field the openai
+        # SDK exposes as an attribute); None on servers that don't.
+        "reasoning_content": getattr(message, "reasoning_content", None),
     }
     if getattr(response, "usage", None) is not None:
         usage["prompt_tokens"] = response.usage.prompt_tokens

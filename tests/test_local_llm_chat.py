@@ -225,6 +225,32 @@ def test_truncated_reply_warns():
         server.shutdown()
 
 
+def test_verbose_mirrors_info_and_dumps_payloads():
+    import contextlib
+    import io
+    server, base_url = _start_fake()
+    try:
+        _Fake.replies[:] = ["hello there"]
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            _ask(base_url, verbose=True)
+        out = buffer.getvalue()
+        assert "[AskLocalLLM]" in out
+        assert "---- system prompt" in out
+        assert "---- user message" in out
+        assert "---- raw reply" in out
+        # thinking is None on the fake server - its dump must be skipped
+        assert "---- thinking" not in out
+        # default stays silent
+        _Fake.replies[:] = ["hello there"]
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            _ask(base_url)
+        assert buffer.getvalue() == ""
+    finally:
+        server.shutdown()
+
+
 if __name__ == "__main__":
     failures = 0
     for name, func in sorted(globals().items()):

@@ -29,6 +29,7 @@ from ..utils.h3_skill.audio_prompts import (
     parse_response,
 )
 from ..utils.h3_skill.client import build_user_message, chat
+from ..utils.h3_skill.reporting import VerboseReport
 
 try:
     import folder_paths
@@ -132,7 +133,7 @@ class H3AudioSoundscaper:
                 "max_tokens": ("INT", {
                     "default": 1500, "min": 256, "max": 4096,
                 }),
-                # New widget stays LAST: widget values save positionally.
+                # New widgets stay LAST: widget values save positionally.
                 "video_prompt": ("STRING", {
                     "default": "", "multiline": True,
                     "tooltip": (
@@ -141,6 +142,14 @@ class H3AudioSoundscaper:
                         "soundtrack for it from text (design mode). "
                         "With audio connected, it adds to "
                         "scene_context."
+                    ),
+                }),
+                "verbose": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Mirror the report to the ComfyUI console as it "
+                        "happens, and dump the full payloads: system "
+                        "prompt, user context, raw replies."
                     ),
                 }),
             },
@@ -175,8 +184,9 @@ class H3AudioSoundscaper:
         free_vram_first=False,
         max_tokens=1500,
         video_prompt="",
+        verbose=False,
     ):
-        report = []
+        report = VerboseReport("H3AudioSoundscaper", verbose)
         design_mode = audio is None
         if design_mode:
             source_text = (video_prompt or "").strip() or \
@@ -232,9 +242,12 @@ class H3AudioSoundscaper:
             report.append(f"server: {handle.base_url} ({model_name})")
 
         if design_mode:
+            context = build_design_context(source_text)
+            report.dump("system prompt", DESIGN_SYSTEM_PROMPT)
+            report.dump("user context", context)
             messages = [
                 {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
-                build_user_message(build_design_context(source_text)),
+                build_user_message(context),
             ]
         else:
             # A filled video_prompt still helps in listening mode: it
@@ -247,6 +260,8 @@ class H3AudioSoundscaper:
             context = build_user_context(
                 duration, scene_context=context_text, truncated=truncated
             )
+            report.dump("system prompt", SYSTEM_PROMPT)
+            report.dump("user context", context)
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 build_user_message(context, audio_parts=[wav_b64]),
@@ -261,15 +276,18 @@ class H3AudioSoundscaper:
         }
 
         raw, usage = chat(handle.base_url, messages, **chat_kwargs)
+        report.dump("raw reply (pass 1)", raw)
         sections, errors = parse_response(raw)
         report.append(f"latency: {usage.get('latency_s')} s")
         retried = False
         if errors:
             retried = True
+            report.dump("contract violations (pass 1)", "\n".join(errors))
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user",
                              "content": build_retry_message(errors)})
             raw, usage2 = chat(handle.base_url, messages, **chat_kwargs)
+            report.dump("raw reply (retry)", raw)
             sections, errors = parse_response(raw)
             report.append(f"retry latency: {usage2.get('latency_s')} s")
             usage = usage2

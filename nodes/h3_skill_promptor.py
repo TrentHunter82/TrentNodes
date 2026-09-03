@@ -30,6 +30,7 @@ from ..utils.h3_skill.client import (
     build_user_message,
     chat,
 )
+from ..utils.h3_skill.reporting import VerboseReport
 
 try:
     import folder_paths
@@ -255,6 +256,16 @@ class H3SkillPromptor:
                         "events help the model time sound to shots."
                     ),
                 }),
+                # New widgets stay LAST: widget values save positionally.
+                "verbose": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Mirror the report to the ComfyUI console as it "
+                        "happens, and dump the full payloads: system "
+                        "prompt, user context, model thinking, raw "
+                        "replies."
+                    ),
+                }),
             },
         }
 
@@ -308,8 +319,10 @@ class H3SkillPromptor:
         source_soundscape="",
         source_music="",
         sound_log="",
+        verbose=False,
     ):
-        report = [f"mode: {mode}"]
+        report = VerboseReport("H3SkillPromptor", verbose)
+        report.append(f"mode: {mode}")
 
         # ---- images ----------------------------------------------------
         bracket = mode in ("ref2va", "i2va", "l2va")
@@ -429,6 +442,8 @@ class H3SkillPromptor:
         )
         if source_soundscape.strip() or source_music.strip():
             report.append("audio sections anchored to measured source audio")
+        report.dump("system prompt", system)
+        report.dump("user context", context)
         messages = [
             {"role": "system", "content": system},
             build_user_message(context, image_pairs),
@@ -449,6 +464,8 @@ class H3SkillPromptor:
         )
 
         raw, usage = chat(handle.base_url, messages, **chat_kwargs)
+        report.dump("thinking (pass 1)", usage.get("reasoning_content"))
+        report.dump("raw reply (pass 1)", raw)
         body, notes = _strip_transport_wrapper(raw)
         report.extend(notes)
         report.append(
@@ -467,6 +484,7 @@ class H3SkillPromptor:
             numbered = "\n".join(
                 f"{index}. {error}" for index, error in enumerate(errors, 1)
             )
+            report.dump("checklist violations (pass 1)", numbered)
             messages.append({"role": "assistant", "content": body})
             messages.append({"role": "user", "content": (
                 "Your prompt violates the skill checklist:\n"
@@ -475,6 +493,8 @@ class H3SkillPromptor:
                 "prompt. Same output contract: prompt text only."
             )})
             raw, usage2 = chat(handle.base_url, messages, **chat_kwargs)
+            report.dump("thinking (retry)", usage2.get("reasoning_content"))
+            report.dump("raw reply (retry)", raw)
             body, notes = _strip_transport_wrapper(raw)
             report.extend(notes)
             report.append(
