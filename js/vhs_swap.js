@@ -58,22 +58,6 @@ const DEFAULT_FPS = 24;
 // Vertical gap below the lowest node where the reroute chain is parked.
 const BOTTOM_MARGIN = 120;
 
-// convertToInput helper, for turning the Combine's frame_rate widget into
-// an input slot. Resolved via the ComfyUI shim, with a dynamic-import
-// fallback for builds where window.comfyAPI hasn't populated yet.
-let convertWidgetToInput = window.comfyAPI?.widgetInputs?.convertToInput;
-if (!convertWidgetToInput) {
-    import("/extensions/core/widgetInputs.js")
-        .then((mod) => {
-            convertWidgetToInput = mod.convertToInput;
-        })
-        .catch((err) => {
-            console.warn(
-                "[VHSSwap] Could not load widgetInputs.js:", err
-            );
-        });
-}
-
 /**
  * Collect all input and output connections for a node.
  */
@@ -686,6 +670,9 @@ function ensureFrameRateInput(combineNode) {
         return -1;
     }
 
+    // Current frontends already expose widget sockets. Resolve the older
+    // helper only when needed, after frontend startup has completed.
+    const convertWidgetToInput = window.comfyAPI?.widgetInputs?.convertToInput;
     if (!convertWidgetToInput) {
         console.warn(
             "[VHSSwap] convertToInput helper unavailable;"
