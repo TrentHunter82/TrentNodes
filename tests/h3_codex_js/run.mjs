@@ -39,6 +39,7 @@ try {
                 "model", "reasoning_effort", "revision", "timeout_seconds", "max_frames", "fps", "reference_roles",
                 "context", "dialogue", "source_soundscape", "source_music", "sound_log"].map(name => ({ name, value: "", options: {} }));
             this.widgets.find(w => w.name === "revision").value = 0;
+            this.widgets.find(w => w.name === "action").value = "generate";
         }
         addWidget(type, name, value, callback, options) {
             const widget = { type, name, value, callback, options };
@@ -51,6 +52,15 @@ try {
     const original = [...node.widgets];
     node.onNodeCreated();
     const w = name => node.widgets.find(x => x.name === name);
+    const assertLockState = locked => {
+        const status = locked ? "🔒 Locked" : "🔓 Unlocked";
+        assert.equal(w("Lock editor").label, `${status} · click to ${locked ? "unlock" : "lock"}`);
+        assert.equal(w("prompt_text").label, `Prompt editor · ${status}`);
+    };
+    assertLockState(false);
+    w("Lock editor").callback();
+    assert.equal(w("action").value, "generate", "an empty editor cannot be locked");
+    assertLockState(false);
     assert.equal(w("model").hidden, true);
     assert.equal(w("context").hidden, true);
     w("context").value = "Keep the red mug";
@@ -63,15 +73,36 @@ try {
     node.onExecuted({ h3_prompt: ["generated"], h3_report: ["checks"] });
     assert.equal(w("prompt_text").value, "generated");
     assert.equal(w("action").value, "locked");
+    assertLockState(true);
     assert.ok(app.graph.changes >= 2, "queue state and generated editor are marked changed for persistence");
+    w("Lock editor").callback();
+    assert.equal(w("action").value, "generate");
+    assertLockState(false);
+    w("Lock editor").callback();
+    assert.equal(w("action").value, "locked");
+    assertLockState(true);
+    const queued = api.queuePrompt;
+    api.queuePrompt = async () => { throw new Error("queue unavailable"); };
+    await w("Generate prompt").callback();
+    assert.equal(w("action").value, "locked", "a rejected queue restores the lock state");
+    assertLockState(true);
+    api.queuePrompt = queued;
     w("refinement").value = "Slower";
     await w("Refine prompt").callback();
+    assertLockState(false);
     w("prompt_text").value = "manual edit while running";
     node.onExecuted({ h3_prompt: ["revised"], h3_report: ["checks"] });
     assert.equal(w("prompt_text").value, "manual edit while running");
     assert.equal(node.properties.h3CodexLastPrompt, "revised");
+    assertLockState(false);
+    w("action").value = "locked";
+    node.onConfigure();
+    assertLockState(true);
+    w("action").value = "refine";
+    w("action").callback("refine");
+    assertLockState(false);
     assert.ok(node.widgets.filter(w => w.type === "button").every(w => w.serialize === false));
-    console.log("H3 Codex frontend checks passed: prompt-only queue, locking, edit preservation, widget serialization, context visibility.");
+    console.log("H3 Codex frontend checks passed: prompt-only queue, lock toggle and status, queue failure restoration, edit preservation, widget serialization, context visibility.");
 } finally {
     rmSync(stage, { recursive: true, force: true });
 }

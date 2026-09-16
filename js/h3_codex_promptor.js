@@ -36,6 +36,13 @@ export function promptBranch(output, id) {
 }
 
 function refresh(node) {
+    const locked = widget(node, "action")?.value === "locked";
+    const status = locked ? "🔒 Locked" : "🔓 Unlocked";
+    if (node._h3LockButton) {
+        node._h3LockButton.label = `${status} · click to ${locked ? "unlock" : "lock"}`;
+    }
+    const editor = widget(node, "prompt_text");
+    if (editor) editor.label = `Prompt editor · ${status}`;
     for (const name of ADVANCED) {
         const entry = widget(node, name);
         if (!entry) continue;
@@ -70,6 +77,7 @@ async function queueWriting(node, action) {
     const actionWidget = widget(node, "action");
     const oldAction = actionWidget.value;
     actionWidget.value = action;
+    refresh(node);
     node._h3EditorAtQueue = widget(node, "prompt_text").value;
     try {
         const request = await app.graphToPrompt();
@@ -97,14 +105,18 @@ app.registerExtension({
             const button = (name, callback) => {
                 const entry = this.addWidget("button", name, null, callback, { serialize: false });
                 entry.serialize = false;
+                return entry;
             };
             button("Generate prompt", () => queueWriting(this, "generate"));
             button("Refine prompt", () => queueWriting(this, "refine"));
-            button("Lock editor", () => {
-                if (!widget(this, "prompt_text").value.trim()) return notify("The prompt editor is empty.");
-                widget(this, "action").value = "locked";
+            this._h3LockButton = button("Lock editor", () => {
+                const action = widget(this, "action");
+                const unlocking = action.value === "locked";
+                if (!unlocking && !widget(this, "prompt_text").value.trim()) return notify("The prompt editor is empty.");
+                action.value = unlocking ? "generate" : "locked";
                 changed(this);
-                notify("Locked: H3 runs will use the editor exactly as saved.");
+                notify(unlocking ? "Unlocked: the next Run will generate a prompt."
+                    : "Locked: H3 runs will use the editor exactly as saved. You can still edit the text.");
                 refresh(this);
             });
             button("New variation", () => {
@@ -122,6 +134,13 @@ app.registerExtension({
                 changed(this);
             });
             const editor = widget(this, "prompt_text");
+            const action = widget(this, "action");
+            const previousActionChanged = action.callback;
+            action.callback = (...values) => {
+                const result = previousActionChanged?.apply(action, values);
+                refresh(this);
+                return result;
+            };
             const previousBefore = editor.beforeQueued;
             editor.beforeQueued = (...values) => {
                 previousBefore?.apply(editor, values);

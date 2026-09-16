@@ -31,6 +31,10 @@ node requires ChatGPT sign-in and will not fall back to API-key billing.
 5. Edit the prompt directly, or type a **refinement** and click **Refine prompt**.
    Use **New variation** for a fresh draft of the original brief.
 
+The prompt editor and lock button show **🔒 Locked** or **🔓 Unlocked**.
+Click the lock button to toggle. Locked prompts remain editable by hand;
+unlocking selects Generate for the next Run and does not queue anything itself.
+
 **Context & dialogue** reveals reference roles, extra context, exact dialogue,
 and measured audio descriptions. Nonempty fields remain visible. Right-click
 the node and select **Show Codex validation report** for diagnostics, inspected
