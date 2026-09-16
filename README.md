@@ -570,6 +570,16 @@ Runs on its own llama-server port (8736) so it coexists with the H3 Skill Prompt
 - [`Qwen3-Omni-30B-A3B-Instruct-Q4_K_M.gguf`](https://huggingface.co/ggml-org/Qwen3-Omni-30B-A3B-Instruct-GGUF/blob/main/Qwen3-Omni-30B-A3B-Instruct-Q4_K_M.gguf) (~17.3 GB, MoE — only ~3B active)
 - [`mmproj-Qwen3-Omni-30B-A3B-Instruct-Q8_0.gguf`](https://huggingface.co/ggml-org/Qwen3-Omni-30B-A3B-Instruct-GGUF/blob/main/mmproj-Qwen3-Omni-30B-A3B-Instruct-Q8_0.gguf) (~1.2 GB — carries the AUDIO encoder; required)
 
+**H3 Codex Promptor**
+
+Writes and refines local MiniMax H3 prompts through your Codex ChatGPT subscription,
+using MiniMax's official prompting skill and guides. Connect first/last frames,
+reference images, sampled video frames and Soundscaper context; generate, edit,
+refine and lock the result inside the node. Generate queues only the prompt branch.
+Successful requests are cached so video seed variations do not spend more Codex
+usage. No API key or local LLM required. [Setup and reference wiring](docs/H3_CODEX_PROMPTOR.md).
+Start with `example_workflows/H3_Codex_Promptor.json`.
+
 **H3 Skill Promptor (Local GGUF)**
 
 Writes an official MiniMax H3 prompt (Ref2VA six-section or any of the four base three-field modes) with a local GGUF vision LLM - built for Qwen3.8-27B + its mmproj, served by a managed `llama-server` process. Fully offline: no API keys, no cloud.

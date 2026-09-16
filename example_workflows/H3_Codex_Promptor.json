@@ -1,0 +1,181 @@
+{
+  "nodes": [
+    {
+      "id": 3884782080217759,
+      "type": "TrentH3CodexPromptor",
+      "pos": [
+        80,
+        100
+      ],
+      "size": [
+        240.0,
+        574.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "first_frame",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "last_frame",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "reference_images",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "video_frames",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h3_prompt",
+          "type": "STRING",
+          "links": [
+            4288022490921692
+          ]
+        },
+        {
+          "name": "checkpoint_hint",
+          "type": "STRING",
+          "links": []
+        },
+        {
+          "name": "validation_report",
+          "type": "STRING",
+          "links": [
+            3454648295077093
+          ]
+        },
+        {
+          "name": "overall_soundscape",
+          "type": "STRING",
+          "links": []
+        },
+        {
+          "name": "non_diegetic_music",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "A ceramic red mug sits on a blue table. A hand lifts it once. One static shot. No dialogue or music.",
+        6.0,
+        "auto",
+        "generate",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        24.0,
+        8,
+        "",
+        "default",
+        0,
+        600
+      ]
+    },
+    {
+      "id": 2440728915817278,
+      "type": "PreviewAny",
+      "pos": [
+        820,
+        100
+      ],
+      "size": [
+        240.0,
+        62.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 4288022490921692
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {},
+      "widgets_values": []
+    },
+    {
+      "id": 3063226487210833,
+      "type": "PreviewAny",
+      "pos": [
+        820,
+        460
+      ],
+      "size": [
+        240.0,
+        62.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 3454648295077093
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {},
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [
+      4288022490921692,
+      3884782080217759,
+      0,
+      2440728915817278,
+      0,
+      "STRING"
+    ],
+    [
+      3454648295077093,
+      3884782080217759,
+      2,
+      3063226487210833,
+      0,
+      "STRING"
+    ]
+  ],
+  "last_node_id": 3884782080217759,
+  "last_link_id": 0,
+  "version": 0.4
+}

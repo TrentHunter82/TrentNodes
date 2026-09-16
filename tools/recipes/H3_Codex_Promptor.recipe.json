@@ -1,0 +1,16 @@
+{
+  "recipe": "h3-codex-promptor",
+  "params": {
+    "brief": {"type": "string", "default": "A ceramic red mug sits on a blue table. A hand lifts it once. One static shot. No dialogue or music."},
+    "duration": {"type": "float", "default": 6.0}
+  },
+  "ops": [
+    {"op": "add_node", "class_type": "TrentH3CodexPromptor", "as": "writer", "at": [80, 100]},
+    {"op": "set_widget", "node": "writer", "widget": "creative_brief", "value": "${brief}"},
+    {"op": "set_widget", "node": "writer", "widget": "duration_seconds", "value": "${duration}"},
+    {"op": "add_node", "class_type": "PreviewAny", "as": "prompt", "at": [820, 100]},
+    {"op": "connect", "from": "writer.h3_prompt", "to": "prompt.source"},
+    {"op": "add_node", "class_type": "PreviewAny", "as": "report", "at": [820, 460]},
+    {"op": "connect", "from": "writer.validation_report", "to": "report.source"}
+  ]
+}
