@@ -74,6 +74,33 @@ Soundscaper's `overall_soundscape`, `non_diegetic_music` and `sound_log` outputs
 to **source_soundscape**, **source_music** and **sound_log**, or enter your own
 descriptions/transcript. Explain its intended use in **reference_roles**.
 
+### Cut Detective timing
+
+Connect **Cut Detective → cut_times** to **H3 Codex Promptor → cut_times**.
+Its **shot_table** or **cuts_json** outputs work in the same socket; these also
+carry transition kinds. Connect the same source IMAGE batch to **video_frames**
+and set **fps** to its actual frame rate. Match **duration_seconds** to the
+source and intended H3 output: it sets the last shot's end. Times are never
+rescaled. Including `0.000` in the cut list is optional.
+
+Codex receives each shot's start/end and samples from inside that shot, including
+its opening, middle and ending. **max_frames** is a total target; with cuts it
+can grow to three samples per shot so short shots are not skipped. One- or
+two-frame shots use all available frames. The report lists the inspected times
+and any missing evidence. Source stills cannot establish every motion beat;
+estimated action timing is reported as an assumption. Without **video_frames**,
+the cuts guide the structure and the brief/context supplies the action.
+
+The result remains one complete H3 prompt, with the individual shots in order.
+Local checks flag missing, additional or retimed shot markers and request one
+repair. Check remaining diagnostics before rendering. Out-of-range cuts are
+reported and omitted; correct **duration_seconds** or the source timeline if
+that happens. An unreadable nonempty cut list falls back to one shot with a
+warning. Leaving the socket disconnected keeps the previous sampling behavior.
+
+Existing saved workflows do not need rewiring. Restart ComfyUI and refresh the
+browser when ready to expose the new socket; this update does not restart it.
+
 ## Skill, checks and caching
 
 The first unlocked request downloads MiniMax's official
@@ -82,6 +109,16 @@ and both reference guides at commit `d21241f0a4b3acbb34c97dae47fa417b7065e438`.
 Every file is SHA-256 verified and cached locally. These upstream documents are
 downloaded from MiniMax, not redistributed as TrentNodes-authored instructions.
 No global Codex skills, credentials or configuration are changed.
+
+The bundled [Trent writing rules](../utils/h3_codex/writing_rules.md) load beside
+the official guide on every generate/refine request. They require finished
+materials and lighting, repeated grounded appearance traits, explicit reference
+roles, timed actions per shot, clear spatial relationships and preserved
+occlusion. Character sheets provide identity/anatomy, finished renders provide
+materials/style, and source frames provide pose/framing/action/timing. Explain
+each image's role in **reference_roles**, especially when mixing these sources.
+Separate styled opening frames are not required. The official download and its
+integrity checks remain intact; the bundled rules have their own cache version.
 
 The model drafts and reviews against the selected official guide. Local H3
 checks then inspect formatting, shot timing and available reference labels.
@@ -93,7 +130,8 @@ Passing these checks is not a guarantee of generation quality.
 Successful results are stored under
 `ComfyUI/user/default/trentnodes/h3_codex/results`; the verified skill is in
 the sibling `skills` folder. The cache includes prompt context, inspected images,
-mode, duration, model selection, effort, skill version and **revision**. Changing
+mode, duration, cut timeline, model selection, effort, skill and writing-rule
+versions, and **revision**. Changing
 only a downstream H3 seed does not generate another prompt. **New variation**
 increments revision; use it after changing the default model in Codex settings
 too. Locked prompts are saved in the workflow and work without Codex.

@@ -6,7 +6,7 @@ import comfy.model_management
 import folder_paths
 
 from ..utils.h3_codex import prompt
-from ..utils.h3_codex.skill import REVISION
+from ..utils.h3_codex.skill import REVISION, RULES_REVISION
 
 
 def text_input(tooltip, multiline=True):
@@ -42,12 +42,15 @@ class H3CodexPromptor:
                 "sound_log": text_input("Connect H3 Audio Soundscaper sound_log or a transcript here."),
                 "fps": ("FLOAT", {"default": 24.0, "min": 0.1, "max": 240.0,
                     "tooltip": "Source video fps, used for sampled-frame timestamps."}),
-                "max_frames": ("INT", {"default": 8, "min": 2, "max": 32}),
+                "max_frames": ("INT", {"default": 8, "min": 2, "max": 32,
+                    "tooltip": "Target sampled video frames. With cut_times, raised as needed to inspect opening/middle/ending frames in every shot."}),
                 "model": text_input("Empty uses your Codex configured model. Otherwise enter a model available to your subscription.", False),
                 "reasoning_effort": (["default", "low", "medium", "high", "xhigh"], {"default": "default"}),
                 "revision": ("INT", {"default": 0, "min": 0, "max": 2147483647,
                     "tooltip": "Increase to request another draft with the same inputs. Keep fixed when rendering H3 seed variations."}),
                 "timeout_seconds": ("INT", {"default": 600, "min": 30, "max": 3600}),
+                "cut_times": ("STRING", {"forceInput": True, "tooltip":
+                    "Connect Cut Detective cut_times, shot_table or cuts_json. Uses exact shot starts; duration_seconds ends the final shot. Use the same source video and fps."}),
             },
         }
 
@@ -64,14 +67,14 @@ class H3CodexPromptor:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
-        return REVISION
+        return REVISION + RULES_REVISION
 
     def generate(self, creative_brief, duration_seconds, mode, action, prompt_text,
                  refinement, first_frame=None, last_frame=None, reference_images=None,
                  video_frames=None, audio=None, reference_roles="", context="", dialogue="",
                  source_soundscape="", source_music="", sound_log="", fps=24.0,
                  max_frames=8, model="", reasoning_effort="default", revision=0,
-                 timeout_seconds=600):
+                 timeout_seconds=600, cut_times=""):
         result = prompt.generate(
             Path(folder_paths.get_user_directory()) / "default" / "trentnodes" / "h3_codex",
             brief=creative_brief, duration=float(duration_seconds), mode=mode,
@@ -82,7 +85,7 @@ class H3CodexPromptor:
             source_music=source_music, sound_log=sound_log, fps=float(fps),
             max_frames=int(max_frames), model=model.strip(),
             effort="" if reasoning_effort == "default" else reasoning_effort,
-            revision=int(revision), timeout=int(timeout_seconds),
+            revision=int(revision), timeout=int(timeout_seconds), cut_times=cut_times,
             interrupt=comfy.model_management.throw_exception_if_processing_interrupted,
         )
         return {

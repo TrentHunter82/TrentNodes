@@ -8,6 +8,8 @@ import urllib.error
 import urllib.request
 
 REVISION = "d21241f0a4b3acbb34c97dae47fa417b7065e438"
+WRITING_RULES = Path(__file__).with_name("writing_rules.md").read_text(encoding="utf-8")
+RULES_REVISION = hashlib.sha256(WRITING_RULES.encode("utf-8")).hexdigest()
 SOURCE = f"https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/{REVISION}/skills/h3-prompt-writing"
 FILES = {
     "SKILL.md": "a7000443588ca3f145e3b3fd8900f14e0325dc460bd811268fac89a9dc8e56d0",
@@ -64,4 +66,5 @@ def instructions(texts, mode):
         "image-alignment instruction: the node prepends that exact line after validation. "
         f"The selected mode is {mode}.\n\nOFFICIAL SKILL:\n{texts['SKILL.md']}"
         f"\n\nOFFICIAL GUIDE:\n{guide}"
+        f"\n\nTRENT WRITING REQUIREMENTS:\n{WRITING_RULES}"
     )

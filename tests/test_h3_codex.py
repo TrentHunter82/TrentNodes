@@ -22,7 +22,7 @@ for name, path in (("TrentNodes", ROOT), ("TrentNodes.utils", ROOT / "utils"),
         package.__path__ = [str(path)]
         sys.modules[name] = package
 
-from TrentNodes.utils.h3_codex import client, prompt, skill
+from TrentNodes.utils.h3_codex import client, prompt, skill, shots
 from TrentNodes.utils.h3_cowboy import spec
 import torch
 
@@ -153,12 +153,13 @@ class PromptTests(unittest.TestCase):
                          dialogue="", reference_roles="", source_soundscape="", source_music="",
                          sound_log="", model="", effort="", revision=0, timeout=90)
         self.calls = []
+        self.instructions = []
         self.responses = [{"prompt_body": spec.EXAMPLE_BASE_T2VA, "assumptions": []}]
         owner = self
         class FakeSession:
             model_name = "test-model"
             def __init__(self, *args, **kwargs):
-                pass
+                owner.instructions.append(args[1])
             def __enter__(self):
                 return self
             def __exit__(self, *args):
@@ -186,7 +187,7 @@ class PromptTests(unittest.TestCase):
 
     def test_locked_is_exact_and_offline(self):
         with patch.object(prompt, "load_official_skill", side_effect=AssertionError("network")):
-            result = self.run_prompt(action="locked", prompt_text="  edited\nprompt  ")
+            result = self.run_prompt(action="locked", prompt_text="  edited\nprompt  ", cut_times="0, 2, 4")
         self.assertEqual(result["prompt"], "  edited\nprompt  ")
         self.assertEqual(self.calls, [])
 
@@ -231,6 +232,118 @@ class PromptTests(unittest.TestCase):
             short_mode = {"base_T2VA": "t2va", "base_I2VA": "i2va", "base_FL2VA": "fl2va", "base_L2VA": "l2va"}[mode]
             self.assertEqual(prompt.check_body(body, short_mode, 15, {"Picture": 2, "Audio": 0, "Video": 0}), [])
         self.assertEqual(prompt.check_body(spec.EXAMPLE_REF_GENERATION, "ref2va", 15, {"Picture": 4, "Video": 2, "Audio": 1}), [])
+
+    def test_cut_timeline_repair_and_request_rules(self):
+        correct = spec.EXAMPLE_BASE_T2VA
+        wrong = correct.replace("At 00:05.000,", "At 00:04.000,")
+        self.assertNotEqual(correct, wrong)
+        self.responses[:] = [{"prompt_body": body, "assumptions": []} for body in (wrong, correct)]
+        result = self.run_prompt(cut_times="0, 5")
+        self.assertEqual(len(self.calls), 2)
+        request = json.loads(self.calls[0][0]["text"].split("\n", 1)[1])
+        self.assertEqual([s["start_seconds"] for s in request["shot_timeline"]], [0, 5])
+        self.assertEqual(request["shot_timeline"][-1]["end_seconds"], 8)
+        self.assertIn("00:05.000", self.calls[1][0]["text"])
+        self.assertNotIn("Cut timeline: use", result["report"])
+        self.assertIn("structure only", result["report"])
+        self.assertIn(skill.WRITING_RULES, self.instructions[0])
+
+    def test_cut_and_rules_changes_invalidate_cache(self):
+        self.run_prompt(cut_times="0, 5")
+        self.responses[:] = [{"prompt_body": spec.EXAMPLE_BASE_T2VA.replace("00:05.000", "00:04.000"), "assumptions": []}]
+        self.run_prompt(cut_times="0, 4")
+        self.assertEqual(len(self.calls), 2)
+        self.responses[:] = [{"prompt_body": spec.EXAMPLE_BASE_T2VA, "assumptions": []}]
+        with patch.object(prompt, "RULES_REVISION", "updated-rules"):
+            self.run_prompt(cut_times="0, 5")
+        self.assertEqual(len(self.calls), 3)
+
+
+class ShotTests(unittest.TestCase):
+    def test_cut_detective_formats(self):
+        table = "Shot 1 | 00:00.000 | 2.500s | start\nShot 2 | 00:02.500 | 3.500s | dissolve"
+        payload = json.dumps({"fps": 24, "duration_seconds": 6, "shots": [
+            {"start_time": 0, "entry": "start"}, {"start_time": 2.5, "entry": "dissolve"}]})
+        for value in ("0, 2.5", "2.5", "00:00.000, 00:02.500", table, payload):
+            with self.subTest(value=value):
+                timeline, notes = shots.shot_timeline(value, 6)
+                self.assertEqual([s["start_seconds"] for s in timeline], [0, 2.5])
+                self.assertEqual([s["end_seconds"] for s in timeline], [2.5, 6])
+                self.assertEqual(notes, [])
+        self.assertEqual(timeline[1]["entry"], "dissolve")
+
+    def test_empty_single_invalid_and_outside_cuts(self):
+        self.assertEqual(shots.shot_timeline("", 6), ([], []))
+        for value in ("0", "0, 6", "6"):
+            timeline, notes = shots.shot_timeline(value, 6)
+            self.assertEqual(len(timeline), 1)
+            self.assertEqual(notes, [])
+        timeline, notes = shots.shot_timeline("unreadable", 6)
+        self.assertEqual(len(timeline), 1)
+        self.assertIn("No readable cut times", notes[0])
+        timeline, notes = shots.shot_timeline("0, 2, 10", 6)
+        self.assertEqual([s["start_seconds"] for s in timeline], [0, 2])
+        self.assertIn("outside duration_seconds", notes[0])
+
+    def test_short_shots_rounded_frame_boundaries_and_budget(self):
+        # Cut Detective rounds 1/24 and 2/24 to .042 and .083.
+        frames = torch.rand(48, 8, 8, 3)
+        timeline, _ = shots.shot_timeline("0, 0.042, 0.083, 1", 2)
+        samples, notes = shots.sample_shots(frames, 24, 2, timeline, lambda: None)
+        groups = {i: [n for n, _, shot in samples if shot == i] for i in range(1, 5)}
+        self.assertEqual(groups[1], [0])
+        self.assertEqual(groups[2], [1])
+        self.assertEqual(groups[3], [2, 12, 23])
+        self.assertEqual(groups[4], [24, 35, 47])
+        self.assertTrue(any("raises the frame budget" in note for note in notes))
+
+    def test_video_evidence_is_labelled_by_shot_and_missing_tail_reported(self):
+        timeline, _ = shots.shot_timeline("0, 1, 2", 3)
+        images, labels, notes, counts = prompt.prepare_references(
+            "ref2va", None, None, None, torch.rand(8, 8, 8, 3), 4, 2, None, lambda: None, timeline)
+        self.assertEqual(counts["Video"], 1)
+        self.assertTrue(any("source evidence for Shot 1" in label for label, _ in images))
+        self.assertTrue(any("source evidence for Shot 2" in label for label, _ in images))
+        self.assertTrue(any("Shot 3: no source frames" in note for note in notes))
+        self.assertTrue(any("Source video is 2.000s" in note for note in notes))
+
+    def test_validation_ignores_shot_mentions_outside_description(self):
+        timeline, _ = shots.shot_timeline("0, 5", 8)
+        description = "[Shot 1] Opening. [Shot 2] At 00:05.000, the camera cuts to the ending."
+        self.assertEqual(shots.check_shot_times(description, timeline), [])
+        self.assertTrue(shots.check_shot_times(description.replace("00:05.000", "00:04.999"), timeline))
+        self.assertTrue(shots.check_shot_times("[Shot 1] Opening.", timeline))
+        self.assertTrue(shots.check_shot_times(description + " [Shot 3] At 00:07.000, end.", timeline))
+        body = ("subject_definitions:\n<Subject 1> belongs to [Shot 2].\nsummary:\nEdit.\n"
+                "retention_analysis:\n[Shot 2] retains identity.\ndetailed_description:\n" + description
+                + "\noverall_soundscape:\nQuiet.\nnon_diegetic_music:\nNone.")
+        issues = prompt.check_body(body, "ref2va", 8, {"Picture": 0, "Video": 0, "Audio": 0}, timeline)
+        self.assertFalse(any(issue.startswith("Cut timeline:") for issue in issues))
+
+
+class NodeTests(unittest.TestCase):
+    def test_cut_socket_preserves_saved_widgets_and_passes_to_generator(self):
+        comfy = types.ModuleType("comfy")
+        comfy.model_management = types.ModuleType("comfy.model_management")
+        comfy.model_management.throw_exception_if_processing_interrupted = lambda: None
+        folder_paths = types.ModuleType("folder_paths")
+        folder_paths.get_user_directory = tempfile.gettempdir
+        with patch.dict(sys.modules, {"comfy": comfy, "comfy.model_management": comfy.model_management,
+                                      "folder_paths": folder_paths}):
+            module = importlib.import_module("TrentNodes.nodes.h3_codex_promptor")
+            self.addCleanup(sys.modules.pop, module.__name__, None)
+            inputs = module.H3CodexPromptor.INPUT_TYPES()
+            self.assertTrue(inputs["optional"]["cut_times"][1]["forceInput"])
+            widgets = [name for group in inputs.values() for name, (kind, options) in group.items()
+                       if kind not in ("IMAGE", "AUDIO") and not options.get("forceInput")]
+            self.assertEqual(widgets, ["creative_brief", "duration_seconds", "mode", "action", "prompt_text", "refinement",
+                                      "reference_roles", "context", "dialogue", "source_soundscape", "source_music", "sound_log",
+                                      "fps", "max_frames", "model", "reasoning_effort", "revision", "timeout_seconds"])
+            result = dict(prompt="result", checkpoint="ref", report="checked", soundscape="quiet", music="none")
+            with patch.object(prompt, "generate", return_value=result) as generate:
+                actual = module.H3CodexPromptor().generate("brief", 6, "auto", "generate", "", "", cut_times="0, 2.5")
+            self.assertEqual(generate.call_args.kwargs["cut_times"], "0, 2.5")
+            self.assertEqual(actual["result"], ("result", "ref", "checked", "quiet", "none"))
 
 
 class SkillTests(unittest.TestCase):

@@ -32,6 +32,14 @@ try {
     assert.deepEqual(Object.keys(promptBranch(graph, 2)), ["1", "2"]);
     assert.throws(() => promptBranch(graph, 7));
     assert.throws(() => promptBranch(graph, 3));
+    const withCuts = {
+        ...graph,
+        2: { class_type: "TrentH3CodexPromptor", inputs: { first_frame: ["1", 0], cut_times: ["6", 0] } },
+        6: { class_type: "TrentCutDetective", inputs: { images: ["7", 0] } },
+        7: { class_type: "VHS_LoadVideo", inputs: {} },
+    };
+    assert.deepEqual(Object.keys(promptBranch(withCuts, 2)), ["1", "2", "6", "7"],
+        "cut timing pulls in its source loader and detector while excluding downstream rendering");
     class Node {
         constructor() {
             this.id = 2; this.mode = 0; this.size = [300, 400]; this.properties = {}; this.inputs = [];

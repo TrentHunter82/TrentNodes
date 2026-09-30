@@ -13,7 +13,8 @@ from ..h3_prompt.keyframes import select_keyframes
 from ..h3_skill.checklist import assemble_final, validate
 from ..h3_skill.skill_loader import CHECKPOINT_FOR_MODE
 from .client import CodexSession, CodexError
-from .skill import REVISION, load_official_skill, instructions
+from .skill import REVISION, RULES_REVISION, load_official_skill, instructions
+from .shots import check_shot_times, sample_shots, shot_timeline
 
 MODES = ("auto", "t2va", "i2va", "fl2va", "l2va", "ref2va")
 SCHEMA = {
@@ -54,7 +55,7 @@ def resolve_mode(mode, first_frame=None, last_frame=None, reference_images=None,
 
 
 def prepare_references(mode, first_frame, last_frame, reference_images,
-                       video_frames, fps, max_frames, audio, interrupt):
+                       video_frames, fps, max_frames, audio, interrupt, shots=None):
     images, descriptions, notes = [], [], []
     counts = {"Picture": 0, "Video": 0, "Audio": 0}
     for batch, role in ((first_frame, "first frame"), (last_frame, "last frame"),
@@ -74,16 +75,29 @@ def prepare_references(mode, first_frame, last_frame, reference_images,
     if video_frames is not None and len(video_frames):
         if not math.isfinite(fps) or fps <= 0:
             raise ValueError("Video fps must be positive.")
-        frames = select_keyframes(video_frames, fps, max_frames=max_frames)
+        if shots:
+            samples, shot_notes = sample_shots(video_frames, fps, max_frames, shots, interrupt)
+            notes += shot_notes
+            source_duration = len(video_frames) / fps
+            if abs(source_duration - shots[-1]["end_seconds"]) > 1 / fps + 0.001:
+                notes.append(f"Source video is {source_duration:.3f}s but duration_seconds is {shots[-1]['end_seconds']:.3f}s. "
+                             "Check source fps and duration; cuts and samples are not rescaled.")
+        else:
+            frames = select_keyframes(video_frames, fps, max_frames=max_frames)
+            samples = [(index, timestamp, None) for index, timestamp in zip(frames.indices, frames.timestamps)]
         counts["Video"] = 1 if mode == "ref2va" else 0
         prefix = "<Video 1>" if mode == "ref2va" else "Visual context clip (not an H3 reference)"
         descriptions.append(f"{prefix}: {len(video_frames)} frames at {fps:g} fps; only sampled stills are inspected.")
-        for index, timestamp in zip(frames.indices, frames.timestamps):
+        for index, timestamp, shot in samples:
             interrupt()
             label = f"{prefix}, sampled frame {index} at {timestamp:.3f}s"
+            if shot is not None:
+                label += f", source evidence for Shot {shot} (pose, framing, action and timing)"
             images.append((label, tensor_to_jpeg_b64(video_frames[index])))
-        notes.append(f"Video inspection: {len(frames.indices)} of {len(video_frames)} frames, at "
-                     + ", ".join(f"{t:.3f}s" for t in frames.timestamps) + ". Audio was not inspected.")
+        notes.append(f"Video inspection: {len(samples)} of {len(video_frames)} frames, at "
+                     + ", ".join(f"{t:.3f}s" for _, t, _ in samples) + ". Audio was not inspected.")
+    elif shots:
+        notes.append("No source video frames connected. Cut times supply structure only; action timing uses the brief/context.")
     if audio is not None:
         duration = audio["waveform"].shape[-1] / audio["sample_rate"]
         counts["Audio"] = 1 if mode == "ref2va" else 0
@@ -93,8 +107,11 @@ def prepare_references(mode, first_frame, last_frame, reference_images,
     return images, descriptions, notes, counts
 
 
-def check_body(body, mode, duration, counts):
+def check_body(body, mode, duration, counts, shots=None):
     issues = validate(body, mode, duration)
+    if shots:
+        description = sections(body).get("detailed_description" if mode == "ref2va" else "integrated_multimodal_description", "")
+        issues += check_shot_times(description, shots)
     for kind, number in sorted(set(LABEL.findall(body))):
         if int(number) < 1 or int(number) > counts[kind]:
             issues.append(f"Unknown reference <{kind} {number}>; supplied count is {counts[kind]}.")
@@ -117,7 +134,7 @@ def generate(cache_dir, *, brief, mode, duration, action, prompt_text, refinemen
              context, dialogue, reference_roles, source_soundscape, source_music,
              sound_log, model, effort, revision, timeout, first_frame=None,
              last_frame=None, reference_images=None, video_frames=None, fps=24.0,
-             max_frames=8, audio=None, interrupt=lambda: None, session_factory=CodexSession):
+             max_frames=8, audio=None, cut_times="", interrupt=lambda: None, session_factory=CodexSession):
     if action not in ("generate", "refine", "locked"):
         raise ValueError("Choose generate, refine or locked.")
     if action == "locked":
@@ -138,23 +155,29 @@ def generate(cache_dir, *, brief, mode, duration, action, prompt_text, refinemen
     if action == "refine" and (not prompt_text.strip() or not refinement.strip()):
         raise ValueError("Refine needs a prompt in the editor and a revision request.")
     mode = resolve_mode(mode, first_frame, last_frame, reference_images, video_frames, audio)
+    shots, cut_notes = shot_timeline(cut_times, duration)
     images, labels, notes, counts = prepare_references(
         mode, first_frame, last_frame, reference_images, video_frames, fps,
-        max_frames, audio, interrupt,
+        max_frames, audio, interrupt, shots,
     )
+    notes = cut_notes + notes
+    if shots:
+        notes.insert(0, f"Cut timeline: {len(shots)} shot(s); " + "; ".join(
+            f"{shot['shot']}: {shot['start_seconds']:.3f}–{shot['end_seconds']:.3f}s" for shot in shots))
     data = {
         "mode": mode, "duration_seconds": duration, "creative_brief": brief,
         "reference_inventory": labels, "reference_roles": reference_roles,
         "additional_context": context, "exact_dialogue": dialogue,
         "supplied_soundscape_analysis": source_soundscape,
         "supplied_music_analysis": source_music, "supplied_sound_log": sound_log,
+        "cut_times": cut_times, "shot_timeline": shots,
     }
     if action == "refine":
         data.update(previous_prompt=prompt_text, revision_request=refinement)
     if not brief.strip() and not images and not context.strip() and action != "refine":
         raise ValueError("Describe your idea or connect visual references before generating.")
     # Every prompt-affecting input participates; unrelated downstream H3 seeds do not.
-    fingerprint = json.dumps({"contract": 1, "skill": REVISION, "data": data,
+    fingerprint = json.dumps({"contract": 2, "skill": REVISION, "writing_rules": RULES_REVISION, "data": data,
                               "images": images, "model": model, "effort": effort,
                               "revision": revision}, sort_keys=True, ensure_ascii=False)
     key = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
@@ -172,23 +195,24 @@ def generate(cache_dir, *, brief, mode, duration, action, prompt_text, refinemen
         with session_factory(directory, instructions(texts, mode), model=model,
                              effort=effort, timeout=timeout, interrupt=interrupt) as session:
             body, assumptions = _decode_result(session.turn(inputs, SCHEMA))
-            issues = check_body(body, mode, duration, counts)
+            issues = check_body(body, mode, duration, counts, shots)
             passes = 1
             if issues:
                 interrupt()
                 repair = ("Review the completed draft against the official guide and this diagnostic list. "
                           "Correct applicable issues while preserving intent and exact dialogue. "
-                          "The official guide takes precedence over an over-strict diagnostic. Return the whole result.\n"
+                          "Keep the Trent writing requirements and supplied cut timeline; use the official field and shot syntax. "
+                          "The official guide takes precedence over an over-strict format diagnostic. Return the whole result.\n"
                           + "\n".join(issues))
                 body, assumptions = _decode_result(session.turn([{"type": "text", "text": repair}], SCHEMA))
-                issues = check_body(body, mode, duration, counts)
+                issues = check_body(body, mode, duration, counts, shots)
                 passes = 2
             selected_model = session.model_name
     prompt = assemble_final(body, mode, duration)
     fields = sections(body)
     report = [f"Mode: {mode}; checkpoint: {CHECKPOINT_FOR_MODE[mode]}",
               f"Codex model: {selected_model}; completed passes: {passes}",
-              f"Official MiniMax skill: {REVISION[:12]}"]
+              f"Official MiniMax skill: {REVISION[:12]}; Trent writing rules: {RULES_REVISION[:12]}"]
     report += notes
     report += ["Picture order: first_frame, last_frame, then reference_images. Use the same order in H3."] if counts["Picture"] else []
     report += ["Checks: " + ("review the diagnostics below" if issues else "passed (format and references; render quality still needs testing)")]
