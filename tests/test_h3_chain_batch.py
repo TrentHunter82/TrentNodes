@@ -13,10 +13,11 @@ class ChainTests(unittest.TestCase):
         m.reset = lambda: setattr(m, 'unique_id', None)
         return m
 
-    def advance(self, manager, step, count=3, seed=10):
+    def advance(self, manager, step, count=3, seed=10, primer_pass=False):
         return H3ChainStep().advance(manager, count, seed,
                                      {"7": {"inputs": {"requeue": step}},
-                                      "step": {"inputs": {"meta_batch": ["7", 0]}}}, "step")
+                                      "step": {"inputs": {"meta_batch": ["7", 0]}}}, "step",
+                                     primer_pass)
 
     def audio(self, value, rate=24000, channels=2):
         return {"waveform": torch.full((1, channels, 24), float(value)), "sample_rate": rate}
@@ -24,11 +25,20 @@ class ChainTests(unittest.TestCase):
     def test_count_seed_and_stop(self):
         m = self.manager()
         for n in range(3):
-            self.assertEqual(self.advance(m, n), (n, 10 + n))
+            self.assertEqual(self.advance(m, n), (n, 10 + n, n + 1, n + 2, False))
             self.assertEqual(m.has_closed_inputs, n == 2)
         self.assertEqual(m.total_frames, 423)
         with self.assertRaises(ValueError):
             self.advance(m, 3)
+
+    def test_primer_pass_adds_pass_zero(self):
+        m = self.manager()
+        for n in range(4):
+            self.assertEqual(self.advance(m, n, primer_pass=True), (n, 10 + n, n, n + 1, n == 0))
+            self.assertEqual(m.has_closed_inputs, n == 3)
+        self.assertEqual(m.total_frames, 564)
+        with self.assertRaises(ValueError):
+            self.advance(m, 4, primer_pass=True)
 
     def test_one_chunk_and_seed_wrap(self):
         m = self.manager()

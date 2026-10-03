@@ -7,6 +7,19 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
+### NEW: H3 Chain Step + Chain Audio (MiniMax H3 extension loop)
+
+> Run an exact number of MiniMax H3 video extensions from one VHS Meta
+> Batch Manager and keep every extension's audio for the final mux.
+> **H3 Chain Step** replaces the driver video VHS normally needs: set
+> `chunks`, and the manager re-queues itself exactly that many times,
+> with a fresh seed each pass. **H3 Chain Audio + Save Barrier** holds
+> each pass's trimmed audio and hands VHS the whole track on the last
+> pass; its `saved_tail` input also stops the re-queue until the next
+> pass's context latent is on disk. Tested workflows live in
+> `user/default/workflows/H3 Chain Tested/`. Find them under
+> **Trent/MiniMax**.
+
 ### NEW: Ask Local LLM (GGUF)
 
 > General-purpose chat with the same local GGUF LLM the H3 Skill
@@ -734,6 +747,24 @@ Calculates the duration of an audio input. Returns both the rounded-up integer (
 Transcribes any AUDIO input with OpenAI Whisper and returns four outputs: plain `text`, LRC-timed `lrc` lyrics, `segments_json` (start/end/text records), and the `duration` in seconds. Audio over 30 seconds uses transformers' sequential long-form decoding, so timestamps stay absolute and words are not cut at a chunk boundary.
 
 Model choice covers large-v3 (most accurate), large-v3-turbo (much faster), medium, small and base, plus any folder dropped into `ComfyUI/models/whisper/` which appears as `local:<name>`. The model stays cached in VRAM between runs unless you turn off `keep_model_loaded`. `precision` defaults to fp16 on CUDA and fp32 on CPU; the features are always cast to the model dtype, which is what makes this work on transformers 5.x (a plain `from_pretrained` there loads the fp16 checkpoint and then crashes with "Input type (float) and bias type (c10::Half) should be the same"). `hint_prompt` biases Whisper toward names or spellings you supply — note that on clips under 30 seconds a prompt disables timestamps, an upstream transformers limitation. Logic is covered by `tests/test_transcribe_lyrics.py`.
+
+### 🎥 Trent/MiniMax (3 nodes)
+
+**H3 Chain Step**
+
+Runs an exact number of MiniMax H3 extensions from one VideoHelperSuite Meta Batch Manager. VHS normally learns when to stop from a driver video wired into the manager; this node replaces that video. Connect the manager to `meta_batch`, set `chunks` (extension clips, not counting the primer), and queue once. The node reads the manager's re-queue counter out of the prompt, sets the manager's total frame count to `chunks × frames_per_batch`, and closes the batch on the last pass. Outputs `step` (0-based extension index) and `seed` (base seed plus step, wrapped at 2^64) so each pass samples different noise. `load_slot` (step + 1) and `save_slot` (step + 2) drive the `clip_index` of H3 Motion Context Load/Save Latent: the primer saves slot 1, every pass loads the previous slot and saves its own, so each queue restarts from the primer and never loads a stale or rejected tail. Turn on `primer_pass` to generate the primer as pass 0 of the same chain: the run gets one extra pass, the slots shift down by one (pass 0 saves slot 1, pass k loads slot k), and the `primer` output is true on pass 0 only, for If/Else switches that bypass the tail on that pass. On step 0 it resets the manager and re-stamps its ID, so a cached manager from an earlier run cannot leak into a new chain. It raises if another VHS loader is attached to the same manager, if the step exceeds `chunks`, or if the manager identity changed mid-chain. Runs every pass (`IS_CHANGED` is NaN).
+
+**H3 Chain Audio + Save Barrier**
+
+Keeps every extension's audio for the final VHS mux. VHS Video Combine streams video across passes but only muxes the audio it receives on the last pass, so audio from earlier passes would be lost. Wire the trimmed audio, the same `meta_batch`, `step` from H3 Chain Step, and the `latent_path` string from H3 Motion Context Save Latent into `saved_tail`. Each pass stores a CPU float32 copy of its chunk; on the last pass the node returns the concatenated track, on earlier passes only the latest chunk. `saved_tail` is an execution-order barrier: ComfyUI cannot run this node until Save Latent has produced a path, so the next pass's context latent is on disk before the manager re-queues. Raises on a lost chunk, a sample-rate change, or a channel change, and refuses to resume a partial batch.
+
+**H3 Repack AV Latent**
+
+Rewraps a cross-run H3 AV latent as the NestedTensor pair the MMH3Tools nodes and VAE decodes require. H3 Motion Context Load Latent returns its video and audio streams as a plain list on purpose, so it cannot be decoded by accident; MMH3SplitAV, MMH3TrimAV and friends refuse that list. Put this node between Load Latent and any MMH3Tools node. A latent that is already a NestedTensor passes through untouched.
+
+**Chain workflow.** Queue `H3 Chain - Primer.json` once; it writes the first clip and a 39-frame AV latent tail under `output/h3_context/`. Load `H3 Chain - Fixed.json`, set the continuation prompt and `chunks`, and queue once. The final `-audio.mp4` from VHS Video Combine carries the accumulated soundtrack; VHS also writes a silent intermediate MP4. The primer stays a separate file, so concatenate it with the body for the full video. Rules: one batch manager, one VHS Video Combine, no VHS video loader on that manager, keep the step-to-RandomNoise and saved_tail-to-audio links. Use a separate latent prefix per independent chain, on both Load Latent and Save Latent. Cancelling mid-chain leaves the VHS video unfinalized; a fresh queue resets encoder and audio state but does not restore an earlier tail. Logic is covered by `tests/test_h3_chain_batch.py`.
+
+**Ref2VA chain workflow.** `H3 Ref Chain - Primer.json` and `H3 Ref Chain - Extend.json` (same folder) run the chain on the ref2va checkpoint with MiniMax H3 Reference to Video, so every pass sees the same `<Picture 1>` reference. Reference to Video has no `first_frame` input; the Extend workflow pins frame 0 of the loaded tail (the 39th frame from the end of the previous clip) with Add Guide for MiniMax H3 at `frame_idx` 0. Tails use fixed slots in `output/h3_context/ref_chain/`. The Ref2V turbo LoRA ships bypassed: turbo LoRAs are reported to weaken ref mode, so test at 20 steps without it first. `H3 Ref Chain - One Queue.json` folds the primer into the chain with `primer_pass`: three lazy If/Else switches pick the primer latent, conditioning and zero trim on pass 0, so the tail loader never runs before slot 1 exists, and one queue writes one video with the full soundtrack.
 
 ### 🎤 Trent/LipSync (11 nodes)
 

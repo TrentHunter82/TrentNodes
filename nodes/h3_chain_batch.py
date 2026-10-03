@@ -8,12 +8,15 @@ import torch
 class H3ChainStep:
     CATEGORY = "Trent/MiniMax"
     DISPLAY_NAME = "H3 Chain Step"
-    RETURN_TYPES = ("INT", "INT")
-    RETURN_NAMES = ("step", "seed")
+    RETURN_TYPES = ("INT", "INT", "INT", "INT", "BOOLEAN")
+    RETURN_NAMES = ("step", "seed", "load_slot", "save_slot", "primer")
     FUNCTION = "advance"
     DESCRIPTION = ("Run an exact number of extensions with a VHS Meta Batch Manager. "
                    "Replaces the driver video. Connect seed to RandomNoise and step "
-                   "to H3 Chain Audio + Save Barrier.")
+                   "to H3 Chain Audio + Save Barrier. For fixed tail slots, the primer "
+                   "saves clip_index 1; wire load_slot and save_slot to the Load and "
+                   "Save Latent clip_index inputs. With primer_pass, pass 0 is the "
+                   "primer and the primer output switches the graph to it.")
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -25,6 +28,10 @@ class H3ChainStep:
                 "seed": ("INT", {"default": 987654321, "min": 0,
                                   "max": 0xffffffffffffffff}),
             },
+            "optional": {
+                "primer_pass": ("BOOLEAN", {"default": False,
+                    "tooltip": "Generate the primer as pass 0 of this chain, before the chunks. Pass 0 saves slot 1; pass k loads slot k and saves slot k + 1."}),
+            },
             "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
 
@@ -32,10 +39,11 @@ class H3ChainStep:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def advance(self, meta_batch, chunks, seed, prompt, unique_id):
+    def advance(self, meta_batch, chunks, seed, prompt, unique_id, primer_pass=False):
+        passes = chunks + 1 if primer_pass else chunks
         uid = str(prompt[str(unique_id)]["inputs"]["meta_batch"][0])
         step = int(prompt[uid]["inputs"].get("requeue", 0))
-        if not 0 <= step < chunks:
+        if not 0 <= step < passes:
             raise ValueError("H3 chain exceeded its chunk count; queue a fresh run.")
         if meta_batch.inputs:
             raise ValueError("H3 Chain Step replaces the driver video. Disconnect other batch loaders.")
@@ -46,10 +54,12 @@ class H3ChainStep:
             meta_batch.unique_id = uid
         elif meta_batch.unique_id != uid:
             raise ValueError("H3 batch state was lost. Queue a fresh run.")
-        meta_batch.total_frames = chunks * meta_batch.frames_per_batch
-        meta_batch.has_closed_inputs = step == chunks - 1
-        logging.info("[H3 Chain] extension %d/%d", step + 1, chunks)
-        return (step, (seed + step) % (1 << 64))
+        meta_batch.total_frames = passes * meta_batch.frames_per_batch
+        meta_batch.has_closed_inputs = step == passes - 1
+        logging.info("[H3 Chain] pass %d/%d", step + 1, passes)
+        load_slot = step if primer_pass else step + 1
+        return (step, (seed + step) % (1 << 64), load_slot, load_slot + 1,
+                primer_pass and step == 0)
 
 
 class H3ChainAudio:
