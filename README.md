@@ -7,6 +7,16 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ---
 
+### NEW: Control Overlay Rodeo (control-map overlay player)
+
+> Play an image or frame batch with its control maps overlaid, right
+> inside the node. Connect any of `depth`, `hed`, `canny` and `pose`
+> from your preprocessor nodes, then toggle each layer, set its
+> opacity and blend mode, use presets like Pose + Canny, scrub, step
+> frames, loop, and expand to full screen. Compositing runs in the
+> browser, so layer changes never re-run the workflow. Find it under
+> **Trent/Video**.
+
 ### NEW: H3 Chain Step + Chain Audio (MiniMax H3 extension loop)
 
 > Run an exact number of MiniMax H3 video extensions from one VHS Meta
@@ -146,7 +156,7 @@ pip install -r requirements.txt
 
 All nodes are organized under the `Trent/` category for easy navigation.
 
-### Trent/Video (13 nodes)
+### Trent/Video (14 nodes)
 
 **Cut Detective**
 
@@ -238,6 +248,10 @@ Neural green screen keying using CorridorKey (Corridor Digital). Instead of prod
 <img src="assets/images/nodes/VideoDegradation.png" width="330" alt="Video Degradation node">
 
 Apply configurable, temporally coherent degradation to video frame batches for generating synthetic training pairs. 15 built-in presets (mild, moderate, severe, phone_indoor, social_media_reupload, zoom_call, dashcam, night_handheld, old_youtube, old_vhs, shaky_handheld, security_cam, livestream, old_film, underwater) or full custom control. Supports motion blur (directional with angle modes), defocus blur (uniform, breathing, rack focus, edge softness), noise (gaussian, poisson, film grain, sensor, mixed), compression artifacts (JPEG, H.264, blockiness), chromatic aberration, temporal flicker, resolution degradation, color degradation, interlacing, rolling shutter, vignette, and lens distortion. Outputs degraded frames plus a JSON degradation map. All operations GPU-accelerated.
+
+**Control Overlay Rodeo**
+
+In-node player that overlays control maps on an image or frame batch. Optional `depth`, `hed`, `canny` and `pose` IMAGE inputs take the outputs of any preprocessor nodes (lineart works in `hed`, OpenPose in `pose`). Each layer gets an on/off toggle, an opacity slider and a blend mode (edge and pose layers default to screen, so their black background drops out). Presets switch common combinations, and play/pause, ±1 frame, a scrubber, loop and a full-screen Expand view (Space, arrow keys, Esc) handle playback at the `fps` you set. A layer with fewer frames holds its last frame, so one image pairs with a full control batch. `max_preview_size` caps the preview frames (0 = full resolution). Layer settings save with the workflow; the node has no outputs.
 
 ### 🎬 Trent/Compositing (1 node)
 
