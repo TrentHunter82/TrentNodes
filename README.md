@@ -13,9 +13,9 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 > inside the node. Connect any of `depth`, `hed`, `canny` and `pose`
 > from your preprocessor nodes, then toggle each layer, set its
 > opacity and blend mode, use presets like Pose + Canny, scrub, step
-> frames, loop, and expand to full screen. Compositing runs in the
-> browser, so layer changes never re-run the workflow. Find it under
-> **Trent/Video**.
+> frames, loop, and expand to full screen. The preview updates live
+> in the browser, and the `images` output carries the same mix at
+> full resolution. Find it under **Trent/Video**.
 
 ### NEW: H3 Chain Step + Chain Audio (MiniMax H3 extension loop)
 
@@ -251,7 +251,7 @@ Apply configurable, temporally coherent degradation to video frame batches for g
 
 **Control Overlay Rodeo**
 
-In-node player that overlays control maps on an image or frame batch. Optional `depth`, `hed`, `canny` and `pose` IMAGE inputs take the outputs of any preprocessor nodes (lineart works in `hed`, OpenPose in `pose`). Each layer gets an on/off toggle, an opacity slider and a blend mode (edge and pose layers default to screen, so their black background drops out). Presets switch common combinations, and play/pause, ±1 frame, a scrubber, loop and a full-screen Expand view (Space, arrow keys, Esc) handle playback at the `fps` you set. A layer with fewer frames holds its last frame, so one image pairs with a full control batch. `max_preview_size` caps the preview frames (0 = full resolution). Layer settings save with the workflow; the node has no outputs.
+In-node player that overlays control maps on an image or frame batch. Optional `depth`, `hed`, `canny` and `pose` IMAGE inputs take the outputs of any preprocessor nodes (lineart works in `hed`, OpenPose in `pose`). Each layer gets an on/off toggle, an opacity slider and a blend mode (edge and pose layers default to screen, so their black background drops out). Presets switch common combinations, and play/pause, ±1 frame, a scrubber, loop and a full-screen Expand view (Space, arrow keys, Esc) handle playback at the `fps` you set. A layer with fewer frames holds its last frame, so one image pairs with a full control batch. `max_preview_size` caps the preview frames (0 = full resolution). The `images` output is the same mix at the source resolution, one frame per frame of the longest layer; layer changes preview at once and reach the output on the next queue. Layer settings save with the workflow.
 
 ### 🎬 Trent/Compositing (1 node)
 

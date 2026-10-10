@@ -3,22 +3,24 @@
  *
  * Python writes every connected layer to temp/ as JPEG frames and sends
  * a manifest; this file loads them and composites the enabled layers on
- * a canvas each frame. Layer toggles, opacity, blend, presets and loop
- * live in node.properties.rodeo, so they survive a reload and never
- * re-queue the workflow.
+ * a canvas each frame. Layer toggles, opacity and blend live in the
+ * hidden layer_settings widget: changing them previews instantly, and
+ * the next queue re-runs the node so its output matches. Loop is
+ * playback-only and lives in node.properties.
  */
 
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const LAYERS = {
-    original: { label: "Original", on: true, blend: "normal" },
-    depth: { label: "Depth", on: false, blend: "normal" },
-    hed: { label: "HED", on: true, blend: "screen" },
-    canny: { label: "Canny", on: true, blend: "screen" },
-    pose: { label: "Pose", on: true, blend: "screen" },
+const LABELS = {
+    original: "Original",
+    depth: "Depth",
+    hed: "HED",
+    canny: "Canny",
+    pose: "Pose",
 };
 
+// The Python composite() mirrors each of these canvas modes.
 const BLENDS = {
     normal: "source-over",
     screen: "screen",
@@ -143,16 +145,12 @@ function setupRodeo(node) {
         expanded: null,
     };
 
-    const settings = () => {
-        node.properties ??= {};
-        const r = (node.properties.rodeo ??= {});
-        r.loop ??= true;
-        r.layers ??= {};
-        for (const [name, def] of Object.entries(LAYERS)) {
-            r.layers[name] ??= { on: def.on, opacity: 1, blend: def.blend };
-        }
-        return r;
+    const settingsWidget = node.widgets.find((w) => w.name === "layer_settings");
+    let layers = JSON.parse(settingsWidget.value);
+    const saveLayers = () => {
+        settingsWidget.value = JSON.stringify(layers);
     };
+    const loop = () => node.properties.loop ?? true;
 
     // ── DOM ───────────────────────────────────────────
 
@@ -219,7 +217,6 @@ function setupRodeo(node) {
 
     function draw() {
         if (!S.data) return;
-        const layers = settings().layers;
         ctx.globalCompositeOperation = "source-over";
         ctx.globalAlpha = 1;
         ctx.fillStyle = "#000";
@@ -268,7 +265,6 @@ function setupRodeo(node) {
     // ── Playback ──────────────────────────────────────
 
     function frameReady(f) {
-        const layers = settings().layers;
         return S.data.layers.every(({ name }) =>
             !layers[name].on || ready(layerImage(name, f)));
     }
@@ -284,7 +280,7 @@ function setupRodeo(node) {
             let f = S.frame + Math.floor(S.acc / step);
             S.acc %= step;
             if (f >= n) {
-                if (settings().loop) {
+                if (loop()) {
                     f %= n;
                 } else {
                     f = n - 1;
@@ -300,7 +296,7 @@ function setupRodeo(node) {
 
     function play() {
         if (frameCount() < 2) return;
-        if (S.frame >= frameCount() - 1 && !settings().loop) S.frame = 0;
+        if (S.frame >= frameCount() - 1 && !loop()) S.frame = 0;
         S.playing = true;
         S.last = 0;
         S.acc = 0;
@@ -317,7 +313,7 @@ function setupRodeo(node) {
 
     function updateTransport() {
         playBtn.textContent = S.playing ? "Pause" : "Play";
-        loopBox.checked = settings().loop;
+        loopBox.checked = loop();
     }
 
     playBtn.onclick = () => (S.playing ? pause() : play());
@@ -330,7 +326,7 @@ function setupRodeo(node) {
         setFrame(S.frame + 1);
     };
     loopBox.onchange = () => {
-        settings().loop = loopBox.checked;
+        node.properties.loop = loopBox.checked;
     };
     scrub.oninput = () => {
         pause();
@@ -346,20 +342,20 @@ function setupRodeo(node) {
         layerBox.style.display = present.size ? "" : "none";
         presets.style.display = present.size > 1 ? "" : "none";
 
-        const layers = settings().layers;
-        for (const name of Object.keys(LAYERS)) {
+        for (const name of Object.keys(LABELS)) {
             if (!present.has(name)) continue;
             const cfg = layers[name];
             const row = el("div", "cor-layer");
 
             const toggle = el("button", "cor-btn");
             const syncToggle = () => {
-                toggle.textContent = `${LAYERS[name].label} ${cfg.on ? "on" : "off"}`;
+                toggle.textContent = `${LABELS[name]} ${cfg.on ? "on" : "off"}`;
                 toggle.classList.toggle("on", cfg.on);
             };
             toggle.onclick = () => {
                 cfg.on = !cfg.on;
                 syncToggle();
+                saveLayers();
                 draw();
             };
             syncToggle();
@@ -373,6 +369,7 @@ function setupRodeo(node) {
             opacity.oninput = () => {
                 cfg.opacity = opacity.value / 100;
                 pct.textContent = `${opacity.value}%`;
+                saveLayers();
                 draw();
             };
 
@@ -382,6 +379,7 @@ function setupRodeo(node) {
             }
             blend.onchange = () => {
                 cfg.blend = blend.value;
+                saveLayers();
                 draw();
             };
 
@@ -396,6 +394,7 @@ function setupRodeo(node) {
                 for (const name of present) {
                     layers[name].on = name === "original" || names.includes(name);
                 }
+                saveLayers();
                 renderLayers();
                 draw();
             };
@@ -511,6 +510,7 @@ function setupRodeo(node) {
     const onConfigure = node.onConfigure;
     node.onConfigure = function () {
         const r = onConfigure?.apply(this, arguments);
+        layers = JSON.parse(settingsWidget.value);
         renderLayers();
         updateTransport();
         return r;
