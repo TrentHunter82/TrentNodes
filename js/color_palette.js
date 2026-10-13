@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import {
-    getCircuit, setCircuit, getMagnet, setMagnet, onNoodleChange,
+    getCircuit, setCircuit, getMagnet, setMagnet, getPeek, cyclePeek, onNoodleChange,
 } from "./noodle_wrangler.js";
 
 /*
@@ -881,15 +881,24 @@ function buildPaletteBody() {
         "Alignment guides while dragging nodes or groups: snaps to edges, even 32px gaps, and straight noodles, with dashed guide lines (Alt = drag free)",
         getMagnet, setMagnet,
     );
+    const PEEK_LABELS = { off: "👁 hover links", node: "👁 hover: node", group: "👁 hover: node + nearby" };
+    const peekChip = noodleChip(
+        PEEK_LABELS[getPeek()],
+        "Hide links until you hover a node. Click to cycle: off → hovered node only → hovered node + its group and nearby nodes. Selected nodes always show their links.",
+        () => getPeek() !== "off", cyclePeek,
+    );
     onNoodleChange((s) => {
         circuitChip._paint(s.circuit);
         magnetChip._paint(s.magnet);
+        peekChip._paint(s.peek !== "off");
+        peekChip.textContent = PEEK_LABELS[s.peek];
     });
 
     const noodleRow = document.createElement("div");
     Object.assign(noodleRow.style, { display: "flex", gap: "6px", flexWrap: "wrap" });
     noodleRow.appendChild(circuitChip);
     noodleRow.appendChild(magnetChip);
+    noodleRow.appendChild(peekChip);
     body.appendChild(noodleRow);
 
     return root;

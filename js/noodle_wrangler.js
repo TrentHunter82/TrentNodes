@@ -26,16 +26,24 @@ import { app } from "../../scripts/app.js";
  *      source of truth for Vue node visuals — sees them. Circuit noodles
  *      remain canvas-mode only.
  *
+ *   3. Hover links — hide every link except those touching the hovered or
+ *      selected nodes. "node" mode peeks the hovered node only; "group"
+ *      mode also peeks its innermost group and nodes within PEEK_NEAR.
+ *
  * State persists in localStorage. Other TrentNodes scripts can subscribe to
  * toggle changes via onNoodleChange(fn) to keep their UI in sync.
  */
 
 const LS_CIRCUIT = "TrentNoodles.circuit";
 const LS_MAGNET = "TrentNoodles.magnet";
+const LS_PEEK = "TrentNoodles.peek";
+const PEEK_MODES = ["off", "node", "group"];
 
 const state = {
     circuit: localStorage.getItem(LS_CIRCUIT) === "1", // default OFF
     magnet: localStorage.getItem(LS_MAGNET) === "1",   // default OFF
+    peek: PEEK_MODES.includes(localStorage.getItem(LS_PEEK))
+        ? localStorage.getItem(LS_PEEK) : "off",
 };
 
 const listeners = new Set();
@@ -65,6 +73,18 @@ export function setMagnet(on) {
     state.magnet = !!on;
     localStorage.setItem(LS_MAGNET, on ? "1" : "0");
     notify();
+}
+
+export function getPeek() { return state.peek; }
+
+// off -> node -> group -> off
+export function cyclePeek() {
+    state.peek = PEEK_MODES[(PEEK_MODES.indexOf(state.peek) + 1) % PEEK_MODES.length];
+    localStorage.setItem(LS_PEEK, state.peek);
+    peek.key = null;
+    peek.ids.clear();
+    notify();
+    redrawCanvas();
 }
 
 // links_render_mode value that means "user hid all links" — respect it.
@@ -496,6 +516,7 @@ class MapLinks {
             const connection = outSlots?.[pathI.slot];
             const inSlots = pathI.targetNode.inputs || pathI.targetNode.slots;
             if (!connection || !inSlots?.[pathI.targetSlot]) continue;
+            if (peekHides(pathI.node.id, pathI.targetNode.id)) continue;
 
             let path = pathI.path;
             // an endpoint node moved since the (debounced) plan — re-anchor
@@ -1323,6 +1344,71 @@ function chainGuideOverlay(canvas) {
 }
 
 /* ==========================================================================
+ * Part 3 — hover links
+ * ========================================================================== */
+
+const PEEK_NEAR = 200; // graph units between bounding boxes
+const peek = { key: null, ids: new Set() };
+
+function peekHides(originId, targetId) {
+    return state.peek !== "off" && !peek.ids.has(originId) && !peek.ids.has(targetId);
+}
+
+// innermost group around the hovered node's center, plus every node within
+// PEEK_NEAR of its bounding box
+function peekNeighbors(graph, hovered, ids) {
+    const b = hovered.getBounding();
+    const cx = b[0] + b[2] / 2, cy = b[1] + b[3] / 2;
+    let group = null, groupArea = Infinity;
+    for (const g of graph._groups || []) {
+        const area = g.size[0] * g.size[1];
+        if (area < groupArea && g.isPointInside(cx, cy)) {
+            group = g;
+            groupArea = area;
+        }
+    }
+    const nb = [0, 0, 0, 0];
+    for (const n of graph._nodes || []) {
+        n.getBounding(nb);
+        const gap = Math.max(
+            nb[0] - (b[0] + b[2]), b[0] - (nb[0] + nb[2]),
+            nb[1] - (b[1] + b[3]), b[1] - (nb[1] + nb[3]),
+        );
+        if (gap <= PEEK_NEAR || group?.isPointInside(nb[0] + nb[2] / 2, nb[1] + nb[3] / 2)) {
+            ids.add(n.id);
+        }
+    }
+}
+
+// pointermove/pointerup (bubble): recompute the peeked node set only when the
+// hovered node or the selection changes. Links live on the back canvas, so a
+// change needs a background redraw.
+function updatePeek(e) {
+    const canvas = app.canvas;
+    const graph = canvas?.graph;
+    if (state.peek === "off" || !graph) return;
+    // Vue nodes and DOM widgets sit above the canvas element; anything else
+    // (sidebars, menus, dialogs) is not a hover over the graph
+    const t = e.target;
+    let hovered = null;
+    if (t === canvas.canvas || t?.closest?.("[data-node-id], .dom-widget")) {
+        const [x, y] = canvas.convertEventToCanvasOffset(e);
+        hovered = graph.getNodeOnPos(x, y, canvas.visible_nodes);
+    }
+    const selected = Object.keys(canvas.selected_nodes || {});
+    const key = `${state.peek}|${hovered?.id ?? ""}|${selected.join(",")}`;
+    if (key === peek.key) return;
+    peek.key = key;
+    peek.ids.clear();
+    for (const id of selected) peek.ids.add(canvas.selected_nodes[id].id);
+    if (hovered) {
+        peek.ids.add(hovered.id);
+        if (state.peek === "group") peekNeighbors(graph, hovered, peek.ids);
+    }
+    canvas.setDirty(true, true);
+}
+
+/* ==========================================================================
  * Wiring
  * ========================================================================== */
 
@@ -1376,6 +1462,19 @@ function installPatches() {
         }
         return origDrawConnections.apply(this, arguments);
     };
+
+    // hover links: every native link (splines, reroute segments, floating
+    // links, cable ribbons) is drawn and hit-test registered here, so a
+    // skipped link is neither visible nor clickable
+    const origRenderSegments = proto._renderAllLinkSegments;
+    if (origRenderSegments) {
+        proto._renderAllLinkSegments = function (ctx, link) {
+            if (peekHides(link.origin_id, link.target_id)) return;
+            return origRenderSegments.apply(this, arguments);
+        };
+    }
+    window.addEventListener("pointermove", updatePeek, false);
+    window.addEventListener("pointerup", updatePeek, false);
 
     // Smart-align event wiring. NOTE: the canvas registers bound COPIES of
     // its pointer handlers at construction (this.processMouseMove.bind(this)),
@@ -1443,12 +1542,22 @@ app.registerExtension({
             icon: "pi pi-arrows-alt",
             function: () => setMagnet(!state.magnet),
         },
+        {
+            id: "TrentNodes.CycleHoverLinks",
+            label: "👁 Hover Links (off / node / group)",
+            icon: "pi pi-eye",
+            function: cyclePeek,
+        },
     ],
 
     menuCommands: [
         {
             path: ["TrentNodes"],
-            commands: ["TrentNodes.ToggleCircuitNoodles", "TrentNodes.ToggleMagnet"],
+            commands: [
+                "TrentNodes.ToggleCircuitNoodles",
+                "TrentNodes.ToggleMagnet",
+                "TrentNodes.CycleHoverLinks",
+            ],
         },
     ],
 
