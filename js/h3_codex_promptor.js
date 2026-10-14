@@ -6,6 +6,7 @@ const ADVANCED = ["model", "reasoning_effort", "revision", "timeout_seconds", "m
 const CONTEXT = ["reference_roles", "context", "dialogue", "source_soundscape", "source_music", "sound_log"];
 const widget = (node, name) => node.widgets?.find((entry) => entry.name === name);
 const changed = (node) => (node.graph ?? app.graph)?.change?.();
+const autoLock = (node) => node.properties.h3CodexAutoLock !== false;
 
 function notify(message) {
     app.extensionManager?.toast?.add({ severity: "info", summary: "H3 Codex Promptor", detail: message, life: 6000 });
@@ -40,6 +41,9 @@ function refresh(node) {
     const status = locked ? "🔒 Locked" : "🔓 Unlocked";
     if (node._h3LockButton) {
         node._h3LockButton.label = `${status} · click to ${locked ? "unlock" : "lock"}`;
+    }
+    if (node._h3AutoLockButton) {
+        node._h3AutoLockButton.label = `Auto-lock after writing: ${autoLock(node) ? "On" : "Off"}`;
     }
     const editor = widget(node, "prompt_text");
     if (editor) editor.label = `Prompt editor · ${status}`;
@@ -119,6 +123,13 @@ app.registerExtension({
                     : "Locked: H3 runs will use the editor exactly as saved. You can still edit the text.");
                 refresh(this);
             });
+            this._h3AutoLockButton = button("Auto-lock", () => {
+                this.properties.h3CodexAutoLock = !autoLock(this);
+                changed(this);
+                notify(autoLock(this) ? "Auto-lock on: a new prompt locks the editor."
+                    : "Auto-lock off: the editor stays unlocked, so each Run writes a prompt for the current inputs.");
+                refresh(this);
+            });
             button("New variation", () => {
                 widget(this, "revision").value += 1;
                 return queueWriting(this, "generate");
@@ -166,8 +177,12 @@ app.registerExtension({
             this.properties.h3CodexReport = message.h3_report?.[0] || "";
             if (this._h3EditorAtQueue === undefined || editor.value === this._h3EditorAtQueue) {
                 editor.value = result;
-                widget(this, "action").value = "locked";
-                notify("Prompt ready and locked. Edit it directly, or enter a request and click Refine.");
+                if (autoLock(this)) {
+                    widget(this, "action").value = "locked";
+                    notify("Prompt ready and locked. Edit it directly, or enter a request and click Refine.");
+                } else {
+                    notify("Prompt ready. Auto-lock is off: unchanged inputs reuse this prompt; changed inputs write a new one.");
+                }
             } else {
                 notify("Prompt finished; your in-progress editor changes were preserved. The generated prompt is available at the node output.");
             }
