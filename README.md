@@ -78,7 +78,7 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 
 ### NEW: Create Subgraph with Settings (Canvas Tool)
 
-> Select nodes or a group and press **Alt+Shift+P** to create one subgraph
+> Select nodes or a group and press **Shift+J** to create one subgraph
 > with editable settings and unconnected inputs exposed automatically.
 > Sliders, dropdowns, toggles, and text fields use native input links;
 > socketless controls such as **control after generate** stay linked to their
@@ -756,7 +756,7 @@ Organizes selected nodes or groups left-to-right by dependency depth, using actu
 Checks: `node tests/organize_group_grid/run.mjs`. The isolated browser check is `node tests/organize_group_grid/browser.mjs` with Playwright available; it blocks workflow writes and queued jobs.
 
 **Create Subgraph with Settings**
-Creates a subgraph from the selected nodes or group and exposes editable settings on its face, without reorganizing the nodes. Socketless helper controls remain linked to their inner widgets instead of becoming execution inputs. Existing connections and values are preserved; unused inputs and outputs are exposed. Selecting an existing subgraph adds any missing exposures without nesting it again. Works in the active graph, supports undo and reload, and skips pinned selections. Hotkey: **Alt+Shift+P**.
+Creates a subgraph from the selected nodes or group and exposes editable settings on its face, without reorganizing the nodes. Socketless helper controls remain linked to their inner widgets instead of becoming execution inputs. Existing connections and values are preserved; unused inputs and outputs are exposed. Selecting an existing subgraph adds any missing exposures without nesting it again. Works in the active graph, supports undo and reload, and skips pinned selections. Hotkey: **Shift+J**.
 
 Browser check: `node tests/subgraph_settings/browser.mjs` with Playwright available. It blocks workflow writes and queued jobs.
 

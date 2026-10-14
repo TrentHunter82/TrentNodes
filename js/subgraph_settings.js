@@ -112,7 +112,7 @@ function createSettingsSubgraph() {
 app.registerExtension({
     name: COMMAND,
     commands: [{ id: COMMAND, label: "Create Subgraph with Settings", icon: "pi pi-sitemap", function: createSettingsSubgraph }],
-    keybindings: [{ commandId: COMMAND, combo: { key: "p", alt: true, shift: true }, targetElementId: "graph-canvas" }],
+    keybindings: [{ commandId: COMMAND, combo: { key: "j", shift: true }, targetElementId: "graph-canvas" }],
     menuCommands: [{ path: ["TrentNodes"], commands: [COMMAND] }],
     getSelectionToolboxCommands(item) {
         const LG = window.LiteGraph;

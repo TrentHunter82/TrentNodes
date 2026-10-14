@@ -7,7 +7,12 @@ import { chromium } from "playwright";
   page.on('console',m=>{if(m.text().includes('[CreateSettingsSubgraph]'))console.log(m.text());});
   await page.route('**/*',r=>r.request().method()==='GET'?r.continue():r.abort());
   await page.goto(process.env.COMFY_URL ?? 'http://127.0.0.1:8188',{waitUntil:'domcontentloaded'});
-  await page.waitForFunction(()=>window.app?.extensions.some(e=>e.name==='TrentNodes.CreateSettingsSubgraph'),null,{timeout:90000});await page.waitForTimeout(1200);
+  await page.waitForFunction(()=>window.app?.extensions.some(e=>e.name==='TrentNodes.CreateSettingsSubgraph'),null,{timeout:90000});
+  await page.waitForFunction(()=>{
+   const manager=window.app.extensionManager,store=manager._p?._s?.get('keybinding');
+   const overrides=manager.setting.get('Comfy.Keybinding.NewBindings')??[];
+   return store&&overrides.every(b=>store.keybindings.some(k=>k.commandId===b.commandId&&k.combo.serialize()===new k.combo.constructor(b.combo).serialize()));
+  },null,{timeout:30000});
   const result=await page.evaluate(async()=>{
    const app=window.app,g=app.graph,L=window.LiteGraph;
    const execute=()=>app.extensionManager.command.execute('TrentNodes.CreateSettingsSubgraph');
@@ -76,15 +81,18 @@ import { chromium } from "playwright";
    const id='TrentNodes.CreateSettingsSubgraph',c=app.extensionManager.command.commands.find(c=>c.id===id),run=c.function;
    window.__settingsCalls=0;c.function=(...args)=>{window.__settingsCalls++;return run(...args);};
    const store=app.extensionManager._p._s.get('keybinding');
-   return store.keybindings.filter(b=>b.combo.key.toLowerCase()==='p'&&!b.combo.ctrl&&b.combo.alt&&b.combo.shift).map(b=>({id:b.commandId,scope:b.targetElementId}));
+   return store.keybindings.filter(b=>b.combo.key.toLowerCase()==='j'&&!b.combo.ctrl&&!b.combo.alt&&b.combo.shift).map(b=>({id:b.commandId,scope:b.targetElementId}));
   });
   assert.deepEqual(keyState,[{id:'TrentNodes.CreateSettingsSubgraph',scope:'graph-canvas'}]);
-  await page.locator('#graph-canvas').focus();await page.keyboard.press('Alt+Shift+p');
+  await page.locator('#graph-canvas').focus();
+  await page.keyboard.press('j');await page.keyboard.press('Alt+Shift+p');
+  assert.equal(await page.evaluate(()=>window.__settingsCalls),0,'Plain J or the old shortcut triggered the command');
+  await page.keyboard.press('Shift+j');
   assert.equal(await page.evaluate(()=>window.__settingsCalls),1);
   assert.equal(await page.evaluate(()=>window.app.graph.nodes.filter(n=>n.isSubgraphNode?.()).length),1);
   await page.evaluate(()=>{const input=document.createElement('input');input.id='settings-key-test';document.body.append(input);input.focus();});
-  await page.keyboard.press('Alt+Shift+p');assert.equal(await page.evaluate(()=>window.__settingsCalls),1);
+  await page.keyboard.press('Shift+j');assert.equal(await page.evaluate(()=>window.__settingsCalls),1);
   console.log('Settings subgraph: native inputs, number/text edits, socketless controls, unchanged prompts, repeat, reload, clone, skipped actions, and undo passed.');
-  console.log('Group selection, nested graphs, pins, Alt+Shift+P conflict check, and canvas-only keyboard behavior passed.');
+  console.log('Group selection, nested graphs, pins, Shift+J conflict check, and canvas-only keyboard behavior passed.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});
