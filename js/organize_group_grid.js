@@ -3,7 +3,7 @@ import { app } from "../../scripts/app.js";
 /**
  * Organize Group as Grid
  *
- * Shift+Alt+A — for each selected group, lays out its child
+ * 0 (top row) — for each selected group, lays out its child
  * nodes left-to-right by connection depth (topological rank),
  * then resizes the group to wrap the result.
  *
@@ -374,7 +374,8 @@ app.registerExtension({
     keybindings: [
         {
             commandId: "TrentNodes.OrganizeGroupGrid",
-            combo: { key: "a", shift: true, alt: true }
+            combo: { key: "0" },
+            targetElementId: "graph-canvas"
         }
     ],
 

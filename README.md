@@ -58,18 +58,23 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 > (None-tolerant, mixed sizes OK).
 > Find them under **Trent/Text** and **Trent/Image**.
 
-### NEW: Organize Group as Grid (Canvas Tool)
+### NEW: Organize Group Compact (Canvas Tool)
 
-> One-hotkey cleanup for messy groups. Select any group(s), hit
-> **Shift+Alt+A**, and every child node snaps into a left-to-right
-> layered layout based on connection order — sources on the left,
-> sinks on the right, columns ordered by topological depth. Within
-> a column, nodes are stacked top-to-bottom by the mean y of their
-> downstream targets so wires stay roughly parallel. Collapsed
-> nodes right-align inside their column so their output sockets
-> stay close to the next column. The group then resizes to wrap
-> the result. One Ctrl+Z reverts everything.
-> Find it under **TrentNodes** menu.
+> The original **Organize Group as Grid** remains on **0** (top row).
+> Select nodes or groups and press **Shift+Alt+O** to organize them by
+> connection order. Each consumer and its direct input nodes in the same group become
+> one subgraph, with unconnected sockets and socket-backed controls exposed
+> on its face. Sources stack above the consumer in input-slot order;
+> existing external wires and control values are preserved. Further upstream
+> nodes stay outside. Selected consumers sharing a provider are packed together.
+> Packing stays within each node's smallest containing group, even when several
+> groups are selected. Ungrouped nodes receive layout only.
+> Socket-aware alignment and compaction respect measured titles and previews.
+> Choose **Compact** (default) or **Relaxed** layout spacing in Settings.
+> Pinned nodes and groups containing pinned nodes are skipped.
+> Disable **TrentNodes → Group Organizer → Auto-create subgraphs** in
+> Settings for layout only. One Ctrl+Z reverts the operation.
+> Find it under the **TrentNodes** menu or selection toolbox.
 
 ### NEW: PSD Background Replacement (3 modes + auto-detect)
 
@@ -733,7 +738,12 @@ One-hotkey swap of native ComfyUI video nodes to VHS (Video Helper Suite) equiva
 Companion to VHS Swap that finishes the wiring. Drops in (or reuses) a `VHS_VideoInfo` node off the Load Video's `video_info` output, converts the `VHS_VideoCombine` `frame_rate` widget to an input and connects the source's `loaded_fps` into it, and sets the Combine's format to `video/h264-mp4` with `crf=13`. Selection-aware: with one VHS Load Video + one VHS Video Combine selected, those are used; otherwise it falls back to the single matching pair in the graph. Whole operation is one undo. Requires VHS to be installed. Hotkey: **Shift+Alt+V**, also available in the TrentNodes menu.
 
 **Organize Group as Grid**
-Lays out a group's child nodes in a clean left-to-right grid based on connection order. Columns are assigned by topological depth (longest path from a source node), so upstream nodes always sit to the left of their downstream targets — exactly mirroring how the wires read. Within a column, nodes are sorted by the mean y of their downstream targets (barycenter heuristic) to minimize wire crossings, with current y as a fallback for sinks and disconnected nodes. Collapsed nodes right-align inside their column so their output socket stays close to the next column instead of leaving a long horizontal gap. The group resizes to wrap the result, and the entire arrange is wrapped in a single undo transaction. Works on multi-selected groups. Hotkey: **Shift+Alt+A**, also available in the TrentNodes menu.
+The original layout tool organizes selected groups left-to-right by dependency depth, orders feeders by their downstream target and input slot, and fits each group around its contents. Uses uniform spacing and right-aligns collapsed nodes. Hotkey: **0** (top-row number key). Creates no subgraphs.
+
+**Organize Group Compact**
+Organizes selected nodes or groups left-to-right by dependency depth, using actual socket positions for row order and alignment. Shared providers follow the middle of their targets. Compaction fills available space around measured node bounds; candidate layouts favor fewer estimated straight-wire crossings, then shorter wires and smaller area. Choose **Compact** (default) or **Relaxed** spacing under **TrentNodes → Group Organizer**. By default, consumers and their direct input nodes in the same group become subgraphs with unconnected sockets and socket-backed controls exposed. Further upstream connections, values, and outputs are preserved. Providers stack above their consumer in input order. Packing uses the smallest containing group; ungrouped nodes receive layout only. Works inside subgraphs, respects pins, and supports one undo. Disable **Auto-create subgraphs** for layout only. Hotkey: **Shift+Alt+O**.
+
+Checks: `node tests/organize_group_grid/run.mjs`. The isolated browser check is `node tests/organize_group_grid/browser.mjs` with Playwright available; it blocks workflow writes and queued jobs.
 
 **Queue Selected Output Nodes**
 Queues only the output nodes you have selected, plus everything upstream that feeds them, instead of the whole graph. Handy when a workflow has several save/preview branches and you only want to re-run one. Selecting a group contributes that group's output nodes, and selecting a subgraph node contributes the output nodes inside it. Muted and bypassed nodes are ignored. Honors the batch count. Hotkey: **Shift+Alt+Q**, also available in the TrentNodes menu.
@@ -888,7 +898,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 ## Features
 
 ✅ **69 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
-✅ **Canvas tools** - Grid Paste, VHS Swap, Wire VHS Combine, and Organize Group as Grid (topological group layout)
+✅ **Canvas tools** - Grid Paste, VHS Swap, Wire VHS Combine, Organize Group as Grid, and Organize Group Compact
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart
 ✅ **Colorful startup banner** with load validation
