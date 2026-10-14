@@ -87,11 +87,13 @@ const subgraph = {
 const c = source(3);
 c.inputs.push({ name: "connected", type: "INT", link: 0 });
 c.inputs.push({ name: "hidden", type: "STRING", link: null });
-c.getWidgetFromSlot = (s) => ({ value: 7, hidden: s.name === "hidden" });
+c.inputs.push({ name: "upload", type: "STRING", link: null });
+c.getWidgetFromSlot = (s) => ({ value: 7, type: s.name === "upload" ? "button" : "number", hidden: s.name === "hidden" });
 exposeUnconnectedInputs(subgraph, [a, c]);
 assert.deepEqual(exposed, [[1, "value", "value", "INT"], [3, "value", "value_2", "INT"]]);
 assert.equal(c.inputs[1].link, 0);
 assert.equal(c.inputs[2].link, null);
+assert.equal(c.inputs[3].link, null, "Action buttons must not become execution inputs");
 exposeUnconnectedInputs(subgraph, [a, c]);
 assert.equal(exposed.length, 2);
 

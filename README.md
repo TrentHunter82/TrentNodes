@@ -76,6 +76,16 @@ Professional video processing, scene detection, and utility nodes for ComfyUI.
 > Settings for layout only. One Ctrl+Z reverts the operation.
 > Find it under the **TrentNodes** menu or selection toolbox.
 
+### NEW: Create Subgraph with Settings (Canvas Tool)
+
+> Select nodes or a group and press **Alt+Shift+P** to create one subgraph
+> with editable settings and unconnected inputs exposed automatically.
+> Sliders, dropdowns, toggles, and text fields use native input links;
+> socketless controls such as **control after generate** stay linked to their
+> inner settings. Existing wires and values are preserved. Unused outputs are
+> exposed too. Works on existing subgraphs, supports undo and reload, and skips
+> pinned selections. Find it under **TrentNodes** or the selection toolbox.
+
 ### NEW: PSD Background Replacement (3 modes + auto-detect)
 
 > Swap backgrounds in messy PSDs where there's no clean single
@@ -745,6 +755,11 @@ Organizes selected nodes or groups left-to-right by dependency depth, using actu
 
 Checks: `node tests/organize_group_grid/run.mjs`. The isolated browser check is `node tests/organize_group_grid/browser.mjs` with Playwright available; it blocks workflow writes and queued jobs.
 
+**Create Subgraph with Settings**
+Creates a subgraph from the selected nodes or group and exposes editable settings on its face, without reorganizing the nodes. Socketless helper controls remain linked to their inner widgets instead of becoming execution inputs. Existing connections and values are preserved; unused inputs and outputs are exposed. Selecting an existing subgraph adds any missing exposures without nesting it again. Works in the active graph, supports undo and reload, and skips pinned selections. Hotkey: **Alt+Shift+P**.
+
+Browser check: `node tests/subgraph_settings/browser.mjs` with Playwright available. It blocks workflow writes and queued jobs.
+
 **Queue Selected Output Nodes**
 Queues only the output nodes you have selected, plus everything upstream that feeds them, instead of the whole graph. Handy when a workflow has several save/preview branches and you only want to re-run one. Selecting a group contributes that group's output nodes, and selecting a subgraph node contributes the output nodes inside it. Muted and bypassed nodes are ignored. Honors the batch count. Hotkey: **Shift+Alt+Q**, also available in the TrentNodes menu.
 
@@ -898,7 +913,7 @@ Standalone background removal using BiRefNet or color keying. Returns mouth shap
 ## Features
 
 ✅ **69 professional nodes** for video, image, audio, API, VLM, flow control, and lip sync workflows
-✅ **Canvas tools** - Grid Paste, VHS Swap, Wire VHS Combine, Organize Group as Grid, and Organize Group Compact
+✅ **Canvas tools** - Grid Paste, VHS Swap, Wire VHS Combine, Organize Group as Grid, Organize Group Compact, and Create Subgraph with Settings
 ✅ **Organized categories** - all nodes under `Trent/` namespace
 ✅ **Auto-discovery** - drop nodes in `nodes/` folder and restart
 ✅ **Colorful startup banner** with load validation

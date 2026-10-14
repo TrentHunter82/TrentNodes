@@ -69,19 +69,55 @@ function uniqueName(base, slots) {
     return name;
 }
 
+export function isEditableWidget(widget) {
+    if (!widget || widget.hidden || widget.options?.hidden || widget.disabled
+        || widget.options?.readonly || widget.options?.readOnly
+        || widget.name?.startsWith("$$")
+        || ["button", "preview", "video", "audioUI", "progressbar"].includes(widget.type)) return false;
+    return ["number", "string", "boolean"].includes(typeof widget.value) || Array.isArray(widget.value);
+}
+
+export function removeUneditablePromotions(host, plans) {
+    // Native recommended promotions can include actions such as image upload.
+    for (const input of [...host.subgraph.inputs]) {
+        const parentInput = host.inputs.find((s) => s._subgraphSlot === input);
+        if (parentInput?.link != null) continue;
+        const targets = input.linkIds.map((id) => host.subgraph.getLink(id)?.resolve(host.subgraph));
+        if (targets.length && targets.every((target) => {
+            const widget = target?.inputNode?.getWidgetFromSlot(target.input);
+            const plan = plans.find((p) => p.id === target?.inputNode?.id);
+            return widget && plan && !plan.widgets.includes(widget.name);
+        })) host.subgraph.removeInput(input);
+    }
+}
+
 export function exposeUnconnectedInputs(subgraph, nodes) {
     for (const node of nodes) {
         for (const input of node.inputs ?? []) {
             // Conversion may already have promoted a recommended widget.
             if (input.link != null) continue;
             const widget = node.getWidgetFromSlot?.(input);
-            if (widget?.hidden || widget?.options?.hidden) continue;
+            if (widget && !isEditableWidget(widget)) continue;
             const name = uniqueName(input.name, subgraph.inputs);
             const boundary = subgraph.addInput(name, String(input.type));
             boundary.label = input.label;
             if (!boundary.connect(input, node)) {
                 subgraph.removeInput(boundary);
                 throw new Error(`Cannot expose ${node.title}: ${input.name}`);
+            }
+        }
+    }
+}
+
+export function exposeUnconnectedOutputs(subgraph, nodes) {
+    for (const node of nodes) {
+        for (const [index, output] of (node.outputs ?? []).entries()) {
+            if (output.links?.length) continue;
+            const name = uniqueName(output.name || `output_${index + 1}`, subgraph.outputs);
+            const boundary = subgraph.addOutput(name, String(output.type));
+            if (!boundary.connect(output, node)) {
+                subgraph.removeOutput(boundary);
+                throw new Error(`Cannot expose ${node.title}: ${output.name}`);
             }
         }
     }
@@ -115,8 +151,10 @@ function arrangeBoundaryNodes(subgraph, nodes, titleHeight) {
 
 export function packSourceBundle(graph, bundle, gap = 40, titleHeight = 30) {
     const originals = [...bundle.sources.map((s) => s.node), ...bundle.consumers];
+    const plans = originals.map((n) => ({ id: n.id, widgets: (n.widgets ?? []).filter(isEditableWidget).map((w) => w.name) }));
     const { subgraph, node } = graph.convertToSubgraph(new Set(originals));
     try {
+        removeUneditablePromotions(node, plans);
         const consumers = bundle.consumers.map((n) => subgraph.getNodeById(n.id));
         const consumer = consumers[0];
         const sources = bundle.sources.map((s) => ({
