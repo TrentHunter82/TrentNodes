@@ -192,6 +192,18 @@ Still open:
   only run on pass 1 and later. Output prefix `h3_chain/ref_one_queue`.
   Validates except for the new outputs (server not restarted); the
   validator's MatchType warnings are a checker limitation.
+- 2026-10-14: `H3 Ref Chain - One Queue + Refiner.json` adds noEmbryo's
+  `H3ClipRefiner` (statistical half only, strength 1.0, context "39")
+  after the sampler. Reference = primer tail from slot 1 through a lazy
+  switch (nothing on pass 0, so the refiner only measures there). The
+  refiner returns its own `_AVStreamPair`, which core VAE Decode and
+  MMH3TrimAV reject, so its output goes through core
+  `LTXVSeparateAVLatent` -> `LTXVConcatAVLatent` to become a NestedTensor
+  again. CPU test with H3-shaped tensors passed; server validation passes
+  with 0 errors. Not rendered. Compared against Endless MiniMax H3 v1.6
+  (`user/default/workflows/Endless-H3/`): manual one-clip-per-queue,
+  Niko conditioning-row context (22 frames), full-clip saves, crossfading
+  stitcher.
 - Status: Primer validates clean against the server. Extend validates
   clean except for the two slot links, because the server still had the
   two-output node loaded; restart ComfyUI. Neither workflow has been
