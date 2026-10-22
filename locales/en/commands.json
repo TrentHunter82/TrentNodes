@@ -1,0 +1,38 @@
+{
+  "TrentNodes_ToggleColorPalette": {
+    "label": "🖇️ Trent Tools"
+  },
+  "TrentNodes_FirstFrameGrab": {
+    "label": "Grab First Frame as Load Image"
+  },
+  "TrentNodes_GridPaste": {
+    "label": "Grid Paste"
+  },
+  "TrentNodes_GridPasteConnected": {
+    "label": "Grid Paste Connected"
+  },
+  "TrentNodes_ToggleCircuitNoodles": {
+    "label": "⚡ Circuit Noodles"
+  },
+  "TrentNodes_ToggleMagnet": {
+    "label": "🧲 Magnet Snapping"
+  },
+  "TrentNodes_CycleHoverLinks": {
+    "label": "👁 Hover Links (off / node / group)"
+  },
+  "TrentNodes_OrganizeGroupCompact": {
+    "label": "Organize Group Compact"
+  },
+  "TrentNodes_OrganizeGroupGrid": {
+    "label": "Organize Group as Grid"
+  },
+  "TrentNodes_QueueSelectedOutputs": {
+    "label": "Queue Selected Output Nodes"
+  },
+  "TrentNodes_RerouteRoundup": {
+    "label": "Convert Circle Reroutes → Legacy Reroute Nodes"
+  },
+  "TrentNodes_VHSSwap": {
+    "label": "Swap Native Video to VHS (+ wire fps/mp4)"
+  }
+}

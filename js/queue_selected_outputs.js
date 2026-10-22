@@ -300,4 +300,16 @@ app.registerExtension({
             commands: ["TrentNodes.QueueSelectedOutputs"],
         },
     ],
+
+    // Same rule as core's play button: only when this item brings an
+    // active output node, directly, through a group, or inside a subgraph.
+    getSelectionToolboxCommands(item) {
+        const found = new Map();
+        if (isGroup(item)) {
+            for (const child of getGroupChildren(item)) collectOutputTargets(child, [], found);
+        } else if (isNode(item)) {
+            collectOutputTargets(item, [], found);
+        }
+        return found.size ? ["TrentNodes.QueueSelectedOutputs"] : [];
+    },
 });

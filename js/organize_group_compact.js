@@ -555,7 +555,7 @@ app.registerExtension({
         {
             id: "TrentNodes.OrganizeGroupCompact",
             label: "Organize Group Compact",
-            icon: "pi pi-th-large",
+            icon: "pi pi-objects-column",
             function: organizeSelectedGroups
         }
     ],

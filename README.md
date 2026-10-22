@@ -731,7 +731,7 @@ Loads a LoRA (model-only) after receiving a VRAM-cleared signal. Applies LoRA we
 
 ### Canvas Tools (Frontend Extensions)
 
-These are canvas-level tools that operate on the ComfyUI graph directly -- no Python backend nodes required. They register as commands with keybindings, menu entries, and selection toolbox buttons.
+These are canvas-level tools that operate on the ComfyUI graph directly -- no Python backend nodes required. They register as commands with keybindings, menu entries, and selection toolbox buttons. Toolbox buttons show their command name as a tooltip; the labels come from `locales/en/commands.json`, which the server reads at startup.
 
 **Grid Paste**
 Duplicate any selection of nodes, groups, reroutes, or subgraphs into an automatically-arranged grid. Select your nodes, hit **Ctrl+Shift+;**, type how many copies you want, and they appear in a clean grid at your cursor position. The grid auto-calculates a roughly-square layout (e.g. 9 copies = 3x3) with 50px padding, sizes each cell to the bounding box of your selection, and preserves all internal connections between copied nodes. Widget values, node colors, group rectangles -- everything comes along for the ride.
@@ -761,7 +761,7 @@ Creates a subgraph from the selected nodes or group and exposes editable setting
 Browser check: `node tests/subgraph_settings/browser.mjs` with Playwright available. It blocks workflow writes and queued jobs.
 
 **Queue Selected Output Nodes**
-Queues only the output nodes you have selected, plus everything upstream that feeds them, instead of the whole graph. Handy when a workflow has several save/preview branches and you only want to re-run one. Selecting a group contributes that group's output nodes, and selecting a subgraph node contributes the output nodes inside it. Muted and bypassed nodes are ignored. Honors the batch count. Hotkey: **Shift+Alt+Q**, also available in the TrentNodes menu.
+Queues only the output nodes you have selected, plus everything upstream that feeds them, instead of the whole graph. Handy when a workflow has several save/preview branches and you only want to re-run one. Selecting a group contributes that group's output nodes, and selecting a subgraph node contributes the output nodes inside it. Muted and bypassed nodes are ignored. Honors the batch count. Hotkey: **Shift+Alt+Q**, also available in the TrentNodes menu and in the selection toolbox whenever the selection holds an active output node.
 
 The prompt is pruned on the client, the same approach rgthree uses: everything outside the selected branch is stripped before the request is sent. That matters because core's own `Comfy.QueueSelectedOutputNodes` instead sends the whole prompt with `partial_execution_targets`, so a broken or half-wired branch somewhere else in the graph can still fail validation and block the run. Queueing still goes through `app.queuePrompt`, so `control_after_generate` seeds keep advancing. Logic is covered by `node tests/queue_selected_outputs/run.mjs`.
 

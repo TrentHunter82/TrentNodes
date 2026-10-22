@@ -245,13 +245,13 @@ app.registerExtension({
         {
             id: "TrentNodes.GridPaste",
             label: "Grid Paste",
-            icon: "pi pi-th-large",
+            icon: "pi pi-clone",
             function: () => gridPaste(false)
         },
         {
             id: "TrentNodes.GridPasteConnected",
             label: "Grid Paste Connected",
-            icon: "pi pi-th-large",
+            icon: "pi pi-link",
             function: () => gridPaste(true)
         }
     ],
