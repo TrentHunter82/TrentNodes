@@ -3,7 +3,7 @@ import { app } from "../../scripts/app.js";
 /*
  * Trent Noodle Wrangler
  * ---------------------
- * Two canvas behaviors, toggled from the Colors sidebar (see color_palette.js)
+ * Three canvas behaviors, toggled from the Trent Tools sidebar (see color_palette.js)
  * or via the TrentNodes menu commands:
  *
  *   1. Circuit noodles — draw every link as a rounded-corner circuit-board

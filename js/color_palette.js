@@ -945,7 +945,7 @@ app.registerExtension({
     commands: [
         {
             id: "TrentNodes.ToggleColorPalette",
-            label: "🎨 Color Palette",
+            label: "🎨 Trent Tools",
             icon: "pi pi-palette",
             function: toggleSidebar,
         },
@@ -972,8 +972,8 @@ app.registerExtension({
         // body instead of rebuilding it — keeps paint/undo state and closures.
         app.extensionManager.registerSidebarTab({
             id: TAB_ID,
-            title: "Colors",
-            tooltip: "Trent Color Palette",
+            title: "Trent Tools",
+            tooltip: "Trent Tools: colors, layout, noodles",
             icon: "trent-palette-icon",
             type: "custom",
             render: (el) => {
