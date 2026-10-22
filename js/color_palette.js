@@ -913,13 +913,13 @@ function ensurePaletteBuilt() {
     return paletteRoot;
 }
 
-// Inject the 🎨 emoji as the sidebar tab's icon (icons are CSS classes; the
+// Inject the 🖇️ emoji as the sidebar tab's icon (icons are CSS classes; the
 // ::before content trick mirrors how other extensions supply a custom glyph).
 function installTabIcon() {
     if (document.getElementById("trent-palette-icon-style")) return;
     const style = document.createElement("style");
     style.id = "trent-palette-icon-style";
-    style.textContent = ".trent-palette-icon:before{content:'🎨';font-style:normal;}";
+    style.textContent = ".trent-palette-icon:before{content:'🖇️';font-style:normal;}";
     document.head.appendChild(style);
 }
 
@@ -945,7 +945,7 @@ app.registerExtension({
     commands: [
         {
             id: "TrentNodes.ToggleColorPalette",
-            label: "🎨 Trent Tools",
+            label: "🖇️ Trent Tools",
             icon: "pi pi-palette",
             function: toggleSidebar,
         },
