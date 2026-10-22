@@ -15,7 +15,7 @@ class Wan21FrameAdjusterNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
+                "images": ("IMAGE", {"tooltip": "Video frames to pad. Gray frames are appended until the count is 4n+1 (minimum 5)."}),
             }
         }
     
@@ -23,6 +23,7 @@ class Wan21FrameAdjusterNode:
     RETURN_NAMES = ("adjusted_images", "final_frame_count", "frames_added")
     FUNCTION = "adjust_frame_count"
     CATEGORY = "Trent/Utilities"
+    DESCRIPTION = "Pads a frame batch with gray frames up to the next Wan 2.1 valid length (4n+1, minimum 5). Use it before Wan video nodes that reject other frame counts."
     
     def adjust_frame_count(self, images):
         """

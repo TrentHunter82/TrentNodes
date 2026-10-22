@@ -237,6 +237,11 @@ class LocalLLMChat:
                 "port": ("INT", {
                     "default": llamacpp_server.DEFAULT_PORT,
                     "min": 1024, "max": 65535,
+                    "tooltip": (
+                        "Local llama-server port. Keep 8735 to share the H3 "
+                        "Skill Promptor's server; a different model spec on "
+                        "the same port restarts it."
+                    ),
                 }),
                 "free_vram_first": ("BOOLEAN", {
                     "default": False,

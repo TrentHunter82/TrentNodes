@@ -28,7 +28,7 @@ class BlackBarCrop:
         )
         return {
             "required": {
-                "image": ("IMAGE",),
+                "image": ("IMAGE", {"tooltip": "Image or video frame batch. One crop is detected for the whole batch so all frames stay the same size."}),
                 "target_ratio": (ratio_choices, {
                     "default": "16:9 (HD/UHD)",
                     "tooltip": (

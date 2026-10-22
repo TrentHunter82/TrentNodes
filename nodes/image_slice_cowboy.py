@@ -40,7 +40,13 @@ cut to an even pixel so both halves stay model-friendly (divisible by 2)."""
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
+                "images": (
+                    "IMAGE",
+                    {
+                        "tooltip": "Image or batch to cut. Every frame is "
+                                   "cut at the same position",
+                    },
+                ),
                 "direction": (
                     ["vertical", "horizontal"],
                     {

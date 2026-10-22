@@ -121,7 +121,7 @@ app.registerExtension({
             };
 
             if (!findWidget(names.x)) {
-                node.addWidget(
+                const w = node.addWidget(
                     "number", names.x, 0,
                     () => { redrawCanvas(); },
                     {
@@ -129,9 +129,10 @@ app.registerExtension({
                         step: 1, precision: 0,
                     }
                 );
+                w.tooltip = "X offset of this layer in background pixels. Drag the layer in the preview to set it.";
             }
             if (!findWidget(names.y)) {
-                node.addWidget(
+                const w = node.addWidget(
                     "number", names.y, 0,
                     () => { redrawCanvas(); },
                     {
@@ -139,9 +140,10 @@ app.registerExtension({
                         step: 1, precision: 0,
                     }
                 );
+                w.tooltip = "Y offset of this layer in background pixels. Drag the layer in the preview to set it.";
             }
             if (!findWidget(names.scale)) {
-                node.addWidget(
+                const w = node.addWidget(
                     "slider", names.scale, 1.0,
                     () => {},
                     {
@@ -149,9 +151,10 @@ app.registerExtension({
                         step: 0.01, precision: 2,
                     }
                 );
+                w.tooltip = "Scale of this layer";
             }
             if (!findWidget(names.opacity)) {
-                node.addWidget(
+                const w = node.addWidget(
                     "slider", names.opacity, 1.0,
                     () => {},
                     {
@@ -159,13 +162,15 @@ app.registerExtension({
                         step: 0.01, precision: 2,
                     }
                 );
+                w.tooltip = "Opacity of this layer";
             }
             if (!findWidget(names.blend)) {
-                node.addWidget(
+                const w = node.addWidget(
                     "combo", names.blend, "normal",
                     () => {},
                     { values: BLEND_MODES }
                 );
+                w.tooltip = "Blend mode of this layer";
             }
         };
 
@@ -370,6 +375,7 @@ app.registerExtension({
         const resetBtn =
             document.createElement("button");
         resetBtn.textContent = "Center";
+        resetBtn.title = "Center the selected layer on the background";
         resetBtn.style.cssText = `
             padding: 2px 7px;
             background: rgba(255,255,255,0.15);
@@ -393,6 +399,7 @@ app.registerExtension({
             cursor: default;
             margin: 0 auto;
         `;
+        canvas.title = "Click a layer to select it, then drag to move it";
         container.appendChild(canvas);
         const ctx = canvas.getContext("2d");
         state.canvas = canvas;

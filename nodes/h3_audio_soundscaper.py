@@ -94,9 +94,11 @@ class H3AudioSoundscaper:
                 }),
                 "temperature": ("FLOAT", {
                     "default": 0.6, "min": 0.0, "max": 2.0, "step": 0.05,
+                    "tooltip": "Sampling temperature. Lower = more literal descriptions, higher = more varied wording.",
                 }),
                 "seed": ("INT", {
                     "default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF,
+                    "tooltip": "Sampling seed sent to the server. Same seed + same input = repeatable reply.",
                 }),
             },
             "optional": {
@@ -125,13 +127,32 @@ class H3AudioSoundscaper:
                 "ctx_size": ("INT", {
                     "default": 16384, "min": 4096, "max": 131072,
                     "step": 4096,
+                    "tooltip": (
+                        "llama-server context window in tokens; long clips "
+                        "need more. Changing it restarts the server."
+                    ),
                 }),
                 "port": ("INT", {
                     "default": DEFAULT_PORT, "min": 1024, "max": 65535,
+                    "tooltip": (
+                        "Port for the managed llama-server. Keep it apart "
+                        "from the Skill Promptor's port so both servers "
+                        "stay loaded."
+                    ),
                 }),
-                "free_vram_first": ("BOOLEAN", {"default": False}),
+                "free_vram_first": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Unload ComfyUI models before spawning the server. "
+                        "Enable it if the server fails for lack of VRAM."
+                    ),
+                }),
                 "max_tokens": ("INT", {
                     "default": 1500, "min": 256, "max": 4096,
+                    "tooltip": (
+                        "Reply token budget. The report warns when the "
+                        "reply hits it and the sound log gets cut."
+                    ),
                 }),
                 # New widgets stay LAST: widget values save positionally.
                 "video_prompt": ("STRING", {

@@ -14,9 +14,9 @@ class JSONParamsExtractorNode:
     def INPUT_TYPES(s):
         return {
             "optional": {
-                "json_input": ("STRING", {"multiline": True, "default": "{}"}),
-                "json_file_path": ("STRING", {"default": "", "multiline": False}),
-                "prefix": ("STRING", {"default": "", "multiline": False}),
+                "json_input": ("STRING", {"multiline": True, "default": "{}", "tooltip": "JSON object text to read parameters from. Used only when json_file_path is empty or not a file."}),
+                "json_file_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Path to a JSON file. When it points to an existing file, it takes priority over json_input."}),
+                "prefix": ("STRING", {"default": "", "multiline": False, "tooltip": "Text added to the start of every output line."}),
             }
         }
 
@@ -26,6 +26,7 @@ class JSONParamsExtractorNode:
     FUNCTION = "extract_and_format"
 
     CATEGORY = "Trent/Utilities"
+    DESCRIPTION = "Reads generation settings (size, frames, fps, guidance, seed, steps, shift, caching, and others) from a JSON object and outputs them one per line as \"Name value\". Keys that are missing are skipped."
 
     def extract_and_format(self, json_input="{}", json_file_path="", prefix=""):
         json_data = None

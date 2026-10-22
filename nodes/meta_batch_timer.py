@@ -29,14 +29,22 @@ class MetaBatchTimer:
     RETURN_TYPES = (any_typ, "STRING", "FLOAT", "STRING")
     RETURN_NAMES = ("passthrough", "time_string", "seconds", "status")
     FUNCTION = "measure"
+    DESCRIPTION = ("Measures total elapsed time, speed, and ETA across a "
+                   "full VHS Meta Batch run, where a normal workflow timer "
+                   "resets on each batch.")
     OUTPUT_NODE = True
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "meta_batch": ("VHS_BatchManager",),
-                "format": (["hms", "clock", "seconds"], {"default": "hms"}),
+                "meta_batch": ("VHS_BatchManager", {
+                    "tooltip": "Connect the VHS Meta Batch Manager output. "
+                               "The start time is kept on it across batches."}),
+                "format": (["hms", "clock", "seconds"], {
+                    "default": "hms",
+                    "tooltip": "Time format: hms = 1h 2m 3.4s, clock = "
+                               "1:02:03.4, seconds = 3723.40."}),
             },
             "optional": {
                 "passthrough": (any_typ, {

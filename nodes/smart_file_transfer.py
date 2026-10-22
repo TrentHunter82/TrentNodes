@@ -15,37 +15,44 @@ class SmartFileTransferNode:
                 "source_path": ("STRING", {
                     "default": "",
                     "multiline": False,
-                    "placeholder": "Enter source file path"
+                    "placeholder": "Enter source file path",
+                    "tooltip": "Path of the file to copy or move. Must be an existing file, not a folder."
                 }),
                 
                 "destination_path": ("STRING", {
                     "default": "",
                     "multiline": False,
-                    "placeholder": "Enter destination path or folder"
+                    "placeholder": "Enter destination path or folder",
+                    "tooltip": "Destination folder or full file path. A path with no extension is treated as a folder."
                 }),
                 
                 "operation": (["copy", "move"], {
-                    "default": "copy"
+                    "default": "copy",
+                    "tooltip": "copy keeps the source file (with metadata); move removes it from the source location."
                 }),
                 
                 "collision_handling": (["auto_rename", "overwrite", "skip"], {
-                    "default": "auto_rename"
+                    "default": "auto_rename",
+                    "tooltip": "What to do when the destination file exists: auto_rename adds a number, overwrite replaces it, skip leaves it untouched."
                 }),
                 
                 "create_directories": ("BOOLEAN", {
-                    "default": True
+                    "default": True,
+                    "tooltip": "Create missing destination folders. When off, a missing folder returns an error."
                 }),
                 
                 # Custom naming options
                 "rename_pattern": (["parentheses", "underscore", "dash"], {
-                    "default": "parentheses"
+                    "default": "parentheses",
+                    "tooltip": "Number style for auto_rename: file(1).ext, file_1.ext, or file-1.ext."
                 })
             },
             "optional": {
                 "custom_filename": ("STRING", {
                     "default": "",
                     "multiline": False,
-                    "placeholder": "Optional: custom filename (leave empty to keep original)"
+                    "placeholder": "Optional: custom filename (leave empty to keep original)",
+                    "tooltip": "New name for the file at the destination. The source extension is kept if you leave it off. Ignored when destination_path includes a filename."
                 })
             }
         }
@@ -54,6 +61,7 @@ class SmartFileTransferNode:
     RETURN_NAMES = ("result_message", "final_path", "success")
     FUNCTION = "smart_transfer_file"
     CATEGORY = "Trent/Utilities"
+    DESCRIPTION = "Copies or moves a file to a folder or path, with auto-rename, overwrite, or skip on name collisions. Returns a status message, the final path, and a success flag."
     OUTPUT_NODE = True
     
     def find_unique_filename(self, base_path, rename_pattern):
@@ -192,13 +200,15 @@ class FileCollisionTestNode:
                 "file_path": ("STRING", {
                     "default": "",
                     "multiline": False,
-                    "placeholder": "Enter path for test file creation"
+                    "placeholder": "Enter path for test file creation",
+                    "tooltip": "Path of the text file to write. Adds .txt when there is no extension and creates missing folders. Overwrites an existing file."
                 }),
                 
                 "file_content": ("STRING", {
                     "default": "This is a test file",
                     "multiline": True,
-                    "placeholder": "Content to write to the test file"
+                    "placeholder": "Content to write to the test file",
+                    "tooltip": "Text written to the file as UTF-8."
                 })
             }
         }
@@ -207,6 +217,7 @@ class FileCollisionTestNode:
     RETURN_NAMES = ("result_message", "success")
     FUNCTION = "create_test_file"
     CATEGORY = "Trent/Utilities"
+    DESCRIPTION = "Writes text to a file on disk, creating folders as needed. Useful for making test files or saving text output."
     OUTPUT_NODE = True
     
     def create_test_file(self, file_path, file_content):
@@ -246,11 +257,13 @@ class FileListNode:
                 "directory_path": ("STRING", {
                     "default": "",
                     "multiline": False,
-                    "placeholder": "Enter directory path to list"
+                    "placeholder": "Enter directory path to list",
+                    "tooltip": "Folder to list. Only files directly inside it are listed, not subfolders."
                 }),
                 
                 "show_full_paths": ("BOOLEAN", {
-                    "default": False
+                    "default": False,
+                    "tooltip": "List full file paths instead of only file names."
                 })
             }
         }
@@ -259,6 +272,7 @@ class FileListNode:
     RETURN_NAMES = ("file_list",)
     FUNCTION = "list_directory_files"
     CATEGORY = "Trent/Utilities"
+    DESCRIPTION = "Lists the files in a folder, sorted by name, as a text block with a file count."
     OUTPUT_NODE = True
     
     def list_directory_files(self, directory_path, show_full_paths):

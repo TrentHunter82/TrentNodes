@@ -901,6 +901,56 @@ function buildPaletteBody() {
     noodleRow.appendChild(peekChip);
     body.appendChild(noodleRow);
 
+    // ---- tools section: one button per TrentNodes QoL command ----
+    // Buttons run the registered command, so the hotkey and the button
+    // share one code path.
+    function toolBtn(label, tip, commandId) {
+        const b = document.createElement("div");
+        b.textContent = label;
+        b.title = tip;
+        Object.assign(b.style, {
+            cursor: "pointer", padding: "3px 8px", borderRadius: "5px",
+            background: "#1c272e", border: "1px solid #2a3942", fontSize: "11px",
+        });
+        b.addEventListener("mouseenter", () => { b.style.background = "#26343d"; });
+        b.addEventListener("mouseleave", () => { b.style.background = "#1c272e"; });
+        b.addEventListener("click", () => app.extensionManager.command.execute(commandId));
+        return b;
+    }
+
+    function toolRow(buttons) {
+        const row = document.createElement("div");
+        Object.assign(row.style, { display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" });
+        buttons.forEach((b) => row.appendChild(b));
+        return row;
+    }
+
+    const toolDivider = document.createElement("div");
+    Object.assign(toolDivider.style, { borderTop: "1px solid #2a3942", margin: "12px 0 8px" });
+    body.appendChild(toolDivider);
+
+    body.appendChild(sectionLabel("Groups · Layout"));
+    body.appendChild(toolRow([
+        toolBtn("▦ grid group", "Lay out the selected groups' nodes left to right by connection depth, then fit the group (0)", "TrentNodes.OrganizeGroupGrid"),
+        toolBtn("▤ compact group", "Compact layout for the selected groups; can also pack direct inputs into subgraphs (see Settings) (Alt+Shift+O)", "TrentNodes.OrganizeGroupCompact"),
+        toolBtn("〰 comb group", "Place a cable comb at the selected group's corner and enroll every wire that crosses the group edge (T)", "TrentNodes.GroupComb.CombGroup"),
+        toolBtn("⧉ settings subgraph", "Convert the selected nodes or group into a subgraph and expose their editable widgets on it (Shift+J)", "TrentNodes.CreateSettingsSubgraph"),
+    ]));
+
+    body.appendChild(sectionLabel("Nodes · Paste"));
+    body.appendChild(toolRow([
+        toolBtn("▦ grid paste", "Paste several copies of the clipboard nodes in a grid (Ctrl+Shift+;)", "TrentNodes.GridPaste"),
+        toolBtn("▦ grid paste connected", "Grid paste with each copy's inputs wired to the original sources (Ctrl+Shift+Alt+;)", "TrentNodes.GridPasteConnected"),
+        toolBtn("◯→▭ reroute roundup", "Convert every native circle reroute in this graph into a legacy Reroute node (Alt+Shift+R)", "TrentNodes.RerouteRoundup"),
+    ]));
+
+    body.appendChild(sectionLabel("Video · Run"));
+    body.appendChild(toolRow([
+        toolBtn("📼 VHS swap", "Replace native Load/Save Video nodes with VHS versions and wire fps and mp4 (Shift+V)", "TrentNodes.VHSSwap"),
+        toolBtn("🖼 first frame", "Extract frame 1 of the selected video loader into a new Load Image node (Alt+Shift+F)", "TrentNodes.FirstFrameGrab"),
+        toolBtn("▶ queue selected", "Queue only the selected output nodes and what feeds them (Alt+Shift+Q)", "TrentNodes.QueueSelectedOutputs"),
+    ]));
+
     return root;
 }
 

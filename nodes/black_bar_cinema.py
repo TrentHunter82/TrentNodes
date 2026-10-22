@@ -30,7 +30,9 @@ class BlackBarCinemaScope:
     def INPUT_TYPES(cls) -> Dict[str, Any]:
         return {
             "required": {
-                "image": ("IMAGE",),
+                "image": ("IMAGE", {
+                    "tooltip": "Image batch to letterbox. Bars are added around it, so the output is larger"
+                }),
                 "aspect_ratio": (list(cls.ASPECT_RATIOS.keys()), {
                     "default": "16:9 (HD/UHD)",
                     "tooltip": "Target cinematic aspect ratio"

@@ -26,7 +26,9 @@ class VRAMGatedCheckpointLoader:
                 "vram_signal": ("STRING", {
                     "tooltip": "Connect vram_cleared from VidScribe"
                 }),
-                "ckpt_name": (folder_paths.get_filename_list("checkpoints"),),
+                "ckpt_name": (folder_paths.get_filename_list("checkpoints"), {
+                    "tooltip": "Checkpoint from models/checkpoints to load as model, CLIP, and VAE"
+                }),
             }
         }
 
@@ -62,7 +64,9 @@ class VRAMGatedVAELoader:
                 "vram_signal": ("STRING", {
                     "tooltip": "Connect vram_cleared from VidScribe"
                 }),
-                "vae_name": (folder_paths.get_filename_list("vae"),),
+                "vae_name": (folder_paths.get_filename_list("vae"), {
+                    "tooltip": "VAE file from models/vae to load"
+                }),
             }
         }
 
@@ -89,9 +93,11 @@ class VRAMGatedUNETLoader:
                 }),
                 "unet_name": (
                     folder_paths.get_filename_list("diffusion_models"),
+                    {"tooltip": "Diffusion model file from models/diffusion_models to load"},
                 ),
                 "weight_dtype": (
                     ["default", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e5m2"],
+                    {"tooltip": "Weight storage dtype. fp8 options cut VRAM use; fp8_e4m3fn_fast also enables fp8 matmul optimizations."},
                 ),
             }
         }
@@ -131,13 +137,16 @@ class VRAMGatedLoraLoaderModelOnly:
                 "vram_signal": ("STRING", {
                     "tooltip": "Connect vram_cleared from VidScribe"
                 }),
-                "model": ("MODEL",),
-                "lora_name": (folder_paths.get_filename_list("loras"),),
+                "model": ("MODEL", {"tooltip": "Model to apply the LoRA to"}),
+                "lora_name": (folder_paths.get_filename_list("loras"), {
+                    "tooltip": "LoRA file from models/loras to apply"
+                }),
                 "strength_model": ("FLOAT", {
                     "default": 1.0,
                     "min": -100.0,
                     "max": 100.0,
-                    "step": 0.01
+                    "step": 0.01,
+                    "tooltip": "LoRA strength on the model. 0 skips loading; negative values invert the effect."
                 }),
             }
         }

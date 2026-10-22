@@ -108,27 +108,70 @@ class MidjourneyImagine:
                 ),
                 "base_model": (
                     ["midjourney", "niji"],
-                    {"default": "midjourney"},
+                    {
+                        "default": "midjourney",
+                        "tooltip": (
+                            "midjourney adds --v; niji adds --niji "
+                            "for the anime-tuned model."
+                        ),
+                    },
                 ),
                 "version": (
                     ["5.2", "6", "6.1", "7"],
-                    {"default": "6.1"},
+                    {
+                        "default": "6.1",
+                        "tooltip": (
+                            "Model version passed to --v or --niji. "
+                            "Not every version exists for niji."
+                        ),
+                    },
                 ),
                 "aspect_ratio": (
                     ["1:1", "4:3", "3:4", "16:9", "9:16"],
-                    {"default": "1:1"},
+                    {
+                        "default": "1:1",
+                        "tooltip": (
+                            "Output aspect ratio (--ar). 1:1 adds "
+                            "no flag."
+                        ),
+                    },
                 ),
                 "stylize": (
                     "INT",
-                    {"default": 100, "min": 0, "max": 1000},
+                    {
+                        "default": 100,
+                        "min": 0,
+                        "max": 1000,
+                        "tooltip": (
+                            "Strength of Midjourney's own aesthetic "
+                            "(--s). 100 is the default and adds no "
+                            "flag."
+                        ),
+                    },
                 ),
                 "chaos": (
                     "INT",
-                    {"default": 0, "min": 0, "max": 100},
+                    {
+                        "default": 0,
+                        "min": 0,
+                        "max": 100,
+                        "tooltip": (
+                            "How different the four grid images are "
+                            "from each other (--c). 0 adds no flag."
+                        ),
+                    },
                 ),
                 "weird": (
                     "INT",
-                    {"default": 0, "min": 0, "max": 3000},
+                    {
+                        "default": 0,
+                        "min": 0,
+                        "max": 3000,
+                        "tooltip": (
+                            "Unusual, offbeat look (--w). 0 adds no "
+                            "flag."
+                        ),
+                    },
                 ),
                 "seed": (
                     "INT",

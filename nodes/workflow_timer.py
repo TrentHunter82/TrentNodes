@@ -74,15 +74,16 @@ class WorkflowTimer:
     RETURN_NAMES = ("passthrough", "time_string", "seconds")
     FUNCTION = "measure"
     OUTPUT_NODE = True
+    DESCRIPTION = "Shows the time elapsed since the current workflow run started, measured when this node executes. Route the slow work through passthrough so it is included."
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "format": (["hms", "clock", "seconds"], {"default": "hms"}),
+                "format": (["hms", "clock", "seconds"], {"default": "hms", "tooltip": "Style of time_string: hms gives 1h 2m 3.4s, clock gives 1:02:03.4, seconds gives 3723.40."}),
             },
             "optional": {
-                "passthrough": (any_typ,),
+                "passthrough": (any_typ, {"tooltip": "Connect your final output here so the timer runs after it. The value is returned unchanged."}),
             },
         }
 

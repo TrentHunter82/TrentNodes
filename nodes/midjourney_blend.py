@@ -34,25 +34,29 @@ class MidjourneyBlend:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image_a": ("IMAGE",),
-                "image_b": ("IMAGE",),
+                "image_a": ("IMAGE", {"tooltip": "First image to blend (first frame of the batch is sent as PNG)"}),
+                "image_b": ("IMAGE", {"tooltip": "Second image to blend (first frame of the batch is sent as PNG)"}),
                 "api_key": (
                     "STRING",
-                    {"default": "", "password": True},
+                    {"default": "", "password": True,
+                     "tooltip": "Yunwu Midjourney API key. Empty falls back to the MJ_API_KEY environment variable."},
                 ),
             },
             "optional": {
                 "api_url": (
                     "STRING",
-                    {"default": "https://yunwu.ai"},
+                    {"default": "https://yunwu.ai",
+                     "tooltip": "API base URL. Empty falls back to MJ_API_URL, then https://yunwu.ai."},
                 ),
                 "dimensions": (
                     DIMENSIONS,
-                    {"default": "SQUARE"},
+                    {"default": "SQUARE",
+                     "tooltip": "Aspect of the blended output: square, portrait, or landscape"},
                 ),
                 "base_model": (
                     BOT_TYPES,
-                    {"default": "MID_JOURNEY"},
+                    {"default": "MID_JOURNEY",
+                     "tooltip": "Bot to run the blend: Midjourney or Niji (anime style)"},
                 ),
             },
         }

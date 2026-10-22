@@ -154,6 +154,11 @@ class WSLPathConverter:
 
     DISPLAY_NAME = "WSL Path Converter"
     CATEGORY = "Trent/Utilities"
+    DESCRIPTION = (
+        "Converts a pasted Windows or \\\\wsl.localhost path into the Linux "
+        "path ComfyUI can open inside WSL, or back to Windows form. Also "
+        "reports whether the target exists and if it is a file or folder."
+    )
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -166,10 +171,22 @@ class WSLPathConverter:
                         "\\\\wsl.localhost\\Ubuntu-24.04\\home\\... "
                         "or C:\\Users\\..."
                     ),
+                    "tooltip": (
+                        "Path to convert: a \\\\wsl.localhost UNC path, a "
+                        "Windows drive path, a file:// URL, or a Linux path. "
+                        "Surrounding quotes are stripped."
+                    ),
                 }),
                 "direction": (
                     ["auto", "to_linux", "to_windows"],
-                    {"default": "auto"},
+                    {
+                        "default": "auto",
+                        "tooltip": (
+                            "auto picks the form the ComfyUI host can open "
+                            "(Linux inside WSL). to_windows gives a drive "
+                            "path or \\\\wsl.localhost UNC path."
+                        ),
+                    },
                 ),
             },
             "optional": {
@@ -177,6 +194,7 @@ class WSLPathConverter:
                     "default": "",
                     "multiline": False,
                     "placeholder": "optional file name to join on",
+                    "tooltip": "Optional file or subfolder name joined onto the converted path.",
                 }),
             },
         }

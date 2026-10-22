@@ -150,16 +150,16 @@ class PathBrowser {
         this.dialog.innerHTML = `
             <div class="browser-header">
                 <span class="title">${escapeHtml(this.label)}</span>
-                <input type="text" class="browser-input"
+                <input type="text" class="browser-input" title="Type a path. Enter selects, Tab opens the first folder, Ctrl+Backspace goes up, Esc closes"
                        value="${escapeHtml(this.currentPath)}" />
             </div>
             <div class="browser-list"></div>
             <div class="browser-status"></div>
             <div class="browser-buttons">
                 <button class="browser-btn secondary"
-                        data-action="cancel">Cancel</button>
+                        data-action="cancel" title="Close without selecting (Esc)">Cancel</button>
                 <button class="browser-btn primary"
-                        data-action="select">${escapeHtml(this.selectLabel)}</button>
+                        data-action="select" title="Use the path in the box (Enter)">${escapeHtml(this.selectLabel)}</button>
             </div>
         `;
         document.body.appendChild(this.dialog);
@@ -250,6 +250,7 @@ class PathBrowser {
         if (this.currentPath && this.currentPath !== "/") {
             const up = document.createElement("div");
             up.className = "browser-item is-dir";
+            up.title = "Go to the parent folder (Ctrl+Backspace)";
             up.innerHTML =
                 '<span class="icon">..</span>' +
                 '<span>Parent Directory</span>';
@@ -270,8 +271,10 @@ class PathBrowser {
                 `<span class="icon">${icon}</span>` +
                 `<span>${escapeHtml(display)}</span>`;
             if (isDir) {
+                div.title = "Open this folder";
                 div.addEventListener("click", () => this.navigateTo(item));
             } else {
+                div.title = "Put this file in the path box";
                 div.addEventListener("click", () => {
                     let base = this.currentPath || "";
                     if (base && !base.endsWith("/") && !base.endsWith("\\")) {
@@ -336,6 +339,7 @@ function addBrowseButton(node, widgetName, browserOpts) {
             browser.show();
         }
     );
+    btn.tooltip = `Browse the server for a path to put in ${widgetName}`;
 
     // Move button right after target widget
     const wi = node.widgets.indexOf(widget);

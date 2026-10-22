@@ -91,7 +91,7 @@ class VideoAlignToStylizedFrame:
                 "reference_frame": ("IMAGE", {
                     "tooltip": (
                         "Single stylized reference frame to align to. "
-                        "Must be the same resolution as video_frames."
+                        "Resized to the video_frames resolution if it differs."
                     ),
                 }),
                 "alignment_method": (
@@ -137,6 +137,11 @@ class VideoAlignToStylizedFrame:
     RETURN_NAMES = ("aligned_frames", "offset_x", "offset_y")
     FUNCTION = "align"
     CATEGORY = "Trent/Video"
+    DESCRIPTION = (
+        "Shifts a whole video batch on X and Y so its first frame lines up "
+        "with a stylized reference image. Use it to fix drift after style "
+        "transfer before compositing or blending."
+    )
 
     def align(
         self,

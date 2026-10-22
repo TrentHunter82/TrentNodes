@@ -22,11 +22,13 @@ class H3ChainStep:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "meta_batch": ("VHS_BatchManager", {"forceInput": True}),
+                "meta_batch": ("VHS_BatchManager", {"forceInput": True,
+                    "tooltip": "VHS Meta Batch Manager that requeues the graph once per pass. Connect no other batch loaders to it."}),
                 "chunks": ("INT", {"default": 3, "min": 1, "max": 1000,
                     "tooltip": "New extension clips, excluding the primer. The supplied 141/39-frame workflow adds 4.25 seconds per chunk."}),
                 "seed": ("INT", {"default": 987654321, "min": 0,
-                                  "max": 0xffffffffffffffff}),
+                                  "max": 0xffffffffffffffff,
+                    "tooltip": "Base seed. Each pass outputs seed + step, so every extension gets a different seed."}),
             },
             "optional": {
                 "primer_pass": ("BOOLEAN", {"default": False,
@@ -81,9 +83,11 @@ class H3ChainAudio:
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
-            "audio": ("AUDIO",),
-            "meta_batch": ("VHS_BatchManager", {"forceInput": True}),
-            "step": ("INT", {"forceInput": True}),
+            "audio": ("AUDIO", {"tooltip": "Trimmed audio of the current extension. Chunks join into one track on the final pass."}),
+            "meta_batch": ("VHS_BatchManager", {"forceInput": True,
+                "tooltip": "Same VHS Meta Batch Manager as H3 Chain Step"}),
+            "step": ("INT", {"forceInput": True,
+                "tooltip": "Connect the step output of H3 Chain Step"}),
             "saved_tail": ("STRING", {"forceInput": True,
                 "tooltip": "Connect Save Latent's path so the tail is saved before the next requeue."}),
         }}

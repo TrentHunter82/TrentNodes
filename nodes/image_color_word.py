@@ -62,16 +62,22 @@ class ImageColorWord:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
+                "image": ("IMAGE", {"tooltip": "Image to classify. Only the first image of a batch is used."}),
             },
             "optional": {
                 "method": (
                     ["mean", "median"],
-                    {"default": "mean"},
+                    {
+                        "default": "mean",
+                        "tooltip": "How pixels are averaged into one color. median resists small areas of very different color.",
+                    },
                 ),
                 "ignore_extremes": (
                     "BOOLEAN",
-                    {"default": False},
+                    {
+                        "default": False,
+                        "tooltip": "Skip near-black and near-white pixels so color accents in a mostly neutral image still register.",
+                    },
                 ),
             },
         }
@@ -80,6 +86,7 @@ class ImageColorWord:
     RETURN_NAMES = ("color_word",)
     FUNCTION = "get_color_word"
     CATEGORY = "Trent/Image"
+    DESCRIPTION = "Returns one color word (red, orange, yellow, green, cyan, blue, purple, pink, brown, black, white, or gray) for the overall color of an image. Useful for building prompts or file names from image content."
 
     def get_color_word(
         self,

@@ -18,12 +18,14 @@ class StringListCowboy:
                 "prefix": ("STRING", {
                     "default": "",
                     "multiline": False,
-                    "placeholder": "Text to add before each string"
+                    "placeholder": "Text to add before each string",
+                    "tooltip": "Text added before every string in the list."
                 }),
                 "suffix": ("STRING", {
                     "default": "",
                     "multiline": False,
-                    "placeholder": "Text to add after each string"
+                    "placeholder": "Text to add after each string",
+                    "tooltip": "Text added after every string in the list."
                 }),
                 "limit": ("INT", {
                     "default": 0,
@@ -35,7 +37,7 @@ class StringListCowboy:
                     ),
                 }),
                 # First dynamic input - JS will add more as needed
-                "value_1": (any_typ,),
+                "value_1": (any_typ, {"tooltip": "Value to add to the list, converted to a string. List inputs add each item. A new value slot appears when you connect one."}),
             },
         }
 
@@ -44,6 +46,7 @@ class StringListCowboy:
     OUTPUT_IS_LIST = (True,)
     FUNCTION = "wrangle"
     CATEGORY = "Trent/Text"
+    DESCRIPTION = "Collects any number of connected values into a list of strings, adding the prefix and suffix to each one. Use it to build a prompt list for batch runs."
 
     @classmethod
     def VALIDATE_INPUTS(cls, **kwargs):

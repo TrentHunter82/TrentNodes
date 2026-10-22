@@ -98,14 +98,14 @@ class CUN_NumberCounter:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "number_type": (["integer", "float"],),
-                "mode": (["increment", "decrement", "increment_to_stop", "decrement_to_stop", "reset_after_stop"],),
-                "start": ("FLOAT", {"default": 0, "min": -1e18, "max": 1e18, "step": 0.01}),
-                "stop": ("FLOAT", {"default": 100, "min": -1e18, "max": 1e18, "step": 0.01}),
-                "step": ("FLOAT", {"default": 1, "min": 0, "max": 1e6, "step": 0.01}),
+                "number_type": (["integer", "float"], {"tooltip": "Type of the main number output. The float and int outputs are always provided."}),
+                "mode": (["increment", "decrement", "increment_to_stop", "decrement_to_stop", "reset_after_stop"], {"tooltip": "How the counter changes each run. The _to_stop modes hold at stop; reset_after_stop wraps back to start after reaching stop."}),
+                "start": ("FLOAT", {"default": 0, "min": -1e18, "max": 1e18, "step": 0.01, "tooltip": "Starting value. The step is applied on every run, including the first, so the first output is start plus or minus step."}),
+                "stop": ("FLOAT", {"default": 100, "min": -1e18, "max": 1e18, "step": 0.01, "tooltip": "Limit used by the _to_stop and reset_after_stop modes. Ignored by plain increment and decrement."}),
+                "step": ("FLOAT", {"default": 1, "min": 0, "max": 1e6, "step": 0.01, "tooltip": "Amount added or subtracted on each run."}),
             },
             "optional": {
-                "reset_bool": ("NUMBER", {"default": 0}),
+                "reset_bool": ("NUMBER", {"default": 0, "tooltip": "When this rounds to 1 or more, the counter resets to start before the step is applied."}),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -120,6 +120,7 @@ class CUN_NumberCounter:
     RETURN_NAMES = ("number", "float", "int")
     FUNCTION = "increment_number"
     CATEGORY = "Trent/Utilities"
+    DESCRIPTION = "Counter that changes by step every time the workflow runs, keeping its value per node between runs. Use it to drive seeds, indices, or other values across queued batches."
 
     def increment_number(self, number_type, mode, start, stop, step, unique_id, reset_bool=0):
         counter = float(start)
@@ -154,10 +155,10 @@ class CUN_TextFileLineLoader:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "file_path": ("STRING", {"default": '', "multiline": False}),
-                "label": ("STRING", {"default": 'TextBatch', "multiline": False}),
-                "mode": (["automatic", "index"],),
-                "index": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "file_path": ("STRING", {"default": '', "multiline": False, "tooltip": "Full path to a UTF-8 text file. Blank lines are skipped."}),
+                "label": ("STRING", {"default": 'TextBatch', "multiline": False, "tooltip": "Name of the saved line position. Loaders that share a label share one position; changing the file path resets it."}),
+                "mode": (["automatic", "index"], {"tooltip": "automatic returns the next line on each run and wraps at the end. index returns the line at the index input."}),
+                "index": ("INT", {"default": 0, "min": 0, "step": 1, "tooltip": "Zero-based line number used in index mode. Values past the end wrap around."}),
             },
         }
 
@@ -179,6 +180,7 @@ class CUN_TextFileLineLoader:
     RETURN_NAMES = ("line_text", "line_count")
     FUNCTION = "load_file_line"
     CATEGORY = "Trent/Utilities"
+    DESCRIPTION = "Loads one line from a text file, either stepping to the next line on each run or by index. Use it to feed a list of prompts through queued runs."
 
     def load_file_line(self, file_path='', label='TextBatch', mode='automatic', index=0):
         if not file_path or not os.path.exists(file_path):

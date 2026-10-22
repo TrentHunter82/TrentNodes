@@ -19,7 +19,7 @@ class AnimationDuplicateFrameProcessor:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
+                "images": ("IMAGE", {"tooltip": "Animation frames to analyze for held (duplicate) frames."}),
                 "similarity_method": (
                     ["hybrid", "ssim", "histogram", "perceptual"],
                     {
@@ -152,6 +152,7 @@ class AnimationDuplicateFrameProcessor:
     )
     FUNCTION = "process_animation_timing"
     CATEGORY = "Trent/Animation"
+    DESCRIPTION = "Finds runs of duplicate (held) frames in an animation and replaces the repeats with gray frames plus a mask, so the timing is visible and the gaps can be regenerated. Can also insert padding frames and align keyframes to 4n+1-style grids."
 
     def calculate_ssim(self, frame1, frame2):
         """Calculate Structural Similarity Index between two frames."""
@@ -822,7 +823,7 @@ class AnimationFrameRemover:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
+                "images": ("IMAGE", {"tooltip": "Frame batch to remove frames from."}),
                 "removal_indices": ("STRING", {
                     "default": "",
                     "multiline": False,
@@ -842,6 +843,7 @@ class AnimationFrameRemover:
     RETURN_NAMES = ("images", "removal_report")
     FUNCTION = "remove_frames"
     CATEGORY = "Trent/Animation"
+    DESCRIPTION = "Removes frames at the given comma-separated indices from an image batch. Use it with the removal_indices output of Enhanced Animation Timing Processor to strip inserted padding frames."
 
     def remove_frames(self, images, removal_indices, debug_info=False):
         """Remove frames at the specified indices from the batch."""

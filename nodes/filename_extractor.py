@@ -18,7 +18,8 @@ class FilenameExtractor:
                 # This accepts the full filename or path as a string
                 "filename": ("STRING", {
                     "default": "",
-                    "multiline": False
+                    "multiline": False,
+                    "tooltip": "Filename or full path. The folder and extension are dropped before the search."
                 }),
             }
         }
@@ -29,6 +30,7 @@ class FilenameExtractor:
     
     FUNCTION = "extract_filename"
     CATEGORY = "Trent/Utilities"
+    DESCRIPTION = "Cuts a filename down to everything up to and including the first shot code of 3 uppercase letters + 3 digits (e.g. CRC040). Also outputs the code itself and the base filename."
     
     def extract_filename(self, filename):
         """

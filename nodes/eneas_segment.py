@@ -29,15 +29,15 @@ class TrentEneasSegment:
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
-            "images": ("IMAGE",),
-            "mode": (["track_text", "track_points", "category"],),
+            "images": ("IMAGE", {"tooltip": "RGB video frames or a single image to segment."}),
+            "mode": (["track_text", "track_points", "category"], {"tooltip": "track_text tracks one object found by the text; track_points tracks one object picked by points; category masks every object matching the text on each frame."}),
         }, "optional": {
-            "text": ("STRING", {"default": "the person", "multiline": True}),
+            "text": ("STRING", {"default": "the person", "multiline": True, "tooltip": "Object description for track_text, or category name for category mode. Ignored in track_points mode."}),
             "points": ("STRING", {"default": "[]", "multiline": True, "tooltip": "JSON pixel coordinates: [[x,y,1],[x,y,0]]. 1 includes, 0 excludes. Used only in track_points mode."}),
             "annotation_frame": ("INT", {"default": 0, "min": 0, "max": 1000000, "tooltip": "Zero-based frame to annotate. Tracking propagates both forwards and backwards."}),
-            "offload_frames_to_cpu": ("BOOLEAN", {"default": True}),
-            "accept_threshold": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0}),
-            "reject_threshold": ("FLOAT", {"default": 0.1, "min": 0.0, "max": 1.0}),
+            "offload_frames_to_cpu": ("BOOLEAN", {"default": True, "tooltip": "Keep video frames in system RAM instead of VRAM during tracking. Lowers VRAM use on long clips; not used in category mode."}),
+            "accept_threshold": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "tooltip": "Category mode only. Detections with image-text similarity at or above this are accepted without VLM review."}),
+            "reject_threshold": ("FLOAT", {"default": 0.1, "min": 0.0, "max": 1.0, "tooltip": "Category mode only. Detections with similarity below this are dropped; ones between the thresholds go to the VLM. Must not exceed accept_threshold."}),
         }}
 
     def segment(self, images, mode, text="the person", points="[]", annotation_frame=0,

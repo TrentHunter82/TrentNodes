@@ -13,7 +13,7 @@ class GetLastIndex:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
+                "images": ("IMAGE", {"tooltip": "Image batch to count."}),
             },
         }
 

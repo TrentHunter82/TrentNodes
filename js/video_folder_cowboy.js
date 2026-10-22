@@ -191,13 +191,13 @@ class VideoFolderBrowser {
         this.dialog.innerHTML = `
             <div class="browser-header">
                 <span class="title">Path:</span>
-                <input type="text" class="browser-input" value="${escapeHtml(this.currentPath)}" />
+                <input type="text" class="browser-input" title="Type a path. Enter selects, Tab opens the first folder, Ctrl+Backspace goes up, Esc closes" value="${escapeHtml(this.currentPath)}" />
             </div>
             <div class="browser-list"></div>
             <div class="browser-status"></div>
             <div class="browser-buttons">
-                <button class="browser-btn secondary" data-action="cancel">Cancel</button>
-                <button class="browser-btn primary" data-action="select">Select Folder</button>
+                <button class="browser-btn secondary" data-action="cancel" title="Close without selecting (Esc)">Cancel</button>
+                <button class="browser-btn primary" data-action="select" title="Use the path in the box (Enter)">Select Folder</button>
             </div>
         `;
 
@@ -318,6 +318,7 @@ class VideoFolderBrowser {
         if (this.currentPath && this.currentPath !== "/" && this.currentPath !== "") {
             const parentItem = document.createElement("div");
             parentItem.className = "browser-item is-dir";
+            parentItem.title = "Go to the parent folder (Ctrl+Backspace)";
             parentItem.innerHTML = '<span class="icon">..</span><span>Parent Directory</span>';
             parentItem.addEventListener("click", () => {
                 this.currentPath = getParentPath(this.currentPath);
@@ -345,6 +346,7 @@ class VideoFolderBrowser {
             div.innerHTML = `<span class="icon">${icon}</span><span>${escapeHtml(displayName)}</span>`;
 
             if (isDir) {
+                div.title = "Open this folder";
                 div.addEventListener("click", () => this.navigateTo(item));
             }
 
@@ -415,6 +417,7 @@ app.registerExtension({
                 });
                 browser.show();
             });
+            browseWidget.tooltip = "Browse the server for a folder to put in directory";
 
             const dirIndex = this.widgets.indexOf(dirWidget);
             const browseIndex = this.widgets.indexOf(browseWidget);

@@ -69,25 +69,58 @@ class MidjourneyAction:
             "required": {
                 "task_id": (
                     "STRING",
-                    {"forceInput": True},
+                    {
+                        "forceInput": True,
+                        "tooltip": (
+                            "task_id output of MidjourneyImagine."
+                        ),
+                    },
                 ),
                 "buttons": (
                     "DICT",
-                    {"forceInput": True},
+                    {
+                        "forceInput": True,
+                        "tooltip": (
+                            "buttons output of MidjourneyImagine "
+                            "(maps U1..V4 to action IDs)."
+                        ),
+                    },
                 ),
                 "action": (
                     ACTIONS_SINGLE,
-                    {"default": "U1"},
+                    {
+                        "default": "U1",
+                        "tooltip": (
+                            "U1-U4 upscales one grid image; V1-V4 "
+                            "makes variations of it. Numbers go "
+                            "left to right, top to bottom."
+                        ),
+                    },
                 ),
                 "api_key": (
                     "STRING",
-                    {"default": "", "password": True},
+                    {
+                        "default": "",
+                        "password": True,
+                        "tooltip": (
+                            "Yunwu API key. Leave blank to fall "
+                            "back to the MJ_API_KEY env var. "
+                            "WARNING: pasted keys are saved into "
+                            "the workflow JSON."
+                        ),
+                    },
                 ),
             },
             "optional": {
                 "api_url": (
                     "STRING",
-                    {"default": "https://yunwu.ai"},
+                    {
+                        "default": "https://yunwu.ai",
+                        "tooltip": (
+                            "Yunwu API base URL. Override if your "
+                            "provider uses a different host."
+                        ),
+                    },
                 ),
             },
         }
@@ -125,25 +158,58 @@ class MidjourneyBatchActions:
             "required": {
                 "task_id": (
                     "STRING",
-                    {"forceInput": True},
+                    {
+                        "forceInput": True,
+                        "tooltip": (
+                            "task_id output of MidjourneyImagine."
+                        ),
+                    },
                 ),
                 "buttons": (
                     "DICT",
-                    {"forceInput": True},
+                    {
+                        "forceInput": True,
+                        "tooltip": (
+                            "buttons output of MidjourneyImagine "
+                            "(maps U1..V4 to action IDs)."
+                        ),
+                    },
                 ),
                 "mode": (
                     BATCH_MODES,
-                    {"default": "U1-U4"},
+                    {
+                        "default": "U1-U4",
+                        "tooltip": (
+                            "U1-U4 upscales all four grid images; "
+                            "V1-V4 makes a variation of each. "
+                            "Results go to slot1..slot4 in order."
+                        ),
+                    },
                 ),
                 "api_key": (
                     "STRING",
-                    {"default": "", "password": True},
+                    {
+                        "default": "",
+                        "password": True,
+                        "tooltip": (
+                            "Yunwu API key. Leave blank to fall "
+                            "back to the MJ_API_KEY env var. "
+                            "WARNING: pasted keys are saved into "
+                            "the workflow JSON."
+                        ),
+                    },
                 ),
             },
             "optional": {
                 "api_url": (
                     "STRING",
-                    {"default": "https://yunwu.ai"},
+                    {
+                        "default": "https://yunwu.ai",
+                        "tooltip": (
+                            "Yunwu API base URL. Override if your "
+                            "provider uses a different host."
+                        ),
+                    },
                 ),
             },
         }

@@ -48,14 +48,22 @@ class MiniMaxH3Resize:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
+                "image": ("IMAGE", {
+                    "tooltip": "Image or batch to resize.",
+                }),
                 "size": (list(H3_SIZES.keys()), {
                     "default": "1.0 MP - 1376x768",
                     "tooltip": "Target H3 output size (megapixels - WxH).",
                 }),
                 "upscale_method": (
                     ["lanczos", "bicubic", "bilinear", "area", "nearest-exact"],
-                    {"default": "lanczos"},
+                    {
+                        "default": "lanczos",
+                        "tooltip": (
+                            "Resampling filter. lanczos is sharpest; area "
+                            "is good for downscaling."
+                        ),
+                    },
                 ),
                 "crop": (["center", "disabled"], {
                     "default": "center",

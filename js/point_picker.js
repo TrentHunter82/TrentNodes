@@ -76,6 +76,7 @@ app.registerExtension({
                 cursor: crosshair;
                 margin: 0 auto;
             `;
+            canvas.title = "Click to set the point";
             container.appendChild(canvas);
 
             const ctx = canvas.getContext("2d");

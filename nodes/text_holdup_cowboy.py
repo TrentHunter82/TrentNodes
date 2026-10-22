@@ -35,12 +35,19 @@ class TextHoldupCowboy:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("text",)
     FUNCTION = "holdup"
+    DESCRIPTION = (
+        "Pauses the run and shows the incoming text in an editable dialog. "
+        "Edit and send it on, or let the timeout pass it through unchanged."
+    )
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "text": ("STRING", {"forceInput": True}),
+                "text": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "String to hold for review. Shown in an editable dialog while the run waits.",
+                }),
                 "timeout": ("FLOAT", {
                     "default": 120.0,
                     "min": 5.0,

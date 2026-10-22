@@ -55,8 +55,15 @@ class AlignStylizedFrame:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "original_image": ("IMAGE",),
-                "stylized_image": ("IMAGE",),
+                "original_image": ("IMAGE", {
+                    "tooltip": "Reference frame that sets the target position and output size"
+                }),
+                "stylized_image": ("IMAGE", {
+                    "tooltip": (
+                        "Stylized version to align to the original. "
+                        "Resized to the original size first if they differ."
+                    )
+                }),
             },
             "optional": {
                 "scale_range": ("FLOAT", {

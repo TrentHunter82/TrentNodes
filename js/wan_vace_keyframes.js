@@ -208,6 +208,7 @@ app.registerExtension({
                         precision: 0,
                     }
                 );
+                widget.tooltip = `Frame number where image_${index} goes in the output video`;
             }
 
             return widget;

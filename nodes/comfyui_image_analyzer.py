@@ -26,22 +26,24 @@ class ImageBatchAnalyzer:
         return {
             "required": {
                 # Images come in as a batch tensor [B, H, W, C]
-                "images": ("IMAGE",),
+                "images": ("IMAGE", {"tooltip": "Image batch to analyze. Each frame is measured on its own."}),
             },
             "optional": {
                 # Let users choose what kind of analysis to perform
-                "analysis_type": (["comprehensive", "bit_depth", "color_distribution", "statistics"],),
+                "analysis_type": (["comprehensive", "bit_depth", "color_distribution", "statistics"], {"tooltip": "Graph to draw: comprehensive shows six panels, bit_depth and color_distribution focus on one topic, statistics shows a text report."}),
                 "graph_width": ("INT", {
                     "default": 1920,
                     "min": 640,
                     "max": 3840,
-                    "step": 1
+                    "step": 1,
+                    "tooltip": "Width of the output graph image in pixels."
                 }),
                 "graph_height": ("INT", {
                     "default": 1080,
                     "min": 480,
                     "max": 2160,
-                    "step": 1
+                    "step": 1,
+                    "tooltip": "Height of the output graph image in pixels."
                 }),
             }
         }
@@ -50,6 +52,7 @@ class ImageBatchAnalyzer:
     RETURN_NAMES = ("analysis_graph", "statistics_text")
     FUNCTION = "analyze_batch"
     CATEGORY = "Trent/Image"
+    DESCRIPTION = "Measures effective bit depth, color entropy, and per-channel statistics across an image batch. Outputs a graph image and a text summary, useful to spot banding or quality drops between frames."
     
     def analyze_batch(self, images, analysis_type="comprehensive", graph_width=1920, graph_height=1080):
         """

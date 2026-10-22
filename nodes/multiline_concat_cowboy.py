@@ -110,7 +110,10 @@ class CowboyMultiLineStringConcatenateDynamic:
                                "Off - an empty input adds a blank line.",
                 }),
                 # First dynamic input - the JS extension adds more.
-                "string_1": (any_typ,),
+                "string_1": (any_typ, {
+                    "tooltip": "Any value. It becomes one line of the output.\n"
+                               "Connect it and a new input appears.",
+                }),
             },
         }
 

@@ -14,17 +14,19 @@ class CrossDissolveOverlap:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images_a": ("IMAGE",),  # First batch of images
-                "images_b": ("IMAGE",),  # Second batch of images
+                "images_a": ("IMAGE", {"tooltip": "First clip. Its last frames fade out during the overlap."}),
+                "images_b": ("IMAGE", {"tooltip": "Second clip. Its first frames fade in during the overlap."}),
                 "overlap_frames": ("INT", {
                     "default": 10,
                     "min": 1,
                     "max": 1000,  # Increased limit for longer sequences
                     "step": 1,
-                    "display": "number"
+                    "display": "number",
+                    "tooltip": "Number of frames where the end of A blends into the start of B. Output length is A + B - overlap."
                 }),
                 "dissolve_curve": (["linear", "ease_in", "ease_out", "ease_in_out", "smooth", "bounce", "elastic"], {
-                    "default": "linear"
+                    "default": "linear",
+                    "tooltip": "Easing curve for the fade from A to B across the overlap."
                 }),
             },
             "optional": {

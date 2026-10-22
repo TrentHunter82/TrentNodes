@@ -81,6 +81,7 @@ app.registerExtension({
             );
             // serialize=false keeps the button out of saved workflows.
             clearWidget.serialize = false;
+            clearWidget.tooltip = "Delete all saved entries in slot_name. Pinned entries stay.";
 
             return result;
         };

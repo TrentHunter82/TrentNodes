@@ -21,6 +21,10 @@ export function restoreLinkedSettings(host) {
             host.graph?.setDirtyCanvas(true, true);
         }, { ...widget.options, serialize: false });
         proxy.serialize = false;
+        const spec = source.constructor.nodeData?.input;
+        proxy.tooltip = widget.tooltip
+            ?? (spec?.required?.[widget.name] ?? spec?.optional?.[widget.name])?.[1]?.tooltip
+            ?? `${widget.name} on ${source.title} inside this subgraph`;
         Object.defineProperty(proxy, "value", {
             configurable: true,
             get: () => widget.value,

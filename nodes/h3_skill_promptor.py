@@ -212,10 +212,20 @@ class H3SkillPromptor:
                 "ctx_size": ("INT", {
                     "default": llamacpp_server.DEFAULT_CTX,
                     "min": 4096, "max": 262144, "step": 4096,
+                    "tooltip": (
+                        "llama-server context window in tokens; many "
+                        "images or frames need more. Changing it restarts "
+                        "the server."
+                    ),
                 }),
                 "port": ("INT", {
                     "default": llamacpp_server.DEFAULT_PORT,
                     "min": 1024, "max": 65535,
+                    "tooltip": (
+                        "Port for the managed llama-server. Each port runs "
+                        "its own server, so other nodes can keep theirs "
+                        "loaded."
+                    ),
                 }),
                 "free_vram_first": ("BOOLEAN", {
                     "default": False,

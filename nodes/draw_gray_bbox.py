@@ -6,9 +6,9 @@ class DrawGrayBBox:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
-                "bboxes": ("BOUNDING_BOX", {"forceInput": True}),
-                "expand": ("INT", {"default": 0, "min": 0, "max": 1024, "step": 1}),
+                "images": ("IMAGE", {"tooltip": "Images to draw the gray boxes on."}),
+                "bboxes": ("BOUNDING_BOX", {"forceInput": True, "tooltip": "Boxes per image from a detector. A single box list is applied to every image in the batch."}),
+                "expand": ("INT", {"default": 0, "min": 0, "max": 1024, "step": 1, "tooltip": "Pixels to grow each box on every side, clipped to the image edges."}),
             },
         }
 

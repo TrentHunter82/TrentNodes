@@ -729,11 +729,13 @@ function showPicker(node, index, anchor, onFill) {
     const uploadBtn = document.createElement("button");
     uploadBtn.className = "mlc-btn";
     uploadBtn.textContent = "Upload…";
+    uploadBtn.title = "Upload images from your computer. Extra files go to the next empty slots.";
     row.appendChild(uploadBtn);
     if (current && current !== EMPTY) {
         const clearBtn = document.createElement("button");
         clearBtn.className = "mlc-btn mlc-btn-quiet";
         clearBtn.textContent = "Clear";
+        clearBtn.title = "Empty this slot";
         clearBtn.addEventListener("click", () => {
             setSlot(node, index, EMPTY);
             closePopover();
@@ -745,6 +747,7 @@ function showPicker(node, index, anchor, onFill) {
     search.className = "mlc-search";
     search.type = "text";
     search.placeholder = "Search the input folder…";
+    search.title = "Filter the input folder images by name";
     search.spellcheck = false;
 
     const grid = document.createElement("div");
@@ -781,7 +784,7 @@ function showPicker(node, index, anchor, onFill) {
             const option = document.createElement("div");
             option.className =
                 "mlc-opt" + (value === current ? " is-current" : "");
-            option.title = value;
+            option.title = `${value} - click to load into this slot`;
 
             const img = document.createElement("img");
             img.loading = "lazy";

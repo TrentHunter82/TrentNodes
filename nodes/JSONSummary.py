@@ -16,14 +16,20 @@ class JSONSummary:
         return {
             "required": {
                 # Accept both socket labels. Keeps the plug simple.
-                "json_in": (["JSON", "STRING"], {"forceInput": True}),
+                "json_in": (["JSON", "STRING"], {
+                    "forceInput": True,
+                    "tooltip": "Dict or raw JSON string to summarize",
+                }),
             },
             "optional": {
                 # Examples:
                 #   "inference_params"
                 #   "loras[0]"
                 #   "foo.bar[2][1]"
-                "sub_path": ("STRING", {"default": "inference_params"}),
+                "sub_path": ("STRING", {
+                    "default": "inference_params",
+                    "tooltip": "Dotted path to the dict to read, with list indexes like loras[0]. Empty uses the whole object; a list resolves to its first item.",
+                }),
                 "keys": ("STRING", {
                     "default": (
                         "height,width,num_frames,fps,guidance_scale,seed,steps,"
@@ -31,15 +37,20 @@ class JSONSummary:
                         "add_quality_guidance,clip_value,use_negative_prompts,"
                         "skip_control,caching_coefficient,caching_warmup,"
                         "caching_cooldown"
-                    )
+                    ),
+                    "tooltip": "Comma-separated keys to print, one per line. Missing keys show N/A.",
                 }),
-                "separator": ("STRING", {"default": ": "}),
+                "separator": ("STRING", {
+                    "default": ": ",
+                    "tooltip": "Text placed between each key and its value",
+                }),
             },
         }
 
     RETURN_TYPES = ("STRING",)
     FUNCTION = "run"
     CATEGORY = "Trent/Utilities"
+    DESCRIPTION = "Turns selected keys of a JSON object into a multi-line key: value summary string. Use it to display generation parameters from JSON metadata."
 
     # ------------------------------- Helpers ------------------------------- #
     def _parse_json(self, json_in):

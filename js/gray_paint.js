@@ -101,6 +101,7 @@ app.registerExtension({
                 "color:#bbb;display:flex;align-items:center;gap:3px;" +
                 "background:rgba(0,0,0,0.6);padding:1px 5px;border-radius:3px;" +
                 "pointer-events:auto;";
+            brushWrap.title = "Brush size in image pixels";
             brushWrap.appendChild(document.createTextNode("brush"));
             const brush = document.createElement("input");
             brush.type = "range";
@@ -112,10 +113,13 @@ app.registerExtension({
             bar.appendChild(brushWrap);
 
             const eraseBtn = mkBtn("Erase: off");
+            eraseBtn.title = "Toggle eraser: painting removes gray instead of adding it";
             bar.appendChild(eraseBtn);
             const anchorBtn = mkBtn("Set Anchor: off");
+            anchorBtn.title = "Toggle anchor mode: click the frame to set the tracking point";
             bar.appendChild(anchorBtn);
             const clearBtn = mkBtn("Clear");
+            clearBtn.title = "Erase all painted gray";
             bar.appendChild(clearBtn);
 
             // --- visible canvas (image + paint overlay) ---
@@ -130,6 +134,7 @@ app.registerExtension({
                 cursor: crosshair;
                 margin: 0 auto;
             `;
+            canvas.title = "Drag to paint the gray region. Erase and Set Anchor change what a click does.";
             container.appendChild(canvas);
             const ctx = canvas.getContext("2d");
 

@@ -55,39 +55,39 @@ Features:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
-                "output_folder": ("STRING", {"default": "./output/chop_cuts"}),
-                "base_filename": ("STRING", {"default": "scene"}),
-                "fps": ("INT", {"default": 24, "min": 1, "max": 120, "step": 1}),
+                "images": ("IMAGE", {"tooltip": "Video frames to scan for cuts and split into scenes."}),
+                "output_folder": ("STRING", {"default": "./output/chop_cuts", "tooltip": "Folder for the scene MP4 files. Relative paths resolve from the ComfyUI working directory; the folder is created if missing."}),
+                "base_filename": ("STRING", {"default": "scene", "tooltip": "Filename prefix for each scene, saved as <prefix>_001.mp4, <prefix>_002.mp4, and so on."}),
+                "fps": ("INT", {"default": 24, "min": 1, "max": 120, "step": 1, "tooltip": "Frame rate of the exported videos and of the timestamps in the report."}),
                 "threshold": ("FLOAT", {
                     "default": 30.0, "min": 1.0, "max": 100.0, "step": 0.1,
-                    "description": "Detection threshold (lower = more sensitive)"
+                    "tooltip": "Frame difference (0-255 scale) needed to count as a cut. Lower finds more cuts."
                 }),
                 "min_scene_frames": ("INT", {
                     "default": 12, "min": 2, "max": 1000, "step": 1,
-                    "description": "Minimum frames per scene"
+                    "tooltip": "Minimum frames between cuts. Scenes shorter than this, including a short final scene, are not exported."
                 }),
                 "quality": ("INT", {
                     "default": 85, "min": 1, "max": 100, "step": 1,
-                    "description": "Video quality (1-100)"
+                    "tooltip": "Export quality from 1 to 100, mapped to an x264 CRF. Higher means better quality and larger files."
                 }),
                 "detection_method": (
                     ["hybrid", "intensity", "histogram", "adaptive"], {
                         "default": "hybrid",
-                        "description": "Detection algorithm to use"
+                        "tooltip": "hybrid mixes intensity and edge changes; intensity uses brightness only; histogram compares color histograms on CPU; adaptive uses a rolling local threshold for fast camera motion."
                     }
                 ),
                 "max_workers": ("INT", {
                     "default": 4, "min": 1, "max": 16, "step": 1,
-                    "description": "Parallel workers for video export"
+                    "tooltip": "Number of scene videos encoded with FFmpeg at the same time."
                 }),
                 "downsample_detection": ("BOOLEAN", {
                     "default": True,
-                    "description": "Downsample for faster detection"
+                    "tooltip": "Shrink frames larger than 640px to 640px for detection only. Exported videos keep full resolution."
                 }),
                 "use_gpu": ("BOOLEAN", {
                     "default": True,
-                    "description": "Use GPU acceleration when available"
+                    "tooltip": "Run detection on CUDA when available. Falls back to CPU otherwise."
                 }),
             },
         }

@@ -21,14 +21,14 @@ class MaskToBBoxMask:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "mask": ("MASK",),
-                "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "padding": ("INT", {"default": 0, "min": 0, "max": 4096, "step": 1}),
-                "fill": ("BOOLEAN", {"default": True}),
-                "outline_thickness": ("INT", {"default": 3, "min": 1, "max": 256, "step": 1}),
+                "mask": ("MASK", {"tooltip": "Mask or mask batch to box. One box is found per frame."}),
+                "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Mask values above this count as inside the mask when the box is measured."}),
+                "padding": ("INT", {"default": 0, "min": 0, "max": 4096, "step": 1, "tooltip": "Pixels added on each side of the box, clipped to the frame edges."}),
+                "fill": ("BOOLEAN", {"default": True, "tooltip": "On: the bbox mask is a solid rectangle. Off: only the rectangle outline."}),
+                "outline_thickness": ("INT", {"default": 3, "min": 1, "max": 256, "step": 1, "tooltip": "Line width in pixels of the outline drawn on the image, and of the mask outline when fill is off."}),
             },
             "optional": {
-                "image": ("IMAGE",),
+                "image": ("IMAGE", {"tooltip": "Optional image or batch to draw the box on. When connected, outputs use its size and the mask is resized to match."}),
             },
         }
 

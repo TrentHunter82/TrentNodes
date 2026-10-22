@@ -42,6 +42,7 @@ export function openSortModal(graph, comb) {
   const rows = comb.lanes.map((lane, i) => {
     const row = document.createElement('div')
     row.className = 'cablemanagement-sort-row'
+    row.title = 'Drag to change the lane order'
     const dot = document.createElement('span')
     dot.className = 'cablemanagement-sort-dot'
     dot.style.background = typeColor(laneType(graph, lane))
@@ -87,8 +88,10 @@ export function openSortModal(graph, comb) {
   buttons.className = 'cablemanagement-sort-buttons'
   const cancel = document.createElement('button')
   cancel.textContent = 'Cancel'
+  cancel.title = 'Close without changing the lane order'
   const apply = document.createElement('button')
   apply.textContent = 'Apply'
+  apply.title = 'Apply the new lane order to the comb'
   buttons.appendChild(cancel)
   buttons.appendChild(apply)
   content.appendChild(buttons)

@@ -47,7 +47,15 @@ class VidScribeMiniCPMBeta:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
+                "images": (
+                    "IMAGE",
+                    {
+                        "tooltip": (
+                            "Image or video frames to describe. Batches over "
+                            "32 frames are sampled down unless use_all_frames is on"
+                        )
+                    }
+                ),
                 "prompt": (
                     "STRING",
                     {

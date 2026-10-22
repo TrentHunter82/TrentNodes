@@ -21,6 +21,7 @@ app.registerExtension({
                 ).widget;
                 if (w.inputEl) w.inputEl.readOnly = true;
                 w.serialize = false;
+                w.tooltip = "Elapsed time of the last run";
             }
             w.value = text;
             this.setDirtyCanvas(true, false);

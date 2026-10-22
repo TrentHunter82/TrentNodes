@@ -145,16 +145,16 @@ class FolderBrowser {
         this.dialog.innerHTML = `
             <div class="browser-header">
                 <span class="title">Layer Folder:</span>
-                <input type="text" class="browser-input"
+                <input type="text" class="browser-input" title="Type a path. Enter selects, Tab opens the first folder, Ctrl+Backspace goes up, Esc closes"
                        value="${escapeHtml(this.currentPath)}" />
             </div>
             <div class="browser-list"></div>
             <div class="browser-status"></div>
             <div class="browser-buttons">
                 <button class="browser-btn secondary"
-                        data-action="cancel">Cancel</button>
+                        data-action="cancel" title="Close without selecting (Esc)">Cancel</button>
                 <button class="browser-btn primary"
-                        data-action="select">Select Folder</button>
+                        data-action="select" title="Use the path in the box (Enter)">Select Folder</button>
             </div>
         `;
         document.body.appendChild(this.dialog);
@@ -266,6 +266,7 @@ class FolderBrowser {
         if (this.currentPath && this.currentPath !== "/") {
             const up = document.createElement("div");
             up.className = "browser-item is-dir";
+            up.title = "Go to the parent folder (Ctrl+Backspace)";
             up.innerHTML =
                 '<span class="icon">..</span>' +
                 '<span>Parent Directory</span>';
@@ -286,6 +287,7 @@ class FolderBrowser {
                 `<span class="icon">${icon}</span>` +
                 `<span>${escapeHtml(display)}</span>`;
             if (isDir) {
+                div.title = "Open this folder";
                 div.addEventListener("click", () => this.navigateTo(item));
             }
             this.list.appendChild(div);
@@ -356,6 +358,7 @@ app.registerExtension({
                     browser.show();
                 }
             );
+            btn.tooltip = "Browse the server for a folder to put in folder_path";
 
             const wi = this.widgets.indexOf(folderWidget);
             const bi = this.widgets.indexOf(btn);

@@ -126,7 +126,7 @@ class PatchSolAttention:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": ("MODEL",),
+                "model": ("MODEL", {"tooltip": "Video diffusion model to patch. The input model is cloned, not changed."}),
                 "enabled": ("BOOLEAN", {
                     "default": True,
                     "tooltip": "Toggle the patch without unplugging the node."}),

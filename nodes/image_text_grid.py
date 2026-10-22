@@ -31,7 +31,9 @@ class ImageTextGrid:
     def INPUT_TYPES(cls) -> Dict[str, Any]:
         return {
             "required": {
-                "images": ("IMAGE",),
+                "images": ("IMAGE", {
+                    "tooltip": "Image batch to lay out; only the first 9 images are used"
+                }),
                 "images_per_row": ("INT", {
                     "default": 0,
                     "min": 0,
@@ -85,15 +87,42 @@ class ImageTextGrid:
                 }),
             },
             "optional": {
-                "caption_1": ("STRING", {"forceInput": True}),
-                "caption_2": ("STRING", {"forceInput": True}),
-                "caption_3": ("STRING", {"forceInput": True}),
-                "caption_4": ("STRING", {"forceInput": True}),
-                "caption_5": ("STRING", {"forceInput": True}),
-                "caption_6": ("STRING", {"forceInput": True}),
-                "caption_7": ("STRING", {"forceInput": True}),
-                "caption_8": ("STRING", {"forceInput": True}),
-                "caption_9": ("STRING", {"forceInput": True}),
+                "caption_1": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Caption drawn under the first image"
+                }),
+                "caption_2": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Caption drawn under the second image"
+                }),
+                "caption_3": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Caption drawn under the third image"
+                }),
+                "caption_4": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Caption drawn under the fourth image"
+                }),
+                "caption_5": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Caption drawn under the fifth image"
+                }),
+                "caption_6": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Caption drawn under the sixth image"
+                }),
+                "caption_7": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Caption drawn under the seventh image"
+                }),
+                "caption_8": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Caption drawn under the eighth image"
+                }),
+                "caption_9": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Caption drawn under the ninth image"
+                }),
             },
         }
 

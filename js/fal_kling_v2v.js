@@ -151,6 +151,8 @@ app.registerExtension({
                     || ALWAYS_SHOW.has(item.input);
                 const badge = connected ? " *" : "";
                 li.textContent = item.tag + badge;
+                li.title = `Insert ${item.tag} (Enter or Tab)` +
+                    (connected ? "" : ", its input is not connected");
                 Object.assign(li.style, {
                     padding: "4px 12px",
                     cursor: "pointer",

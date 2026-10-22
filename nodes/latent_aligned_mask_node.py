@@ -128,8 +128,8 @@ class LatentAlignedMask(LatentMaskProcessor):
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "mask": ("MASK",),
-                "vae": ("VAE",),
+                "mask": ("MASK", {"tooltip": "Mask to snap to the VAE latent grid"}),
+                "vae": ("VAE", {"tooltip": "VAE used to auto-detect the spatial compression factor"}),
                 "expansion_pixels": ("INT", {
                     "default": 8,
                     "min": 0,
@@ -170,6 +170,7 @@ class LatentAlignedMask(LatentMaskProcessor):
     RETURN_NAMES = ("aligned_mask", "latent_preview", "compression_factor")
     FUNCTION = "align_mask"
     CATEGORY = "Trent/Masks"
+    DESCRIPTION = "Snaps a mask to the VAE latent grid so masked regions match whole latent cells, which prevents black spots and edge artifacts in inpainting. Detects the compression factor from the VAE unless you override it."
     
     def get_vae_compression_factor(self, vae):
         """
@@ -287,8 +288,8 @@ class LatentAlignedMaskAdvanced(LatentMaskProcessor):
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "mask": ("MASK",),
-                "vae": ("VAE",),
+                "mask": ("MASK", {"tooltip": "Mask to snap to the VAE latent grid"}),
+                "vae": ("VAE", {"tooltip": "VAE used to auto-detect the spatial compression factor"}),
                 "mode": (["conservative", "balanced", "aggressive"], {
                     "default": "balanced",
                     "tooltip": "How much to expand: conservative=less, aggressive=more"
@@ -308,6 +309,7 @@ class LatentAlignedMaskAdvanced(LatentMaskProcessor):
     RETURN_NAMES = ("mask", "info")
     FUNCTION = "process_mask"
     CATEGORY = "Trent/Masks"
+    DESCRIPTION = "Latent-aligned mask with expansion, blur, and threshold picked from a preset mode. Use it when you want latent-safe masks without tuning sliders; the info output reports the settings used."
     
     def process_mask(self, mask, vae, mode="balanced", 
                     prevent_edge_artifacts=True, smooth_boundaries=True):
@@ -357,7 +359,7 @@ class LatentAlignedMaskSimple(LatentMaskProcessor):
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "mask": ("MASK",),
+                "mask": ("MASK", {"tooltip": "Mask to snap to the latent grid"}),
                 "compression_factor": ("INT", {
                     "default": 8,
                     "min": 1,
@@ -396,6 +398,7 @@ class LatentAlignedMaskSimple(LatentMaskProcessor):
     RETURN_NAMES = ("aligned_mask", "latent_preview")
     FUNCTION = "align_mask"
     CATEGORY = "Trent/Masks"
+    DESCRIPTION = "Snaps a mask to a latent grid using a compression factor you set by hand, with no VAE input needed. Use 8 for Wan and SD-family VAEs."
 
     def align_mask(self, mask, compression_factor=8, expansion_pixels=8,
                    blur_latent_units=1, threshold=0.5):
@@ -416,7 +419,7 @@ class LatentAlignedMaskWan(LatentMaskProcessor):
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "mask": ("MASK",),
+                "mask": ("MASK", {"tooltip": "Mask to snap to the Wan 2.1 8x latent grid"}),
                 "preset": (["standard", "tight", "loose", "custom"], {
                     "default": "standard",
                     "tooltip": "standard=64px, tight=32px, loose=96px, custom=use sliders"
@@ -444,6 +447,7 @@ class LatentAlignedMaskWan(LatentMaskProcessor):
     RETURN_NAMES = ("aligned_mask",)
     FUNCTION = "align_mask"
     CATEGORY = "Trent/Masks"
+    DESCRIPTION = "Snaps a mask to the 8x latent grid of the Wan 2.1 VAE with pixel-space expansion and blur presets. Use it for Wan inpainting masks without needing a VAE input."
     
     def align_mask(self, mask, preset="standard", expansion_pixels=64, blur_pixels=8):
         """Process mask for Wan 2.1 VAE (8x compression, optimized settings)."""

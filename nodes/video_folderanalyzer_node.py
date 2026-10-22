@@ -17,16 +17,18 @@ class VideoFolderAnalyzer:
                 "folder_path": ("STRING", {
                     "default": "",
                     "multiline": False,
-                    "placeholder": "Enter folder path containing video files"
+                    "placeholder": "Enter folder path containing video files",
+                    "tooltip": "Folder that holds the videos to analyze."
                 }),
-                "include_subfolders": ("BOOLEAN", {"default": False}),
-                "output_format": (["text", "json", "markdown"], {"default": "markdown"}),
+                "include_subfolders": ("BOOLEAN", {"default": False, "tooltip": "Also scan all subfolders recursively."}),
+                "output_format": (["text", "json", "markdown"], {"default": "markdown", "tooltip": "Format of the report output. json_data is always JSON."}),
             },
             "optional": {
                 "file_extensions": ("STRING", {
                     "default": "mp4,avi,mov,mkv,wmv,flv,webm,m4v,mpg,mpeg",
                     "multiline": False,
-                    "placeholder": "Comma-separated video extensions"
+                    "placeholder": "Comma-separated video extensions",
+                    "tooltip": "Comma-separated extensions to include, without dots. Matched in lowercase, so upper-case extensions can be missed on Linux."
                 }),
             }
         }
@@ -35,6 +37,7 @@ class VideoFolderAnalyzer:
     RETURN_NAMES = ("report", "json_data")
     FUNCTION = "analyze_videos"
     CATEGORY = "Trent/Video"
+    DESCRIPTION = "Scans a folder for video files and reports resolution, fps, frame count, duration, codec, size, and bitrate for each, plus totals. Use it to audit a batch of clips before processing."
     OUTPUT_NODE = True
 
     def analyze_videos(

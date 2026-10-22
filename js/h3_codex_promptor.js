@@ -106,14 +106,15 @@ app.registerExtension({
         nodeType.prototype.onNodeCreated = function (...args) {
             const result = previousCreated?.apply(this, args);
             this.properties ||= {};
-            const button = (name, callback) => {
+            const button = (name, tooltip, callback) => {
                 const entry = this.addWidget("button", name, null, callback, { serialize: false });
                 entry.serialize = false;
+                entry.tooltip = tooltip;
                 return entry;
             };
-            button("Generate prompt", () => queueWriting(this, "generate"));
-            button("Refine prompt", () => queueWriting(this, "refine"));
-            this._h3LockButton = button("Lock editor", () => {
+            button("Generate prompt", "Queue this node to write a new prompt from the current inputs", () => queueWriting(this, "generate"));
+            button("Refine prompt", "Queue this node to revise the editor prompt with the refinement request", () => queueWriting(this, "refine"));
+            this._h3LockButton = button("Lock editor", "Lock or unlock the editor. Locked runs use the editor text as saved.", () => {
                 const action = widget(this, "action");
                 const unlocking = action.value === "locked";
                 if (!unlocking && !widget(this, "prompt_text").value.trim()) return notify("The prompt editor is empty.");
@@ -123,23 +124,23 @@ app.registerExtension({
                     : "Locked: H3 runs will use the editor exactly as saved. You can still edit the text.");
                 refresh(this);
             });
-            this._h3AutoLockButton = button("Auto-lock", () => {
+            this._h3AutoLockButton = button("Auto-lock", "Toggle locking the editor after each new prompt", () => {
                 this.properties.h3CodexAutoLock = !autoLock(this);
                 changed(this);
                 notify(autoLock(this) ? "Auto-lock on: a new prompt locks the editor."
                     : "Auto-lock off: the editor stays unlocked, so each Run writes a prompt for the current inputs.");
                 refresh(this);
             });
-            button("New variation", () => {
+            button("New variation", "Increase revision and write a new prompt", () => {
                 widget(this, "revision").value += 1;
                 return queueWriting(this, "generate");
             });
-            button("Advanced settings", () => {
+            button("Advanced settings", "Show or hide the advanced settings", () => {
                 this.properties.h3CodexAdvanced = !this.properties.h3CodexAdvanced;
                 refresh(this);
                 changed(this);
             });
-            button("Context & dialogue", () => {
+            button("Context & dialogue", "Show or hide the context and dialogue inputs", () => {
                 this.properties.h3CodexContext = !this.properties.h3CodexContext;
                 refresh(this);
                 changed(this);

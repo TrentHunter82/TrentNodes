@@ -27,8 +27,14 @@ class ChromaStripOverlay:
     def INPUT_TYPES(cls) -> Dict[str, Any]:
         return {
             "required": {
-                "video_frames": ("IMAGE",),
-                "overlay_image": ("IMAGE",),
+                "video_frames": ("IMAGE", {
+                    "tooltip": "Video frames that receive the green strip"
+                }),
+                "overlay_image": ("IMAGE", {
+                    "tooltip": "Image placed inside the strip on every "
+                               "frame. Only the first image of the "
+                               "batch is used"
+                }),
                 "side": (cls.SIDES, {
                     "default": "left",
                     "tooltip": "Which side of the frame to place "

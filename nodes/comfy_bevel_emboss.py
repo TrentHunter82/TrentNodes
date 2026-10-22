@@ -22,58 +22,66 @@ class BevelEmbossNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),  # ComfyUI image tensor format
+                "image": ("IMAGE", {"tooltip": "Images to apply the effect to. An alpha channel, if present, defines the bevel shape; otherwise pixels brighter than 10% luminance do."}),  # ComfyUI image tensor format
                 "depth": ("FLOAT", {
                     "default": 5.0,
                     "min": 0.0,
                     "max": 100.0,
-                    "step": 0.1
+                    "step": 0.1,
+                    "tooltip": "Strength of the effect. In emboss mode this is also the light offset in pixels."
                 }),
                 "angle": ("INT", {
                     "default": 135,
                     "min": -360,
                     "max": 360,
-                    "step": 1
+                    "step": 1,
+                    "tooltip": "Light direction in degrees. 135 lights from the upper left."
                 }),
                 "highlight_opacity": ("FLOAT", {
                     "default": 0.75,
                     "min": 0.0,
                     "max": 5.0,
-                    "step": 0.01
+                    "step": 0.01,
+                    "tooltip": "Brightness of the white highlights. Values above 1.0 push highlights harder."
                 }),
                 "shadow_opacity": ("FLOAT", {
                     "default": 0.75,
                     "min": 0.0,
                     "max": 5.0,
-                    "step": 0.01
+                    "step": 0.01,
+                    "tooltip": "Darkness of the shadows. Values above 1.0 can crush shadows to black."
                 }),
                 "soften": ("FLOAT", {
                     "default": 0.0,
                     "min": 0.0,
                     "max": 50.0,
-                    "step": 0.1
+                    "step": 0.1,
+                    "tooltip": "Gaussian blur sigma applied to the lighting, in pixels. 0 keeps hard edges."
                 }),
-                "mode": (["emboss", "bevel_inner", "bevel_outer", "pillow_emboss"],),
+                "mode": (["emboss", "bevel_inner", "bevel_outer", "pillow_emboss"], {"tooltip": "emboss lights edges across the whole image; bevel_inner raises the shape inward; bevel_outer flips the lighting so it looks sunken; pillow_emboss blends inner and outer."}),
                 "bevel_width": ("FLOAT", {
                     "default": 5.0,
                     "min": 1.0,
                     "max": 100.0,
-                    "step": 0.5
+                    "step": 0.5,
+                    "tooltip": "Width of the bevel edge in pixels. Not used by emboss mode."
                 }),
                 "debug_device": ("BOOLEAN", {
                     "default": False,
                     "label_on": "Show Device",
-                    "label_off": "Hide Device"
+                    "label_off": "Hide Device",
+                    "tooltip": "Print the processing device, tensor shapes, and GPU memory use to the console."
                 }),
             },
             "optional": {
-                "mask": ("MASK",),  # Optional mask input
-                "mask_mode": (["apply_to_masked", "apply_to_unmasked"],),
+                "mask": ("MASK", {"tooltip": "Optional mask that limits where the effect shows. Resized to the image if needed."}),  # Optional mask input
+                "mask_mode": (["apply_to_masked", "apply_to_unmasked"], {"tooltip": "Apply the effect inside the mask, or invert the mask to apply it outside."}),
                 "mask_blur": ("FLOAT", {
                     "default": 0.0,
                     "min": 0.0,
                     "max": 100.0,
-                    "step": 0.1
+                    "step": 0.1,
+                    "tooltip": "Blur radius in pixels for the mask edge, for a softer blend. 0 keeps the mask as is."
                 }),
             }
         }
@@ -81,6 +89,7 @@ class BevelEmbossNode:
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "apply_bevel_emboss"
     CATEGORY = "Trent/Image"
+    DESCRIPTION = "Applies a Photoshop-style bevel or emboss lighting effect to images on the GPU. Use an optional mask to limit the effect to one area."
     
     def apply_bevel_emboss(self, image, depth, angle, highlight_opacity, shadow_opacity, soften, mode, 
                            bevel_width=5.0, debug_device=False, mask=None, mask_mode="apply_to_masked", mask_blur=0.0):

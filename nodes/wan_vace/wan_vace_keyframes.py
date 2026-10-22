@@ -65,7 +65,9 @@ class WanVaceKeyframeBuilder:
                     "tooltip": "Minimum frames between keyframes (VACE typically needs 8+ for good interpolation)"
                 }),
                 # First dynamic image input - JS will add more as needed
-                "image_1": ("IMAGE",),
+                "image_1": ("IMAGE", {
+                    "tooltip": "Keyframe image placed at image_1_frame and kept unchanged by VACE. Connecting it adds another image slot."
+                }),
                 "image_1_frame": ("INT", {
                     "default": 1,
                     "min": 1,

@@ -54,6 +54,7 @@ class LatestVideoLastFramesNode:
     
     # This helps ComfyUI categorize the node in the interface
     CATEGORY = "Trent/Video"
+    DESCRIPTION = "Finds the most recently modified video in a folder and extracts its last N frames. Useful to continue a generation from the end of the previous render."
     
     # A unique identifier for this node type
     FUNCTION = "extract_last_frames"

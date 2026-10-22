@@ -233,7 +233,10 @@ class CowboyWidgetRoundup:
                     "tooltip": "Decimal places for float values.",
                 }),
                 # First dynamic link input - the JS extension adds more.
-                "node_1": (any_typ,),
+                "node_1": (any_typ, {
+                    "tooltip": "Connect any output of the first node to read "
+                               "its title and widgets.",
+                }),
             },
             "hidden": {
                 "prompt": "PROMPT",

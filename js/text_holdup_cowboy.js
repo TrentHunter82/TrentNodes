@@ -47,6 +47,7 @@ function showDialog(payload) {
 
     const textarea = document.createElement("textarea");
     textarea.value = text;
+    textarea.title = "Edit the text, then press Ctrl+Enter to send it";
     Object.assign(textarea.style, {
         width: "100%", minHeight: "260px", resize: "vertical",
         background: "var(--comfy-input-bg, #151515)",
@@ -75,6 +76,8 @@ function showDialog(payload) {
 
     const passBtn = makeButton("Pass Unchanged", false);
     const sendBtn = makeButton("Send (Ctrl+Enter)", true);
+    passBtn.title = "Continue with the original text and ignore your edits";
+    sendBtn.title = "Continue with the edited text (Ctrl+Enter)";
     buttons.append(passBtn, sendBtn);
 
     panel.append(title, countdown, textarea, buttons);

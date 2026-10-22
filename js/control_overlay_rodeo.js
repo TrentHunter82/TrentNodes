@@ -172,6 +172,11 @@ function setupRodeo(node) {
     const loopBox = document.createElement("input");
     loopBox.type = "checkbox";
     loopLabel.append(loopBox, document.createTextNode("Loop"));
+    playBtn.title = "Play or pause (Space in the expanded view)";
+    prevBtn.title = "Step back one frame (Left Arrow in the expanded view)";
+    nextBtn.title = "Step forward one frame (Right Arrow in the expanded view)";
+    expandBtn.title = "Show the player full screen (Esc or click to close)";
+    loopLabel.title = "Restart from the first frame at the end";
     transport.append(playBtn, prevBtn, nextBtn, expandBtn, loopLabel);
 
     const scrub = document.createElement("input");
@@ -180,6 +185,7 @@ function setupRodeo(node) {
     scrub.min = 0;
     scrub.max = 0;
     scrub.value = 0;
+    scrub.title = "Drag to scrub through the frames";
 
     const presets = el("div", "cor-row");
     const layerBox = el("div", "cor-layers");
@@ -352,6 +358,7 @@ function setupRodeo(node) {
                 toggle.textContent = `${LABELS[name]} ${cfg.on ? "on" : "off"}`;
                 toggle.classList.toggle("on", cfg.on);
             };
+            toggle.title = `Show or hide the ${LABELS[name]} layer`;
             toggle.onclick = () => {
                 cfg.on = !cfg.on;
                 syncToggle();
@@ -365,6 +372,7 @@ function setupRodeo(node) {
             opacity.min = 0;
             opacity.max = 100;
             opacity.value = Math.round(cfg.opacity * 100);
+            opacity.title = `${LABELS[name]} layer opacity`;
             const pct = el("span", "cor-pct", `${opacity.value}%`);
             opacity.oninput = () => {
                 cfg.opacity = opacity.value / 100;
@@ -377,6 +385,7 @@ function setupRodeo(node) {
             for (const mode of Object.keys(BLENDS)) {
                 blend.append(new Option(mode, mode, false, mode === cfg.blend));
             }
+            blend.title = `${LABELS[name]} layer blend mode`;
             blend.onchange = () => {
                 cfg.blend = blend.value;
                 saveLayers();
@@ -390,6 +399,7 @@ function setupRodeo(node) {
         for (const [label, names] of PRESETS) {
             if (!names.every((n) => present.has(n))) continue;
             const btn = el("button", "cor-btn", label);
+            btn.title = "Show only the original and the layers in this preset";
             btn.onclick = () => {
                 for (const name of present) {
                     layers[name].on = name === "original" || names.includes(name);
