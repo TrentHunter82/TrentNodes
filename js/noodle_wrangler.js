@@ -14,8 +14,11 @@ import { app } from "../../scripts/app.js";
  *
  *   2. Magnet (smart align) — Figma/Excalidraw-style alignment while
  *      dragging nodes: hard snap + dashed guide lines when an edge lines
- *      up, a 32px dock gap is hit, or connected slots sit level (straight
- *      noodle). Also snaps while RESIZING (corner drag): the moving edges
+ *      up, a 32px dock gap is hit, a node centres in the gap of a column,
+ *      or connected slots sit level (straight noodle — measured to the
+ *      adjacent reroute when the link has one). Dragging reroute dots
+ *      levels them with their wire ends and aligns them with other dots.
+ *      Also snaps while RESIZING (corner drag): the moving edges
  *      align to neighbouring edges / dock gaps, and width or height snaps
  *      to match a neighbour (dashed outline marks the matched box).
  *      Instant in, instant out — no attraction physics.
@@ -737,18 +740,30 @@ function boxesNear(a, b, range) {
         a.y1 - range < b.y2 && a.y2 + range > b.y1;
 }
 
-// Collect what is being dragged, split into nodes and groups (reroutes and
-// anything else in selectedItems are ignored).
+function isReroute(item) {
+    const R = window.LiteGraph?.Reroute;
+    if (R) return item instanceof R;
+    return !!item && item.linkIds !== undefined && item.size === undefined;
+}
+
+function linkById(graph, id) {
+    if (graph.getLink) return graph.getLink(id);
+    return graph.links?.get ? graph.links.get(id) : graph.links?.[id];
+}
+
+// Collect what is being dragged, split into nodes, groups and reroute dots
+// (anything else in selectedItems is ignored).
 function draggedItems(canvas) {
     const LG = window.LiteGraph;
-    const nodes = [], groups = [];
-    if (!canvas.selectedItems) return { nodes, groups };
+    const nodes = [], groups = [], reroutes = [];
+    if (!canvas.selectedItems) return { nodes, groups, reroutes };
     for (const item of canvas.selectedItems) {
         if (LG?.LGraphGroup && item instanceof LG.LGraphGroup) groups.push(item);
         else if (LG?.LGraphNode && item instanceof LG.LGraphNode) nodes.push(item);
+        else if (isReroute(item)) reroutes.push(item);
         else if (!LG?.LGraphNode && item.pos && item.size && item.getBounding) nodes.push(item);
     }
-    return { nodes, groups };
+    return { nodes, groups, reroutes };
 }
 
 // A group's frame box (its pos/size ARE the frame; no title offset needed).
@@ -809,15 +824,23 @@ function stopSim() {
 // { delta, weight, snapR, guide } — delta shifts the whole box, weight
 // scores competing candidates (lower = stronger), snapR is the screen-px
 // snap radius, guide is the dashed line drawn while snapped.
-function collectCandidates(canvas, ub, draggedIds, excludedGroups, includeSlots) {
+function collectCandidates(canvas, ub, draggedIds, excludedGroups, includeSlots, draggedReroutes) {
     const xs = [], ys = [];
     const graph = canvas.graph;
     const gap = MAGNET.gap;
 
-    // snap targets: parked nodes and parked group frames
+    // snap targets: parked nodes and parked group frames; nearby parked
+    // nodes are also indexed by left edge to find column gaps
     const targetBoxes = [];
+    const columns = new Map();
     for (const other of graph._nodes || []) {
-        if (!draggedIds.has(other.id)) targetBoxes.push(nodeBox(other));
+        if (draggedIds.has(other.id)) continue;
+        const b = nodeBox(other);
+        targetBoxes.push(b);
+        if (!boxesNear(ub, b, MAGNET.range)) continue;
+        const key = Math.round(b.x1);
+        if (!columns.has(key)) columns.set(key, []);
+        columns.get(key).push(b);
     }
     for (const g of graph._groups || []) {
         if (!excludedGroups.has(g)) targetBoxes.push(groupBox(g));
@@ -849,34 +872,118 @@ function collectCandidates(canvas, ub, draggedIds, excludedGroups, includeSlots)
         );
     }
 
-    // slot alignment: pull connected slots level so the noodle runs straight
-    // (weight 0.5 — the strongest magnet, and a wider snap radius).
+    // gap centring: two parked nodes stacked in one column with room
+    // between them offer a target centred in that gap (0.8 — between
+    // docking and plain edges)
+    const h = ub.y2 - ub.y1;
+    for (const col of columns.values()) {
+        if (col.length < 2) continue;
+        col.sort((a, b) => a.y1 - b.y1);
+        for (let i = 0; i < col.length - 1; i++) {
+            const top = col[i], bottom = col[i + 1];
+            const room = bottom.y1 - top.y2;
+            if (room < h) continue;
+            const mid = top.y2 + room / 2;
+            ys.push({
+                delta: (mid - h / 2) - ub.y1, weight: 0.8, snapR: MAGNET.snap,
+                guide: { axis: "y", at: mid, a: Math.min(top.x1, ub.x1) - 16, b: Math.max(top.x2, ub.x2) + 16 },
+            });
+        }
+    }
+
+    // slot alignment: pull a connected slot level with the point its noodle
+    // runs to — the adjacent reroute dot when the link has one, otherwise
+    // the far node's slot — so that segment is straight (weight 0.5, the
+    // strongest magnet, and a wider snap radius).
     // Skipped when a group is being dragged: a group aligns by its frame only.
     if (!includeSlots) return { xs, ys };
-    const links = graph._links?.values ? graph._links.values() : Object.values(graph.links || {});
+    const links = graph.links?.values ? graph.links.values() : Object.values(graph.links || {});
     for (const link of links) {
         if (!link) continue;
         const outDragged = draggedIds.has(link.origin_id);
         const inDragged = draggedIds.has(link.target_id);
         if (outDragged === inDragged) continue; // both moving or both parked
-        const outNode = graph.getNodeById(link.origin_id);
-        const inNode = graph.getNodeById(link.target_id);
-        if (!outNode || !inNode) continue;
-        if (outNode.flags?.collapsed || inNode.flags?.collapsed) continue;
+        const ownNode = graph.getNodeById(outDragged ? link.origin_id : link.target_id);
+        if (!ownNode || ownNode.flags?.collapsed) continue;
         try {
-            const oPos = slotOutPos(outNode, link.origin_slot);
-            const iPos = slotInPos(inNode, link.target_slot);
-            const delta = outDragged ? (iPos[1] - oPos[1]) : (oPos[1] - iPos[1]);
-            const targetY = outDragged ? iPos[1] : oPos[1];
+            const own = outDragged ? slotOutPos(ownNode, link.origin_slot) : slotInPos(ownNode, link.target_slot);
+            const chain = link.parentId !== undefined ? (graph.reroutes?.get(link.parentId)?.getReroutes?.() || []) : [];
+            const near = outDragged ? chain[0] : chain[chain.length - 1];
+            let anchor;
+            if (near) {
+                if (draggedReroutes.has(near)) continue;
+                anchor = [near.pos[0], near.pos[1]];
+            } else {
+                const far = graph.getNodeById(outDragged ? link.target_id : link.origin_id);
+                if (!far || far.flags?.collapsed) continue;
+                anchor = outDragged ? slotInPos(far, link.target_slot) : slotOutPos(far, link.origin_slot);
+            }
             ys.push({
-                delta, weight: 0.5, snapR: MAGNET.slotSnap,
+                delta: anchor[1] - own[1], weight: 0.5, snapR: MAGNET.slotSnap,
                 guide: {
-                    axis: "y", at: targetY,
-                    a: Math.min(oPos[0], iPos[0]) - 10,
-                    b: Math.max(oPos[0], iPos[0]) + 10,
+                    axis: "y", at: anchor[1],
+                    a: Math.min(own[0], anchor[0]) - 10,
+                    b: Math.max(own[0], anchor[0]) + 10,
                 },
             });
         } catch (e) { /* odd slot — skip */ }
+    }
+    return { xs, ys };
+}
+
+// The points a reroute dot's wire runs to: upstream is its parent dot or
+// the origin slot, downstream (per link through it) the next dot or the
+// target slot. Dots that are moving with the drag are not anchors.
+function rerouteAnchors(graph, r, dragged) {
+    const pts = [];
+    const parent = r.parent;
+    if (parent) {
+        if (!dragged.has(parent)) pts.push([parent.pos[0], parent.pos[1]]);
+    } else {
+        const link = r.firstLink;
+        const src = link && graph.getNodeById(link.origin_id);
+        if (src && !src.flags?.collapsed) pts.push(slotOutPos(src, link.origin_slot));
+    }
+    for (const id of r.linkIds || []) {
+        const link = linkById(graph, id);
+        if (!link) continue;
+        const chain = graph.reroutes?.get(link.parentId)?.getReroutes?.() || [];
+        const i = chain.findIndex((c) => c?.id === r.id);
+        const next = i >= 0 ? chain[i + 1] : undefined;
+        if (next) {
+            if (!dragged.has(next)) pts.push([next.pos[0], next.pos[1]]);
+        } else {
+            const dst = graph.getNodeById(link.target_id);
+            if (dst && !dst.flags?.collapsed) pts.push(slotInPos(dst, link.target_slot));
+        }
+    }
+    return pts;
+}
+
+// Candidates for a drag of reroute dots only. Node edges are noise here:
+// what matters is a straight wire segment (level with the wire ends, the
+// strongest magnet) and tidy rows/columns of dots.
+function collectRerouteCandidates(canvas, reroutes, dragged) {
+    const xs = [], ys = [];
+    const graph = canvas.graph;
+    for (const r of reroutes) {
+        const [rx, ry] = r.pos;
+        for (const [ax, ay] of rerouteAnchors(graph, r, dragged)) {
+            ys.push({
+                delta: ay - ry, weight: 0.5, snapR: MAGNET.slotSnap,
+                guide: { axis: "y", at: ay, a: Math.min(ax, rx) - 10, b: Math.max(ax, rx) + 10 },
+            });
+        }
+    }
+    for (const other of graph.reroutes?.values?.() || []) {
+        if (dragged.has(other)) continue;
+        const [ox, oy] = other.pos;
+        for (const r of reroutes) {
+            const [rx, ry] = r.pos;
+            if (Math.abs(ox - rx) > MAGNET.range && Math.abs(oy - ry) > MAGNET.range) continue;
+            xs.push({ delta: ox - rx, weight: 1, snapR: MAGNET.snap, guide: { axis: "x", at: ox, a: Math.min(oy, ry) - 16, b: Math.max(oy, ry) + 16 } });
+            ys.push({ delta: oy - ry, weight: 1, snapR: MAGNET.snap, guide: { axis: "y", at: oy, a: Math.min(ox, rx) - 16, b: Math.max(ox, rx) + 16 } });
+        }
     }
     return { xs, ys };
 }
@@ -1066,8 +1173,8 @@ function pickAxis(cands, axis, zoom) {
 // soloDrag mirrors LiteGraph's Ctrl/Meta drag (group frame moves without
 // its children), so our correction moves exactly what the drag moves.
 function applySmartAlign(canvas, altFree, soloDrag) {
-    const { nodes, groups } = draggedItems(canvas);
-    if (!nodes.length && !groups.length) return;
+    const { nodes, groups, reroutes } = draggedItems(canvas);
+    if (!nodes.length && !groups.length && !reroutes.length) return;
 
     const nested = nestedContent(groups);
     // nodes the user also selected but that already ride inside a dragged
@@ -1076,6 +1183,9 @@ function applySmartAlign(canvas, altFree, soloDrag) {
 
     const zoom = canvas.ds?.scale || 1;
     const boxes = [...looseNodes.map(nodeBox), ...groups.map(groupBox)];
+    // dots define the box only when dragged alone; in a mixed drag they
+    // ride along and must not become the selection's "edge"
+    if (!boxes.length) for (const r of reroutes) boxes.push({ x1: r.pos[0], y1: r.pos[1], x2: r.pos[0], y2: r.pos[1] });
     let ub = null;
     for (const b of boxes) {
         if (!ub) ub = { ...b };
@@ -1090,17 +1200,24 @@ function applySmartAlign(canvas, altFree, soloDrag) {
 
     const desired = [0, 0];
     if (!altFree) {
-        const draggedIds = new Set(nodes.map((n) => n.id));
-        // content moving inside dragged groups can't be a snap target either
-        // (unless Ctrl-dragging the frame alone, when contents stay parked)
-        if (!soloDrag) for (const id of nested.nodeIds) draggedIds.add(id);
-        const excludedGroups = soloDrag ? new Set(groups) : nested.groups;
-        const { xs, ys } = collectCandidates(
-            canvas, ub, draggedIds, excludedGroups,
-            groups.length === 0, // slots only for pure node drags
-        );
-        desired[0] = pickAxis(xs, 0, zoom);
-        desired[1] = pickAxis(ys, 1, zoom);
+        const draggedReroutes = new Set(reroutes);
+        let cands;
+        if (!nodes.length && !groups.length) {
+            cands = collectRerouteCandidates(canvas, reroutes, draggedReroutes);
+        } else {
+            const draggedIds = new Set(nodes.map((n) => n.id));
+            // content moving inside dragged groups can't be a snap target either
+            // (unless Ctrl-dragging the frame alone, when contents stay parked)
+            if (!soloDrag) for (const id of nested.nodeIds) draggedIds.add(id);
+            const excludedGroups = soloDrag ? new Set(groups) : nested.groups;
+            cands = collectCandidates(
+                canvas, ub, draggedIds, excludedGroups,
+                groups.length === 0, // slots only for pure node drags
+                draggedReroutes,
+            );
+        }
+        desired[0] = pickAxis(cands.xs, 0, zoom);
+        desired[1] = pickAxis(cands.ys, 1, zoom);
     }
 
     const dx = desired[0] - sim.off[0];
@@ -1127,6 +1244,8 @@ function applySmartAlign(canvas, altFree, soloDrag) {
                 n.pos[1] += dy;
             }
         }
+        // a reroute's pos setter commits to the layout store in both modes
+        for (const r of reroutes) r.pos = [r.pos[0] + dx, r.pos[1] + dy];
     }
     sim.off[0] = desired[0];
     sim.off[1] = desired[1];
@@ -1286,6 +1405,7 @@ function applyVueSmartAlign(canvas, altFree) {
         const { xs, ys } = collectCandidates(
             canvas, ub, draggedIds, new Set(groups),
             groups.length === 0, // slots only for pure node drags
+            new Set(),
         );
         desired[0] = pickAxis(xs, 0, zoom);
         desired[1] = pickAxis(ys, 1, zoom);
