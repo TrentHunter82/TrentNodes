@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 import {
     getCircuit, setCircuit, getMagnet, setMagnet, getPeek, cyclePeek, onNoodleChange,
 } from "./noodle_wrangler.js";
+import { getSkipSamples, setSkipSamples } from "./template_no_samples.js";
 
 /*
  * Trent Color Palette
@@ -950,6 +951,14 @@ function buildPaletteBody() {
         toolBtn("🖼 first frame", "Extract frame 1 of the selected video loader into a new Load Image node (Alt+Shift+F)", "TrentNodes.FirstFrameGrab"),
         toolBtn("▶ queue selected", "Queue only the selected output nodes and what feeds them (Alt+Shift+Q)", "TrentNodes.QueueSelectedOutputs"),
     ]));
+
+    body.appendChild(sectionLabel("Templates"));
+    const samplesChip = noodleChip(
+        "📄 skip template samples",
+        "Open workflow templates without downloading their sample input media into the input folder; loaders keep the template's original filenames",
+        getSkipSamples, (on) => { setSkipSamples(on); samplesChip._paint(on); },
+    );
+    body.appendChild(toolRow([samplesChip]));
 
     return root;
 }
