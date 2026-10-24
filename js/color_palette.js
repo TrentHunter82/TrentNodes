@@ -3,6 +3,7 @@ import {
     getCircuit, setCircuit, getMagnet, setMagnet, getPeek, cyclePeek, onNoodleChange,
 } from "./noodle_wrangler.js";
 import { getSkipSamples, setSkipSamples } from "./template_no_samples.js";
+import { getDepth, setDepth } from "./depth_nodes.js";
 
 /*
  * Trent Color Palette
@@ -900,6 +901,12 @@ function buildPaletteBody() {
     noodleRow.appendChild(circuitChip);
     noodleRow.appendChild(magnetChip);
     noodleRow.appendChild(peekChip);
+    const depthChip = noodleChip(
+        "🧊 3D nodes",
+        "Raised nodes: deeper drop shadows, a top-lit sheen and bevel, and shadows under links (canvas mode)",
+        getDepth, (on) => { setDepth(on); depthChip._paint(on); },
+    );
+    noodleRow.appendChild(depthChip);
     body.appendChild(noodleRow);
 
     // ---- tools section: one button per TrentNodes QoL command ----
