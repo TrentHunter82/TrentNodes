@@ -417,6 +417,45 @@ function matchSizeSelection(dim) {
 // `bucketArmed` = paint mode is on (toggle button); `armedHex` = a swatch color
 // has been picked. The canvas patch only paints when BOTH are set. The UI-aware
 // disarm is installed by buildPaletteBody; this default just clears state.
+// ---- title ink: dark text on light title bars, white on the rest ----------
+
+const TITLE_INK_DARK = "#1b1712";
+const TITLE_INK_LIGHT = "#ffffff";
+
+// WCAG relative luminance of a #rgb / #rrggbb color; null for anything else.
+function luminance(color) {
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color?.trim() ?? "");
+    if (!m) return null;
+    const hex = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
+    const n = parseInt(hex, 16);
+    const lin = (v) => (v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    return 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+}
+
+// drawTitleText() fills with LiteGraph.NODE_SELECTED_TITLE_COLOR when selected,
+// else the palette's default_title_color, regardless of the bar behind it.
+// Swap both for one ink picked from the bar's luminance (0.2 is roughly where
+// dark and white ink have equal contrast).
+function installTitleInkPatch() {
+    const proto = window.LGraphNode?.prototype;
+    if (!proto || proto.__trentTitleInk) return;
+    proto.__trentTitleInk = true;
+    const origDrawTitleText = proto.drawTitleText;
+    proto.drawTitleText = function (ctx, opts) {
+        const lum = luminance(this.renderingColor);
+        if (lum === null) return origDrawTitleText.call(this, ctx, opts);
+        const ink = lum > 0.2 ? TITLE_INK_DARK : TITLE_INK_LIGHT;
+        const LG = window.LiteGraph;
+        const selectedColor = LG.NODE_SELECTED_TITLE_COLOR;
+        LG.NODE_SELECTED_TITLE_COLOR = ink;
+        try {
+            origDrawTitleText.call(this, ctx, { ...opts, default_title_color: ink });
+        } finally {
+            LG.NODE_SELECTED_TITLE_COLOR = selectedColor;
+        }
+    };
+}
+
 let bucketArmed = false;
 let armedHex = null;
 let disarmBucket = () => { bucketArmed = false; armedHex = null; };
@@ -1062,5 +1101,6 @@ app.registerExtension({
         // Paint-bucket: install the canvas click patch + Escape-to-disarm once.
         installBucketPatch();
         installEscDisarm();
+        installTitleInkPatch();
     },
 });
