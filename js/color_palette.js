@@ -421,14 +421,24 @@ function matchSizeSelection(dim) {
 const TITLE_INK_DARK = "#1b1712";
 const TITLE_INK_LIGHT = "#ffffff";
 
-// WCAG relative luminance of a #rgb / #rrggbb color; null for anything else.
+// WCAG relative luminance of a #rgb / #rrggbb / hsl() / hsla() color; null for
+// anything else. node.renderingColor is always hsla() (the frontend runs every
+// node color through its lightness adjuster), so the hsl branch is the hot one.
 function luminance(color) {
-    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color?.trim() ?? "");
-    if (!m) return null;
-    const hex = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
-    const n = parseInt(hex, 16);
+    const s = color?.trim() ?? "";
+    let rgb;
+    const hsl = /^hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%/i.exec(s);
+    const hex = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s);
+    if (hsl) {
+        rgb = hslToRgb(+hsl[1], hsl[2] / 100, hsl[3] / 100);
+    } else if (hex) {
+        const n = parseInt(hex[1].length === 3 ? hex[1].replace(/./g, "$&$&") : hex[1], 16);
+        rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    } else {
+        return null;
+    }
     const lin = (v) => (v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-    return 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+    return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
 }
 
 // drawTitleText() fills with LiteGraph.NODE_SELECTED_TITLE_COLOR when selected,
