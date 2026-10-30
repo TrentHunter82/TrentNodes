@@ -249,11 +249,6 @@ class H3JoinClips:
     DESCRIPTION = ("Cuts the copied frames off every clip after the first and keeps each "
                    "clip's sound, so VHS Video Combine gets one continuous video and song.")
 
-    def __init__(self):
-        self.chunks = []
-        self.manager = None
-        self.sample_rate = None
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -277,29 +272,31 @@ class H3JoinClips:
             raise ValueError("Join Clips: the clip has %d frames, the overlap is %d." % (images.shape[0], n))
         images = images[n:]
 
-        sr = int(audio["sample_rate"])
-        if clip == 0:
-            self.chunks, self.manager, self.sample_rate = [], manager, sr
-        if self.manager is not manager or clip != len(self.chunks):
-            raise ValueError("Join Clips lost a clip. Queue a fresh run; do not resume a partial chain.")
-        if sr != self.sample_rate:
-            raise ValueError("Join Clips: the sample rate changed between clips.")
-
         # Cut and pad to the exact picture length, so small sound offsets cannot add up down the chain.
+        sr = int(audio["sample_rate"])
         start = round(n / FPS * sr)
         length = round(images.shape[0] / FPS * sr)
         wave = audio["waveform"][..., start:start + length]
         wave = torch.nn.functional.pad(wave, (0, length - wave.shape[-1]))
-        if self.chunks and wave.shape[:-1] != self.chunks[0].shape[:-1]:
-            raise ValueError("Join Clips: the audio channels changed between clips.")
-        self.chunks.append(wave.detach().to(device="cpu", dtype=torch.float32, copy=True))
+        wave = wave.detach().to(device="cpu", dtype=torch.float32).contiguous()
 
+        # Each clip's sound goes to disk beside the last saved ending, which clip 1 clears.
+        folder = os.path.dirname(saved[-1])
+        comfy.utils.save_torch_file({"waveform": wave, "sample_rate": torch.tensor(sr)},
+                                    os.path.join(folder, "sound_%04d.safetensors" % clip))
+        out = {"waveform": wave, "sample_rate": sr}
         if manager.has_closed_inputs:
-            out = {"waveform": torch.cat(self.chunks, dim=-1), "sample_rate": sr}
-            self.chunks, self.manager = [], None
-        else:
             # VHS ignores audio until the last clip, then muxes the whole track.
-            out = {"waveform": self.chunks[-1], "sample_rate": sr}
+            chunks = []
+            for k in range(clip + 1):
+                path = os.path.join(folder, "sound_%04d.safetensors" % k)
+                if not os.path.isfile(path):
+                    raise ValueError("Join Clips: the sound of clip %d is missing (%s). Queue a fresh run." % (k + 1, path))
+                part = comfy.utils.load_torch_file(path)
+                if int(part["sample_rate"]) != sr or part["waveform"].shape[:-1] != wave.shape[:-1]:
+                    raise ValueError("Join Clips: the sample rate or the audio channels changed between clips.")
+                chunks.append(part["waveform"])
+            out = {"waveform": torch.cat(chunks, dim=-1), "sample_rate": sr}
         logging.info("[Video Chain] clip %d joined after %s", clip + 1, ", ".join(saved))
         return (images, out)
 

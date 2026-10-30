@@ -90,7 +90,6 @@ class VideoChainTests(unittest.TestCase):
         m = self.manager()
         cont = chain_mod.H3ContinueFromLastClip()
         remember = chain_mod.H3RememberClipEnding()
-        join = chain_mod.H3JoinClips()
         image = torch.rand(1, 64, 96, 3)
         all_images = []
 
@@ -122,7 +121,8 @@ class VideoChainTests(unittest.TestCase):
 
             saved = remember.remember(chain, self.sampled(clip), "low res")[0]
             frames = torch.full((FRAMES, 64, 96, 3), float(clip))
-            images, sound = join.join(chain, frames, self.song_cut(clip), saved)
+            # A new instance per clip: ComfyUI may not keep node objects between queues.
+            images, sound = chain_mod.H3JoinClips().join(chain, frames, self.song_cut(clip), saved)
             self.assertEqual(images.shape[0], FRAMES if clip == 0 else FRAMES - OVERLAP)
             all_images.append(images)
 
@@ -130,7 +130,7 @@ class VideoChainTests(unittest.TestCase):
         total = sum(i.shape[0] for i in all_images)
         self.assertEqual(total, 141 + 2 * 102)
         self.assertEqual(sound["waveform"].shape[-1], round(141 / 24 * SR) + 2 * round(102 / 24 * SR))
-        self.assertEqual(join.chunks, [])
+        self.assertTrue(torch.equal(sound["waveform"][..., -1], torch.full((1, 2), 2.0)))
 
     def test_keep_look_off_and_no_vae(self):
         m = self.manager()
