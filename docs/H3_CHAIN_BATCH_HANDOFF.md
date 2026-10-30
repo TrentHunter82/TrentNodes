@@ -209,6 +209,16 @@ Still open:
   two-output node loaded; restart ComfyUI. Neither workflow has been
   rendered.
 
+- 2026-10-22: `H3 Ref Chain - One Queue + Refiner (corrected).json`: the
+  "Codex reference_images" switch now has the resized character reference on
+  BOTH branches (retitled "original on every pass"), so H3 Batch Pictures
+  gets <Picture 2> on the primer pass too, for omni/fused models that take
+  refs plus a first frame. Also repaired H3 Chain Step's scrambled widgets
+  (`[4, False, False, True]` -> `[4, 694245856067697, "fixed", True]`); the
+  live runs had been sending seed 0. Validates with 0 errors. Note the
+  character reference still only reaches the Codex Promptor; neither
+  Reference to Video node takes it as a ref image.
+
 ## Where the original conversation is
 
 Codex Desktop, thread "Can you look this over to...", 2026-09-23.
