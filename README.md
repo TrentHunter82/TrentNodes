@@ -787,7 +787,7 @@ Transcribes any AUDIO input with OpenAI Whisper and returns four outputs: plain 
 
 Model choice covers large-v3 (most accurate), large-v3-turbo (much faster), medium, small and base, plus any folder dropped into `ComfyUI/models/whisper/` which appears as `local:<name>`. The model stays cached in VRAM between runs unless you turn off `keep_model_loaded`. `precision` defaults to fp16 on CUDA and fp32 on CPU; the features are always cast to the model dtype, which is what makes this work on transformers 5.x (a plain `from_pretrained` there loads the fp16 checkpoint and then crashes with "Input type (float) and bias type (c10::Half) should be the same"). `hint_prompt` biases Whisper toward names or spellings you supply — note that on clips under 30 seconds a prompt disables timestamps, an upstream transformers limitation. Logic is covered by `tests/test_transcribe_lyrics.py`.
 
-### 🎥 Trent/MiniMax (3 nodes)
+### 🎥 Trent/MiniMax (4 nodes)
 
 **H3 Chain Step**
 
@@ -800,6 +800,10 @@ Keeps every extension's audio for the final VHS mux. VHS Video Combine streams v
 **H3 Repack AV Latent**
 
 Rewraps a cross-run H3 AV latent as the NestedTensor pair the MMH3Tools nodes and VAE decodes require. H3 Motion Context Load Latent returns its video and audio streams as a plain list on purpose, so it cannot be decoded by accident; MMH3SplitAV, MMH3TrimAV and friends refuse that list. Put this node between Load Latent and any MMH3Tools node. A latent that is already a NestedTensor passes through untouched.
+
+**H3 Keystone Graft**
+
+Reduces drift in long H3 chains. H3 video latents come in 17-frame blocks of 1 + 4 + 4 + 4 + 4 frames, so every fifth latent (0, 5, 10, ...) holds one frame on its own. The node copies one such latent from clip 1 (`keystone`, e.g. a Load Latent fixed on the primer's slot; a plain [video, audio] list is accepted) into slot 0 of the chained latent and sets that slot's noise mask to `mask` (0 = kept exactly, 1 = graft off). Slot 0 sits inside the locked context prefix, which the join trims, so the grafted frame never reaches the output. Put it between H3 Generated AV Masked Context and the sampler. Raises if `source_index` is not a single-frame latent or the keystone has a different channel count or resolution. Idea: roycho87's Clown Keystone.
 
 **Chain workflow.** Queue `H3 Chain - Primer.json` once; it writes the first clip and a 39-frame AV latent tail under `output/h3_context/`. Load `H3 Chain - Fixed.json`, set the continuation prompt and `chunks`, and queue once. The final `-audio.mp4` from VHS Video Combine carries the accumulated soundtrack; VHS also writes a silent intermediate MP4. The primer stays a separate file, so concatenate it with the body for the full video. Rules: one batch manager, one VHS Video Combine, no VHS video loader on that manager, keep the step-to-RandomNoise and saved_tail-to-audio links. Use a separate latent prefix per independent chain, on both Load Latent and Save Latent. Cancelling mid-chain leaves the VHS video unfinalized; a fresh queue resets encoder and audio state but does not restore an earlier tail. Logic is covered by `tests/test_h3_chain_batch.py`.
 
