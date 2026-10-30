@@ -118,7 +118,11 @@ class SaveForNextTime:
                     ),
                 }),
                 "latent": ("LATENT", {
-                    "tooltip": "Saved as a .latent safetensors file",
+                    "tooltip": (
+                        "Saved as a .latent safetensors file, with "
+                        "its noise mask. MiniMax H3 AV latents keep "
+                        "both the video and audio streams"
+                    ),
                 }),
                 "note": ("STRING", {
                     "default": "",

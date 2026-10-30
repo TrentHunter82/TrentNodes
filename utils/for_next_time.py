@@ -52,6 +52,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+from comfy.nested_tensor import NestedTensor
+
 try:
     import folder_paths
 except ImportError:  # pragma: no cover - only hit outside ComfyUI
@@ -663,10 +665,18 @@ def _read_video(paths: List[str]) -> Any:
 def _write_latent(staging: str, value: Dict[str, Any]) -> List[str]:
     import comfy.utils
 
-    payload = {
-        "latent_tensor": value["samples"].detach().cpu().contiguous(),
-        "latent_format_version_0": torch.tensor([]),
-    }
+    # A MiniMax H3 AV latent is a NestedTensor of (video, audio).
+    # Each stream gets its own numbered key; a plain latent keeps
+    # core SaveLatent's single latent_tensor key so the file still
+    # opens in Load Latent.
+    payload = {"latent_format_version_0": torch.tensor([])}
+    for key, tensor in (("latent_tensor", value["samples"]),
+                        ("noise_mask", value.get("noise_mask"))):
+        if isinstance(tensor, NestedTensor):
+            for index, part in enumerate(tensor.tensors):
+                payload["{}_{}".format(key, index)] = part.detach().cpu().contiguous()
+        elif tensor is not None:
+            payload[key] = tensor.detach().cpu().contiguous()
     comfy.utils.save_torch_file(payload, os.path.join(staging, "latent.latent"))
     return ["latent.latent"]
 
@@ -675,7 +685,16 @@ def _read_latent(paths: List[str]) -> Dict[str, Any]:
     import safetensors.torch
 
     data = safetensors.torch.load_file(paths[0], device="cpu")
-    return {"samples": data["latent_tensor"].float()}
+    latent = {}
+    for key, out in (("latent_tensor", "samples"), ("noise_mask", "noise_mask")):
+        if key in data:
+            latent[out] = data[key].float()
+        elif key + "_0" in data:
+            parts = []
+            while "{}_{}".format(key, len(parts)) in data:
+                parts.append(data["{}_{}".format(key, len(parts))].float())
+            latent[out] = NestedTensor(parts)
+    return latent
 
 
 _WRITERS = {

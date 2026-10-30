@@ -426,7 +426,7 @@ None-tolerant multi-image preview, the companion to Ref Folder Cowboy. Six optio
 
 **Save for Next Time**
 
-Stashes data in a named slot so a *later* queue run can pick it up. Connect any mix of IMAGE, MASK, STRING, AUDIO, VIDEO and LATENT — whatever arrives together becomes one entry under `output/for_next_time/<slot_name>/`. Keeps the newest `max_entries` saves (default 10) and deletes the rest.
+Stashes data in a named slot so a *later* queue run can pick it up. Connect any mix of IMAGE, MASK, STRING, AUDIO, VIDEO and LATENT — whatever arrives together becomes one entry under `output/for_next_time/<slot_name>/`. Keeps the newest `max_entries` saves (default 10) and deletes the rest. A LATENT keeps its noise mask, and a MiniMax H3 AV latent keeps both its video and audio streams, so a later run can continue from an exact chain tail.
 
 Entries are published by an atomic folder rename, so a run killed mid-save never leaves a half-written entry. Rename an entry folder by hand to something without the `00000001-` prefix and it becomes a permanent pin: still reachable by name, never pruned.
 

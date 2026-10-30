@@ -164,6 +164,48 @@ def test_latent_round_trip():
           torch.equal(out[5]["samples"], latent["samples"]))
 
 
+def test_av_latent_round_trip():
+    from comfy.nested_tensor import NestedTensor
+    slot = fresh_slot("av_latent_slot")
+    video = torch.rand(1, 48, 12, 4, 6, dtype=torch.bfloat16)
+    audio = torch.rand(1, 64, 51, 1)
+    vmask = torch.ones(1, 1, 12, 4, 6)
+    vmask[:, :, :3] = 0.0
+    amask = torch.ones(1, 1, 51, 1)
+    latent = {"samples": NestedTensor((video, audio)),
+              "noise_mask": NestedTensor((vmask, amask))}
+    store.save_entry(slot, {"latent": latent})
+
+    out = take_all(slot)[5]
+    check("AV latent comes back as a NestedTensor",
+          isinstance(out.get("samples"), NestedTensor))
+    v, a = out["samples"].tensors
+    check("AV video stream survives",
+          torch.equal(v, video.float()), str(tuple(v.shape)))
+    check("AV audio stream survives", torch.equal(a, audio))
+    check("AV noise mask survives",
+          isinstance(out.get("noise_mask"), NestedTensor)
+          and torch.equal(out["noise_mask"].tensors[0], vmask)
+          and torch.equal(out["noise_mask"].tensors[1], amask))
+
+
+def test_plain_latent_noise_mask():
+    slot = fresh_slot("masked_latent_slot")
+    mask = torch.rand(1, 1, 8, 8)
+    store.save_entry(slot, {"latent": {"samples": torch.rand(1, 4, 8, 8),
+                                       "noise_mask": mask}})
+    out = take_all(slot)[5]
+    check("plain latent noise mask survives",
+          torch.equal(out.get("noise_mask"), mask))
+    path = store.slot_dir(slot, create=False)
+    name = store.resolve_entry(path, 0, "")
+    import safetensors.torch
+    keys = safetensors.torch.load_file(
+        os.path.join(path, name, "latent.latent")).keys()
+    check("plain latent keeps the core latent_tensor key",
+          "latent_tensor" in keys, str(list(keys)))
+
+
 def test_audio_round_trip():
     slot = fresh_slot("audio_slot")
     waveform = torch.zeros(1, 2, 800)
@@ -612,6 +654,8 @@ if __name__ == "__main__":
         test_image_batch_round_trip()
         test_mask_round_trip()
         test_latent_round_trip()
+        test_av_latent_round_trip()
+        test_plain_latent_noise_mask()
         test_audio_round_trip()
         test_video_round_trip_and_temp_copy()
         test_multi_member_entry()
