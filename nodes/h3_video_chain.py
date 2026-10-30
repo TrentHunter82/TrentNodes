@@ -78,7 +78,7 @@ class H3VideoChain:
                 "meta_batch": ("VHS_BatchManager", {"forceInput": True,
                     "tooltip": "VHS Meta Batch Manager. Its frames_per_batch is the length of every clip."}),
                 "clips": ("INT", {"default": 4, "min": 1, "max": 1000,
-                    "tooltip": "How many clips to make, the first clip included."}),
+                    "tooltip": "How many clips this run makes."}),
                 "seed": ("INT", {"default": 987654321, "min": 0, "max": 0xffffffffffffffff,
                     "tooltip": "Seed of clip 1. Each later clip adds 1."}),
                 "overlap_frames": ("INT", {"default": 39, "min": 39, "max": 9999, "step": 51,
@@ -91,6 +91,10 @@ class H3VideoChain:
                 "first_prompt": ("STRING", {"forceInput": True, "tooltip": "Prompt for clip 1."}),
                 "later_prompt": ("STRING", {"forceInput": True,
                     "tooltip": "Prompt for every later clip. Leave empty to use first_prompt for all clips."}),
+                "clips_already_made": ("INT", {"default": 0, "min": 0, "max": 1000,
+                    "tooltip": "0 starts a new video. To add clips to the last run, set how many clips "
+                               "it made; this run then continues from its last clip. Keep every "
+                               "other setting the same."}),
             },
             "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
@@ -100,15 +104,17 @@ class H3VideoChain:
         return float("nan")
 
     def run(self, meta_batch, clips, seed, overlap_frames, song_offset, prompt, unique_id,
-            first_prompt=None, later_prompt=None):
+            first_prompt=None, later_prompt=None, clips_already_made=0):
         frames = meta_batch.frames_per_batch
         if (overlap_frames - 39) % 51 or overlap_frames >= frames:
             raise ValueError("Video Chain: overlap_frames must be 39, 90, 141, ... and shorter "
                              "than a clip (%d frames)." % frames)
-        step, seed, _, _, first = H3ChainStep().advance(
-            meta_batch, clips - 1, seed, prompt, unique_id, primer_pass=True)
-        chain = {"clip": step, "overlap": overlap_frames, "manager": meta_batch}
-        start = song_offset + step * (frames - overlap_frames) / FPS
+        step = H3ChainStep().advance(meta_batch, clips - 1, seed, prompt, unique_id, primer_pass=True)[0]
+        clip = clips_already_made + step
+        first = clip == 0
+        seed = (seed + clip) % (1 << 64)
+        chain = {"clip": clip, "first_clip": clips_already_made, "overlap": overlap_frames, "manager": meta_batch}
+        start = song_offset + clip * (frames - overlap_frames) / FPS
         text = first_prompt if first or later_prompt is None else later_prompt
         return (chain, seed, start, ExecutionBlocker(None) if text is None else text, first)
 
@@ -288,7 +294,7 @@ class H3JoinClips:
         if manager.has_closed_inputs:
             # VHS ignores audio until the last clip, then muxes the whole track.
             chunks = []
-            for k in range(clip + 1):
+            for k in range(chain["first_clip"], clip + 1):
                 path = os.path.join(folder, "sound_%04d.safetensors" % k)
                 if not os.path.isfile(path):
                     raise ValueError("Join Clips: the sound of clip %d is missing (%s). Queue a fresh run." % (k + 1, path))

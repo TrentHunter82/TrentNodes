@@ -132,6 +132,31 @@ class VideoChainTests(unittest.TestCase):
         self.assertEqual(sound["waveform"].shape[-1], round(141 / 24 * SR) + 2 * round(102 / 24 * SR))
         self.assertTrue(torch.equal(sound["waveform"][..., -1], torch.full((1, 2), 2.0)))
 
+    def test_continue_a_finished_run(self):
+        remember = chain_mod.H3RememberClipEnding()
+        m = self.manager()
+        for clip in range(3):
+            chain = self.chain(m, clip)[0]
+            saved = remember.remember(chain, self.sampled(clip), "low res")[0]
+            chain_mod.H3JoinClips().join(chain, torch.zeros(FRAMES, 8, 8, 3), self.song_cut(clip), saved)
+
+        m = self.manager()
+        cont = chain_mod.H3ContinueFromLastClip()
+        for step in range(2):
+            chain, seed, start, text, first = self.chain(m, step, clips=2, clips_already_made=3)
+            clip = 3 + step
+            self.assertEqual((chain["clip"], seed, first, text), (clip, 10 + clip, False, "later"))
+            self.assertAlmostEqual(start, 7.0 + clip * 4.25)
+            latent = cont.continue_clip(chain, self.empty(), "low res", True)[0]
+            self.assertEqual(latent["samples"].tensors[0][0, 0, 1, 0, 0].item(), 31.0 + 1000 * (clip - 1))
+            saved = remember.remember(chain, self.sampled(clip), "low res")[0]
+            images, sound = chain_mod.H3JoinClips().join(chain, torch.zeros(FRAMES, 8, 8, 3), self.song_cut(clip), saved)
+            self.assertEqual(images.shape[0], FRAMES - OVERLAP)
+        # Only the new clips' sound, so it lines up with the new video file.
+        self.assertTrue(m.has_closed_inputs)
+        self.assertEqual(sound["waveform"].shape[-1], 2 * round(102 / 24 * SR))
+        self.assertEqual(sound["waveform"][..., 0].tolist(), [[3.0, 3.0]])
+
     def test_keep_look_off_and_no_vae(self):
         m = self.manager()
         cont, remember = chain_mod.H3ContinueFromLastClip(), chain_mod.H3RememberClipEnding()
