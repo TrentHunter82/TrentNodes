@@ -240,7 +240,7 @@ export function combPass(graph, canvas) {
     }
   }
   const wired = (r) => {
-    for (const id of r.linkIds ?? []) if (graph._links?.has?.(Number(id))) return true
+    for (const id of r.linkIds ?? []) if (graph.links?.has?.(Number(id))) return true
     return (r.floatingLinkIds?.size ?? 0) > 0
   }
   for (let i = recs.length - 1; i >= 0; i--) {
@@ -1121,7 +1121,7 @@ export function drawGates(ctx, graph, canvas) {
 // ---- programmatic API (PoC; gesture layer comes later) -------------------------
 
 function enroll(graph, comb, linkId) {
-  const link = graph._links.get(Number(linkId))
+  const link = graph.links.get(Number(linkId))
   if (!link) return false
   // Two inserts before the final segment chain source -> in -> out -> target.
   const tIn = mint(graph, link)

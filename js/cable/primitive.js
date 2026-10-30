@@ -155,7 +155,7 @@ export function ensureStableSerial(graph, prim) {
   const t = prim.widgets[0].type;
   if (t !== "number" && t !== "combo") { prim.__cablemanagementRebuilt = true; return; }
   if (typeof prim.recreateWidget !== "function") { prim.__cablemanagementRebuilt = true; return; }
-  const ll = graph?._links?.get?.(prim.outputs?.[0]?.links?.[0]);
+  const ll = graph?.links?.get?.(prim.outputs?.[0]?.links?.[0]);
   const target = ll && graph.getNodeById?.(ll.target_id);
   if (!target?.inputs?.[ll.target_slot]) return; // no real consumer yet; retry next sync
   prim.__cablemanagementRebuilt = true;

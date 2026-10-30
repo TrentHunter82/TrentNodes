@@ -47,7 +47,7 @@ function boundaryLinks(graph, group) {
   const inside = new Set((group._nodes ?? []).map((n) => n.id));
   const inbound = [], outbound = [];
   if (!inside.size) return { inbound, outbound };
-  for (const link of graph._links?.values?.() ?? []) {
+  for (const link of graph.links?.values?.() ?? []) {
     const src = inside.has(link.origin_id);
     const dst = inside.has(link.target_id);
     if (src === dst) continue; // wholly inside or wholly outside: not our business

@@ -128,7 +128,7 @@ export function install(app, rebuild) {
     if (g && passActive) {
       // O(1) backstop so a programmatic connect() by third-party code -- which fires no event
       // we subscribe to -- still refreshes, without scanning every link every frame.
-      const count = g._links?.size ?? -1;
+      const count = g.links?.size ?? -1;
       const last = g.state?.lastLinkId ?? -1;
       if (dirty || count !== lastLinkCount || last !== lastLinkId) {
         try {

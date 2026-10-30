@@ -263,7 +263,7 @@ function laneStub(graph, node, isInput, slot) {
     // stub tip and the nudge fan-out staggers them from there.
     const linkId = isInput ? slots[j].link : slots[j].links?.[0]
     if (linkId == null) continue
-    const ll = graph._links?.get?.(Number(linkId))
+    const ll = graph.links?.get?.(Number(linkId))
     if (!ll) continue
     const other = graph.getNodeById(isInput ? ll.origin_id : ll.target_id)
     if (!other) continue
@@ -287,7 +287,7 @@ function laneStub(graph, node, isInput, slot) {
 export function routeFor(canvas, linkData, pcb = true, nativeRibbons = false) {
   const s = linkData.startPoint, e = linkData.endPoint
   const g = canvas.graph
-  const llink = g?._links?.get?.(Number(linkData.id))
+  const llink = g?.links?.get?.(Number(linkData.id))
   const sIsPin = linkData.startDirection !== 'none'
   const eIsPin = linkData.endDirection !== 'none'
   // Mixed modes: outside PCB only comb crossings become traces, and a crossing has
