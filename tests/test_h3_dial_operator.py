@@ -64,12 +64,14 @@ class OperatorTests(unittest.TestCase):
         return (patched(x) - base)[0] if patched else torch.zeros(8)
 
     def test_terms_expand_over_templates(self):
-        pairs = op.term_pairs("slow motion", "fast motion").splitlines()
+        pairs = op.term_pairs("slow motion", "fast motion", op.SUBJECTS).splitlines()
         self.assertEqual(len(pairs), len(op.TEMPLATES))
         self.assertEqual(pairs[0], "{subject}, slow motion. ||| {subject}, fast motion.")
-        self.assertEqual(op.term_pairs("{subject} sits.", "{subject} runs."), "{subject} sits. ||| {subject} runs.")
+        self.assertEqual(op.term_pairs("{subject} sits.", "{subject} runs.", op.SUBJECTS), "{subject} sits. ||| {subject} runs.")
         with self.assertRaises(ValueError):
-            op.term_pairs("{subject} a\n{subject} b", "{subject} c")
+            op.term_pairs("{subject} a\n{subject} b", "{subject} c", op.SUBJECTS)
+        self.assertEqual(op.term_pairs("slow motion", "fast motion", " ").splitlines()[1],
+                         "A video, slow motion. ||| A video, fast motion.")
 
     def test_sum_matches_strengths_and_off_slots_skip(self):
         slots = [{"id": "1", "a": "still", "b": "morphing", "strength": 2},

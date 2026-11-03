@@ -26,6 +26,7 @@ import nodes as comfy_nodes
 DIAL_DIR = "dials"
 TEMPLATES = ("{subject}, {term}.", "A video of {subject}, {term}.",
              "{subject} in a scene, {term}.", "{term}. {subject}.")
+BARE_TEMPLATES = ("{term}.", "A video, {term}.", "A scene, {term}.", "A shot, {term}.")  # empty subject list
 SUBJECTS = "A young woman\nAn old man\nA dancer\nA golden dog\nA bouquet of flowers\nA human face"
 KEY_SUFFIX = {"pre": "diff_b", "post": "dials_shift"}
 
@@ -43,15 +44,16 @@ def term_key(a, b, subjects):
     return hashlib.sha1(json.dumps([a.strip(), b.strip(), subjects.strip(), TEMPLATES]).encode()).hexdigest()[:12]
 
 
-def term_pairs(a, b):
+def term_pairs(a, b, subjects):
     # Lines with {subject} are used as written, paired by line; plain terms go through the templates.
     if "{subject}" in a or "{subject}" in b:
         la, lb = [x.strip() for x in a.splitlines() if x.strip()], [x.strip() for x in b.splitlines() if x.strip()]
         if len(la) != len(lb):
             raise ValueError(f"A has {len(la)} sentence lines and B has {len(lb)}; give each A line a B line")
         return "\n".join(f"{x} ||| {y}" for x, y in zip(la, lb))
+    templates = TEMPLATES if subjects.strip() else BARE_TEMPLATES
     return "\n".join(t.format(subject="{subject}", term=a.strip()) + " ||| " + t.format(subject="{subject}", term=b.strip())
-                     for t in TEMPLATES)
+                     for t in templates)
 
 
 def slug(text, size=24):
@@ -135,7 +137,7 @@ def resolve(slot, subjects, clip, model):
     if clip is None:
         raise ValueError(f"dial '{slot['a']} -> {slot['b']}' is made from text, so connect clip")
     key = term_key(slot["a"], slot["b"], subjects)
-    made[key] = dials_node("DialsMakeDial").execute(clip, model, term_pairs(slot["a"], slot["b"]), subjects,
+    made[key] = dials_node("DialsMakeDial").execute(clip, model, term_pairs(slot["a"], slot["b"], subjects), subjects,
                                                      f"{slug(slot['a'])}_vs_{slug(slot['b'])}", "post_refiner (hook)", False).result[0]
     while len(made) > 64:
         made.popitem(last=False)
