@@ -376,3 +376,29 @@ async def text_holdup_submit(request):
             status=404,
         )
     return web.json_response({"ok": True})
+
+
+@server.PromptServer.instance.routes.get("/trent/h3_dial_operator/dials")
+async def h3_dial_operator_dials(request):
+    """Saved dials with the terms they were made from, for the concept picker."""
+    from .nodes.h3_dial_operator import list_dials
+
+    return web.json_response({"ok": True, "dials": list_dials()})
+
+
+@server.PromptServer.instance.routes.post("/trent/h3_dial_operator/save")
+async def h3_dial_operator_save(request):
+    """
+    Save one text slot now if its dial is already made.
+
+    Body: {"slot": {"a", "b", "name"?}, "subjects": str}
+    Returns {"ok": True, "file": str | None}; None means it saves on the next run.
+    """
+    from .nodes.h3_dial_operator import save_now
+
+    try:
+        data = await request.json()
+        slot, subjects = data["slot"], data["subjects"]
+        return web.json_response({"ok": True, "file": save_now(slot, subjects)})
+    except (ValueError, KeyError, TypeError) as err:
+        return web.json_response({"ok": False, "error": str(err)}, status=400)
