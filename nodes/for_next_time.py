@@ -315,6 +315,15 @@ class TakeFromLastTime:
                         "entry is missing"
                     ),
                 }),
+                "start_fresh": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "True clears the slot and returns the "
+                        "fallback, as if nothing was ever saved. "
+                        "Connect is_first_clip from Video Chain so "
+                        "every run starts from the fallback image"
+                    ),
+                }),
             },
         }
 
@@ -363,7 +372,10 @@ class TakeFromLastTime:
         entry_name: str = "",
         fallback_mode: str = "block",
         fallback_image=None,
+        start_fresh: bool = False,
     ) -> Tuple[Any, ...]:
+        if start_fresh:
+            store.clear_slot(slot_name)
         path = store.slot_dir(slot_name, create=True)
         entries = store.list_entries(path)
         name = store.resolve_entry(path, steps_back, entry_name)
