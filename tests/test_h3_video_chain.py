@@ -108,16 +108,16 @@ class VideoChainTests(unittest.TestCase):
                 self.assertNotIn("noise_mask", latent)
             else:
                 prev = 1000 * (clip - 1)
-                # latents 1..11 = the previous clip's last 12 latents (30..41); latent 0 = clip 1's latent 30
+                # latents 1..11 = the previous clip's last 12 latents (30..41); latent 0 = clip 1's latent 0
                 self.assertTrue(torch.equal(video[0, 0, 1:12, 0, 0], torch.arange(31, 42).float() + prev))
-                self.assertEqual(video[0, 0, 0, 0, 0].item(), 30.0)
+                self.assertEqual(video[0, 0, 0, 0, 0].item(), 0.0)
                 self.assertTrue(torch.equal(video[0, 0, 12:], torch.zeros(30, 4, 6)))
                 self.assertTrue(torch.equal(audio[0, 0, 0, :65], torch.arange(170, 235).float() + prev))
                 vm, am = latent["noise_mask"].tensors
                 self.assertTrue((vm[0, 0, :12] == 0).all() and (vm[0, 0, 12:] == 1).all())
                 self.assertTrue((am[..., :65] == 0).all() and (am[..., 65:] == 1).all())
                 self.assertEqual(start_image.shape, (1, 64, 96, 3))
-                self.assertAlmostEqual(start_image.mean().item(), 30.0, places=4)
+                self.assertAlmostEqual(start_image.mean().item(), 0.0, places=4)
 
             saved = remember.remember(chain, self.sampled(clip), "low res")[0]
             frames = torch.full((FRAMES, 64, 96, 3), float(clip))
@@ -205,6 +205,40 @@ class VideoChainTests(unittest.TestCase):
         m = self.manager()
         self.chain(m, 0, later_prompt=None)
         self.assertEqual(self.chain(m, 1, later_prompt=None)[3], "first")
+
+    def test_story_arc_stages(self):
+        stages = {n: [chain_mod._arc_stage(k, n) for k in range(n)] for n in (1, 2, 3, 4, 6)}
+        self.assertEqual(stages[1], ["intro"])
+        self.assertEqual(stages[2], ["intro", "resolution"])
+        self.assertEqual(stages[3], ["intro", "climax", "resolution"])
+        self.assertEqual(stages[4], ["intro", "rising action", "climax", "resolution"])
+        self.assertEqual(stages[6], ["intro", "rising action", "rising action", "conflict", "climax", "resolution"])
+        m = self.manager()
+        chain = self.chain(m, 1, clips=4, clips_already_made=1)[0]   # clip 3 of 5
+        beat, stage = chain_mod.H3StoryArc().beat(chain, "i", "r", "c", "cl", "res")
+        self.assertEqual((beat, stage), ("STORY ARC: clip 3 of 5, CONFLICT. c", "conflict"))
+
+    def test_swap_unsampled_context(self):
+        m = self.manager()
+        cont, remember = chain_mod.H3ContinueFromLastClip(), chain_mod.H3RememberClipEnding()
+        remember.remember(self.chain(m, 0)[0], self.sampled(0), "swap")
+        chain = self.chain(m, 1)[0]
+        latent = cont.continue_clip(chain, self.empty(), "swap", False)[0]
+        clean_video, clean_audio = latent["samples"].tensors
+        # the first half returns locked latents scaled by 1 / (1 - 0.8)
+        first = {"samples": NestedTensor((clean_video * 5 + 0.5, clean_audio * 5)), "noise_mask": latent["noise_mask"]}
+        unsampled = {"samples": NestedTensor((torch.full((1, 24, 42, 4, 6), 7.0), clean_audio))}
+        out = chain_mod.H3SwapUnsampledContext().swap(latent, first, unsampled)[0]
+        video, audio = out["samples"].tensors
+        mask = out["noise_mask"].tensors[0][0, 0, :, 0, 0]
+        self.assertTrue(torch.equal(video[:, :, 0], clean_video[:, :, 0]))
+        self.assertTrue(torch.equal(video[:, :, 11], clean_video[:, :, 11]))
+        self.assertTrue((video[:, :, 1:11] == 7.0).all())
+        self.assertTrue(torch.equal(video[:, :, 12:], clean_video[:, :, 12:] * 5 + 0.5))
+        self.assertTrue(torch.equal(audio[..., :65], clean_audio[..., :65]))
+        self.assertEqual(mask[:13].tolist(), [0.0] + [1.0] * 10 + [0.0, 1.0])
+        first_clip = self.empty()
+        self.assertIs(chain_mod.H3SwapUnsampledContext().swap(first_clip, first, unsampled)[0], first)
 
 
 if __name__ == "__main__":

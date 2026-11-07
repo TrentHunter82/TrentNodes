@@ -113,10 +113,67 @@ class H3VideoChain:
         clip = clips_already_made + step
         first = clip == 0
         seed = (seed + clip) % (1 << 64)
-        chain = {"clip": clip, "first_clip": clips_already_made, "overlap": overlap_frames, "manager": meta_batch}
+        chain = {"clip": clip, "first_clip": clips_already_made, "clips": clips_already_made + clips,
+                 "overlap": overlap_frames, "manager": meta_batch}
         start = song_offset + clip * (frames - overlap_frames) / FPS
         text = first_prompt if first or later_prompt is None else later_prompt
         return (chain, seed, start, ExecutionBlocker(None) if text is None else text, first)
+
+
+STAGES = ("intro", "rising action", "conflict", "climax", "resolution")
+
+
+def _arc_stage(clip, clips):
+    # First clip is the intro, the last the resolution, the one before it the climax;
+    # the clips between are split into rising action, then conflict.
+    if clip == 0:
+        return "intro"
+    if clip == clips - 1:
+        return "resolution"
+    if clip == clips - 2:
+        return "climax"
+    middle = clips - 3
+    return "rising action" if clip - 1 < (middle + 1) // 2 else "conflict"
+
+
+class H3StoryArc:
+    CATEGORY = "Trent/MiniMax"
+    DISPLAY_NAME = "Story Arc"
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("beat", "stage")
+    OUTPUT_TOOLTIPS = (
+        "Where this clip sits in the story, with that stage's text. Add it to the Codex brief.",
+        "The stage name only: intro, rising action, conflict, climax or resolution.",
+    )
+    FUNCTION = "beat"
+    DESCRIPTION = ("Gives each clip of a Video Chain its place in a five-part story arc: clip 1 is the "
+                   "intro, the last clip the resolution, the one before it the climax, and the clips "
+                   "between are rising action, then conflict.")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        text = lambda default, tip: ("STRING", {"default": default, "multiline": True, "tooltip": tip})
+        return {
+            "required": {
+                "chain": ("H3_CHAIN", {"tooltip": "From Video Chain."}),
+                "intro": text("Introduce the character, the place and the mood. Plant one strange detail.",
+                              "Text for clip 1."),
+                "rising_action": text("Something unexpected happens and the tension grows. Raise one question.",
+                                      "Text for the clips after the intro."),
+                "conflict": text("The threat becomes real and the character must act. Push the danger closer.",
+                                 "Text for the clips between rising action and the climax."),
+                "climax": text("The peak: the biggest, most intense moment of the story.",
+                               "Text for the clip before the last."),
+                "resolution": text("The aftermath. Show what changed, and end on a strong final image.",
+                                   "Text for the last clip."),
+            },
+        }
+
+    def beat(self, chain, intro, rising_action, conflict, climax, resolution):
+        clip, clips = chain["clip"], chain["clips"]
+        stage = _arc_stage(clip, clips)
+        text = dict(zip(STAGES, (intro, rising_action, conflict, climax, resolution)))[stage]
+        return ("STORY ARC: clip %d of %d, %s. %s" % (clip + 1, clips, stage.upper(), text), stage)
 
 
 class H3ContinueFromLastClip:
@@ -143,7 +200,7 @@ class H3ContinueFromLastClip:
                 "name": ("STRING", {"default": "low res",
                     "tooltip": "Same name as on Remember Clip Ending. Use one name per pass size."}),
                 "keep_look_of_clip_1": ("BOOLEAN", {"default": True,
-                    "tooltip": "Copies one clean frame of clip 1 into the hidden first frame of every "
+                    "tooltip": "Copies the first frame of clip 1 into the hidden first frame of every "
                                "clip, so colours and faces drift less over a long chain. "
                                "The frame is cut away again, so it never shows."}),
             },
@@ -188,7 +245,7 @@ class H3ContinueFromLastClip:
 
         if keep_look_of_clip_1:
             first = safetensors.torch.load_file(_ending_path(name, 0), device="cpu")
-            out = MiniMaxH3KeystoneGraft().graft(out, {"samples": [first["video"], first["audio"]]}, 0, 0.0)[0]
+            out = MiniMaxH3KeystoneGraft().graft(out, {"samples": [first["first_video"], first["audio"]]}, 0, 0.0)[0]
 
         if vae is None:
             start = ExecutionBlocker("%s: connect the video VAE to get start_image on later clips." % who)
@@ -198,6 +255,154 @@ class H3ContinueFromLastClip:
             start = start.reshape(-1, *start.shape[-3:])[:1]
         logging.info("[Video Chain] clip %d continues from %s (%d frames)", chain["clip"] + 1, path, n)
         return (out, start)
+
+
+class _HeldNoise:
+    """Sampler noise with the held latents swapped for noise unsampled from the clip before."""
+
+    def __init__(self, noise, held):
+        self.seed = noise.seed
+        self.noise = noise
+        self.held = held
+
+    def generate_noise(self, input_latent):
+        video, audio = self.noise.generate_noise(input_latent).unbind()
+        video = video.clone()
+        n = self.held.shape[2]
+        held = self.held.to(video)
+        # Unsampling a few-step model gives weak noise (std ~0.55). Fill the missing
+        # variance with the fresh noise, so H3 still reads these rows as fully noised.
+        std = held.std(dim=(0, 1, 3, 4), keepdim=True).clamp(max=1.0)
+        video[:, :, :n] = held + (1.0 - std * std).sqrt() * video[:, :, :n]
+        return NestedTensor((video, audio))
+
+
+class H3ContextNoise:
+    CATEGORY = "Trent/MiniMax"
+    DISPLAY_NAME = "Context Noise"
+    RETURN_TYPES = ("LATENT", "NOISE")
+    RETURN_NAMES = ("latent", "noise")
+    OUTPUT_TOOLTIPS = (
+        "Latent for the sampler, with the copied frames partly open to the noise.",
+        "Noise for the sampler. With unsampled connected, the copied frames start from their own unsampled noise.",
+    )
+    FUNCTION = "open_context"
+    DESCRIPTION = ("Put between Continue From Last Clip and the sampler. The copied frames get some "
+                   "of the noise at every step, most at the start and none at the join, so H3 "
+                   "continues them without copying their flaws. Clip 1 passes through.")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "latent": ("LATENT", {"tooltip": "From Continue From Last Clip."}),
+                "noise": ("NOISE", {"tooltip": "The sampler's noise, e.g. Random Noise."}),
+                "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05,
+                    "tooltip": "Noise on the second copied latent (1 = as much as the new frames). "
+                               "It fades to 0 at the join. The first latent always stays locked."}),
+                "fade": (["linear", "ease"], {"default": "linear",
+                    "tooltip": "ease falls faster, so more of the copied frames stay close to locked."}),
+            },
+            "optional": {
+                "unsampled": ("LATENT", {"lazy": True,
+                    "tooltip": "The clip before, sampled back with unsample_sigmas (e.g. from Take from "
+                               "Last Time). The copied frames then start from noise that leads back to them."}),
+                "unsample_sigmas": ("SIGMAS", {
+                    "tooltip": "The rising sigmas that made unsampled. Connect both or neither. "
+                               "The last sigma must be below 1."}),
+            },
+        }
+
+    @staticmethod
+    def _held(latent):
+        mask = latent.get("noise_mask")
+        if mask is None:
+            return 0
+        video_mask = mask.tensors[0]
+        held = 0
+        while held < video_mask.shape[2] and video_mask[:, :, held].max() < 0.5:
+            held += 1
+        return held
+
+    def check_lazy_status(self, latent, noise, strength, fade, unsampled=None, unsample_sigmas=None):
+        # unsampled is read only with unsample_sigmas connected, so it can stay unconnected
+        need = unsample_sigmas is not None and strength > 0 and self._held(latent) > 2
+        return ["unsampled"] if need else []
+
+    def open_context(self, latent, noise, strength, fade, unsampled=None, unsample_sigmas=None):
+        held = self._held(latent)
+        if held <= 2 or strength <= 0:
+            return (latent, noise)
+
+        video_mask, audio_mask = latent["noise_mask"].tensors
+        video_mask = video_mask.clone()
+        ramp = held - 2  # latent 0 stays locked, the last held latent is the join and stays locked
+        values = []
+        for i in range(ramp):
+            w = 1.0 - i / ramp
+            m = strength * (w if fade == "linear" else w * w)
+            video_mask[:, :, i + 1] = m
+            values.append(round(m, 3))
+        out = latent.copy()
+        out["noise_mask"] = NestedTensor((video_mask, audio_mask))
+
+        if unsampled is not None and unsample_sigmas is not None:
+            s = float(unsample_sigmas[-1])
+            if not 0.0 < s < 1.0:
+                raise ValueError("Context Noise: unsample_sigmas must end between 0 and 1, not %g. "
+                                 "Split off the last sigma of the flipped schedule." % s)
+            # The sampler returns x_s / (1 - s) with x_s = s * n + (1 - s) * x0, so n = (1 - s) / s * (out - x0).
+            x0 = latent["samples"].tensors[0][:, :, :held]
+            back = unsampled["samples"].tensors[0][:, :, -held:].to(x0)
+            noise = _HeldNoise(noise, (1.0 - s) / s * (back - x0))
+        logging.info("[Video Chain] context noise on copied latents 1-%d: %s%s", ramp, values,
+                     " (unsampled)" if isinstance(noise, _HeldNoise) else "")
+        return (out, noise)
+
+
+class H3SwapUnsampledContext:
+    CATEGORY = "Trent/MiniMax"
+    DISPLAY_NAME = "Swap In Unsampled Context"
+    RETURN_TYPES = ("LATENT",)
+    RETURN_NAMES = ("latent",)
+    OUTPUT_TOOLTIPS = ("Latent for the second half of the sampling (no added noise).",)
+    FUNCTION = "swap"
+    DESCRIPTION = ("Split unsample/resample for chained clips. Sample the first half of the steps with "
+                   "the copied frames locked, then this puts the clip before, unsampled to the same "
+                   "sigma, into the copied frames and opens them. The second half then denoises them "
+                   "from their own unsampled state. The first latent and the join stay locked. "
+                   "Clip 1 passes through.")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "latent": ("LATENT", {"tooltip": "From Continue From Last Clip (before sampling)."}),
+                "sampled": ("LATENT", {"tooltip": "The first half: the sampler run from the top sigma to the split sigma."}),
+                "unsampled": ("LATENT", {"tooltip": "The clip before, unsampled from 0 up to the same split sigma "
+                                                    "(e.g. Take from Last Time). Ignored on clip 1."}),
+            },
+        }
+
+    def swap(self, latent, sampled, unsampled):
+        held = H3ContextNoise._held(latent)
+        if held <= 2:
+            return (sampled,)
+        clean_video, clean_audio = latent["samples"].tensors
+        video_mask, audio_mask = latent["noise_mask"].tensors
+        video, audio = sampled["samples"].tensors
+        # A sampler that stops above sigma 0 returns x / (1 - sigma), which also scales the locked
+        # latents. The next sampler reads locked latents as clean, so put the clean ones back.
+        video = torch.where(video_mask.to(video.device) == 0, clean_video.to(video), video)
+        audio = torch.where(audio_mask.to(audio.device) == 0, clean_audio.to(audio), audio)
+        video[:, :, 1:held - 1] = unsampled["samples"].tensors[0][:, :, -held:][:, :, 1:held - 1].to(video)
+        video_mask = video_mask.clone()
+        video_mask[:, :, 1:held - 1] = 1.0
+        out = sampled.copy()
+        out["samples"] = NestedTensor((video, audio))
+        out["noise_mask"] = NestedTensor((video_mask, audio_mask))
+        logging.info("[Video Chain] unsampled context swapped into copied latents 1-%d", held - 2)
+        return (out,)
 
 
 class H3RememberClipEnding:
@@ -234,10 +439,14 @@ class H3RememberClipEnding:
         if chain["clip"] == 0:
             shutil.rmtree(folder, ignore_errors=True)
         os.makedirs(folder, exist_ok=True)
-        comfy.utils.save_torch_file({
+        ending = {
             "video": video[:, :, -_video_steps(n):].detach().cpu().contiguous(),
             "audio": audio[..., -_audio_steps(n):].detach().cpu().contiguous(),
-        }, path)
+        }
+        if chain["clip"] == 0:
+            # Frame 0 of clip 1 is the keystone for keep_look_of_clip_1.
+            ending["first_video"] = video[:, :, :1].detach().cpu().contiguous()
+        comfy.utils.save_torch_file(ending, path)
         return ((after or []) + [path],)
 
 
@@ -310,6 +519,9 @@ class H3JoinClips:
 NODE_CLASS_MAPPINGS = {
     "H3VideoChain": H3VideoChain,
     "H3ContinueFromLastClip": H3ContinueFromLastClip,
+    "H3ContextNoise": H3ContextNoise,
+    "H3StoryArc": H3StoryArc,
+    "H3SwapUnsampledContext": H3SwapUnsampledContext,
     "H3RememberClipEnding": H3RememberClipEnding,
     "H3JoinClips": H3JoinClips,
 }
