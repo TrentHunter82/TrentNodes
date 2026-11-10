@@ -240,6 +240,23 @@ class VideoChainTests(unittest.TestCase):
         first_clip = self.empty()
         self.assertIs(chain_mod.H3SwapUnsampledContext().swap(first_clip, first, unsampled)[0], first)
 
+    def test_pin_first_frame_from_latent(self):
+        m = self.manager()
+        remember = chain_mod.H3RememberClipEnding()
+        remember.remember(self.chain(m, 0)[0], self.sampled(0), "pin")
+        latent = chain_mod.H3ContinueFromLastClip().continue_clip(self.chain(m, 1)[0], self.empty(), "pin", False)[0]
+        guide = torch.full((1, 24, 1, 4, 6), -3.0, dtype=torch.float16)
+        later = {"latent": torch.zeros(1, 24, 1, 4, 6), "resolved_frame_index": 40}
+        positive = [[torch.zeros(1, 2), {"minimax_keyframes": [{"latent": guide, "resolved_frame_index": 0}, later]}]]
+        out = chain_mod.H3PinFirstFrameFromLatent().pin(positive, latent)[0]
+        kf = out[0][1]["minimax_keyframes"]
+        self.assertTrue(torch.equal(kf[0]["latent"], latent["samples"].tensors[0][:, :, :1].half()))
+        self.assertEqual(kf[0]["latent"].dtype, torch.float16)
+        self.assertIs(kf[1], later)
+        self.assertIs(positive[0][1]["minimax_keyframes"][0]["latent"], guide)
+        # clip 1 has no locked frames, so the guide stays the start picture
+        self.assertIs(chain_mod.H3PinFirstFrameFromLatent().pin(positive, self.empty())[0], positive)
+
 
 if __name__ == "__main__":
     unittest.main()

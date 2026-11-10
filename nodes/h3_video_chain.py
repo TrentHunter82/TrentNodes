@@ -516,6 +516,31 @@ class H3JoinClips:
         return (images, out)
 
 
+class H3PinFirstFrameFromLatent:
+    CATEGORY = "Trent/MiniMax"
+    DISPLAY_NAME = "Pin First Frame From Latent"
+    RETURN_TYPES = ("CONDITIONING",)
+    RETURN_NAMES = ("positive",)
+    FUNCTION = "pin"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"positive": ("CONDITIONING",), "latent": ("LATENT",)}}
+
+    def pin(self, positive, latent):
+        mask = latent.get("noise_mask")
+        if mask is None or mask.tensors[0][:, :, :1].max() > 0:
+            return (positive,)
+        first = _streams(latent, "Pin First Frame From Latent")[0][:, :, :1]
+        out = []
+        for t, d in positive:
+            d = d.copy()
+            d["minimax_keyframes"] = [dict(kf, latent=first.to(kf["latent"])) if kf["resolved_frame_index"] == 0 and "latent" in kf else kf
+                                      for kf in d["minimax_keyframes"]]
+            out.append([t, d])
+        return (out,)
+
+
 NODE_CLASS_MAPPINGS = {
     "H3VideoChain": H3VideoChain,
     "H3ContinueFromLastClip": H3ContinueFromLastClip,
@@ -524,5 +549,6 @@ NODE_CLASS_MAPPINGS = {
     "H3SwapUnsampledContext": H3SwapUnsampledContext,
     "H3RememberClipEnding": H3RememberClipEnding,
     "H3JoinClips": H3JoinClips,
+    "H3PinFirstFrameFromLatent": H3PinFirstFrameFromLatent,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {k: v.DISPLAY_NAME for k, v in NODE_CLASS_MAPPINGS.items()}
