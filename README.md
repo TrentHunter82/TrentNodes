@@ -336,7 +336,11 @@ Analyzes animation sequences to detect duplicate frames and replaces them with g
 
 Removes padding frames inserted by the Enhanced Animation Timing Processor. Connect the `removal_indices` output from the processor to automatically strip the temporary padding frames after video generation, returning to the original frame count while preserving the generated content.
 
-### 🖼️ Trent/Image (14 nodes)
+### 🖼️ Trent/Image (16 nodes)
+
+**Save JPEG / Preview JPEG**
+
+Save JPEG writes every image of a batch straight to `.jpg` in the output folder and shows them in the node. Preview JPEG does the same from the temp folder, so nothing lands in the output folder. Both have a `quality` setting (1-100, default 95) and keep colour at full resolution (4:4:4). No PNG is written, alpha is dropped, and no workflow is embedded in the file. From [AIWarper's ComfyUI-WarperNodes](https://github.com/AIWarper/ComfyUI-WarperNodes).
 
 **Image+Text Grid**
 
