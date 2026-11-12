@@ -450,6 +450,19 @@ class H3RememberClipEnding:
         return ((after or []) + [path],)
 
 
+JOIN_LOOK_FRAMES = 4
+
+
+def _colour_look(frames):
+    px = frames.reshape(-1, 3).to(device="cpu", dtype=torch.float64)
+    return px.mean(dim=0), torch.cov(px.T)
+
+
+def _matrix_sqrt(m):
+    values, vectors = torch.linalg.eigh(m)
+    return (vectors * values.clamp(min=1e-12).sqrt()) @ vectors.T
+
+
 class H3JoinClips:
     CATEGORY = "Trent/MiniMax"
     DISPLAY_NAME = "Join Clips"
@@ -476,9 +489,9 @@ class H3JoinClips:
             },
             "optional": {
                 "match_colour_frames": ("INT", {"default": 0, "min": 0, "max": 9999,
-                    "tooltip": "0 = off. Each clip starts in the colour the clip before ended in, "
-                               "measured on the copied frames, and fades to its own colour over "
-                               "this many frames. Hides a colour step at the join."}),
+                    "tooltip": "0 = off. Each clip starts in the colour the clip before ended in "
+                               "and fades to its own colour over this many frames. "
+                               "Hides a colour step at the join. Try 48."}),
             },
         }
 
@@ -491,22 +504,25 @@ class H3JoinClips:
         n = 0 if clip == 0 else chain["overlap"]
         if n >= images.shape[0]:
             raise ValueError("Join Clips: the clip has %d frames, the overlap is %d." % (images.shape[0], n))
+        images = images[n:]
         folder = os.path.dirname(saved[-1])
         look_path = os.path.join(folder, "join_look.safetensors")
-        copied, images = images[:n], images[n:]
         if match_colour_frames > 0:
             if n > 0 and os.path.isfile(look_path):
-                # The copied frames show the same picture as the end of the clip before, so the
-                # difference in their channel mean and spread is the colour step of this join.
+                # The picture hardly changes over a few frames, so the difference between the last
+                # frames of the clip before and the first new frames is the colour step of this join.
+                # A full colour matrix (Monge-Kantorovich) removes it; one gain per channel cannot.
                 look = comfy.utils.load_torch_file(look_path)
-                mean, std = copied.mean(dim=(0, 1, 2)), copied.std(dim=(0, 1, 2)).clamp(min=1e-6)
-                gain = look["std"].to(images) / std
+                mean, cov = _colour_look(images[:JOIN_LOOK_FRAMES])
+                root = _matrix_sqrt(cov)
+                inv = torch.linalg.inv(root)
+                matrix = (inv @ _matrix_sqrt(root @ look["cov"] @ root) @ inv).to(images)
                 fade = min(match_colour_frames, images.shape[0])
                 weight = torch.linspace(1.0, 0.0, fade + 1, device=images.device, dtype=images.dtype)[:fade].view(-1, 1, 1, 1)
-                matched = ((images[:fade] - mean) * gain + look["mean"].to(images)).clamp(0.0, 1.0)
+                matched = ((images[:fade] - mean.to(images)) @ matrix.T + look["mean"].to(images)).clamp(0.0, 1.0)
                 images = torch.cat((torch.lerp(images[:fade], matched, weight), images[fade:]))
-            end = images[-chain["overlap"]:]
-            comfy.utils.save_torch_file({"mean": end.mean(dim=(0, 1, 2)), "std": end.std(dim=(0, 1, 2))}, look_path)
+            mean, cov = _colour_look(images[-JOIN_LOOK_FRAMES:])
+            comfy.utils.save_torch_file({"mean": mean, "cov": cov}, look_path)
 
         # Cut and pad to the exact picture length, so small sound offsets cannot add up down the chain.
         sr = int(audio["sample_rate"])
