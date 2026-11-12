@@ -474,18 +474,39 @@ class H3JoinClips:
                 "saved": ("H3_SAVED", {"tooltip": "From Remember Clip Ending. The next clip "
                                                   "starts only after the ending is saved."}),
             },
+            "optional": {
+                "match_colour_frames": ("INT", {"default": 0, "min": 0, "max": 9999,
+                    "tooltip": "0 = off. Each clip starts in the colour the clip before ended in, "
+                               "measured on the copied frames, and fades to its own colour over "
+                               "this many frames. Hides a colour step at the join."}),
+            },
         }
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def join(self, chain, images, audio, saved):
+    def join(self, chain, images, audio, saved, match_colour_frames=0):
         clip, manager = chain["clip"], chain["manager"]
         n = 0 if clip == 0 else chain["overlap"]
         if n >= images.shape[0]:
             raise ValueError("Join Clips: the clip has %d frames, the overlap is %d." % (images.shape[0], n))
-        images = images[n:]
+        folder = os.path.dirname(saved[-1])
+        look_path = os.path.join(folder, "join_look.safetensors")
+        copied, images = images[:n], images[n:]
+        if match_colour_frames > 0:
+            if n > 0 and os.path.isfile(look_path):
+                # The copied frames show the same picture as the end of the clip before, so the
+                # difference in their channel mean and spread is the colour step of this join.
+                look = comfy.utils.load_torch_file(look_path)
+                mean, std = copied.mean(dim=(0, 1, 2)), copied.std(dim=(0, 1, 2)).clamp(min=1e-6)
+                gain = look["std"].to(images) / std
+                fade = min(match_colour_frames, images.shape[0])
+                weight = torch.linspace(1.0, 0.0, fade + 1, device=images.device, dtype=images.dtype)[:fade].view(-1, 1, 1, 1)
+                matched = ((images[:fade] - mean) * gain + look["mean"].to(images)).clamp(0.0, 1.0)
+                images = torch.cat((torch.lerp(images[:fade], matched, weight), images[fade:]))
+            end = images[-chain["overlap"]:]
+            comfy.utils.save_torch_file({"mean": end.mean(dim=(0, 1, 2)), "std": end.std(dim=(0, 1, 2))}, look_path)
 
         # Cut and pad to the exact picture length, so small sound offsets cannot add up down the chain.
         sr = int(audio["sample_rate"])
@@ -496,7 +517,6 @@ class H3JoinClips:
         wave = wave.detach().to(device="cpu", dtype=torch.float32).contiguous()
 
         # Each clip's sound goes to disk beside the last saved ending, which clip 1 clears.
-        folder = os.path.dirname(saved[-1])
         comfy.utils.save_torch_file({"waveform": wave, "sample_rate": torch.tensor(sr)},
                                     os.path.join(folder, "sound_%04d.safetensors" % clip))
         out = {"waveform": wave, "sample_rate": sr}
@@ -535,8 +555,12 @@ class H3PinFirstFrameFromLatent:
         out = []
         for t, d in positive:
             d = d.copy()
-            d["minimax_keyframes"] = [dict(kf, latent=first.to(kf["latent"])) if kf["resolved_frame_index"] == 0 and "latent" in kf else kf
-                                      for kf in d["minimax_keyframes"]]
+            keyframes = [dict(kf, latent=first.to(kf["latent"])) if kf["resolved_frame_index"] == 0 and "latent" in kf else kf
+                         for kf in d.get("minimax_keyframes", [])]
+            if not any(kf["resolved_frame_index"] == 0 and "latent" in kf for kf in keyframes):
+                # Reference to Video has no first frame guide, so the pin adds one.
+                keyframes.append({"resolved_frame_index": 0, "latent": first.clone()})
+            d["minimax_keyframes"] = keyframes
             out.append([t, d])
         return (out,)
 

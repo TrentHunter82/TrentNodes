@@ -240,6 +240,22 @@ class VideoChainTests(unittest.TestCase):
         first_clip = self.empty()
         self.assertIs(chain_mod.H3SwapUnsampledContext().swap(first_clip, first, unsampled)[0], first)
 
+    def test_join_matches_colour_of_copied_frames(self):
+        m = self.manager()
+        gen = torch.Generator().manual_seed(0)
+        first = torch.rand(FRAMES, 8, 8, 3, generator=gen) * 0.4 + 0.3
+        new = torch.rand(FRAMES - OVERLAP, 8, 8, 3, generator=gen) * 0.4 + 0.3
+        # Clip 2 has a colour step, on its copied frames too.
+        second = torch.cat((first[-OVERLAP:], new)) * 0.8 + 0.05
+        for clip, frames in enumerate((first, second)):
+            chain = self.chain(m, clip)[0]
+            saved = chain_mod.H3RememberClipEnding().remember(chain, self.sampled(clip), "low res")[0]
+            images, _ = chain_mod.H3JoinClips().join(chain, frames, self.song_cut(clip), saved, 20)
+        self.assertEqual(images.shape[0], FRAMES - OVERLAP)
+        self.assertTrue(torch.allclose(images[0], new[0], atol=1e-4))
+        self.assertTrue(torch.equal(images[20:], second[OVERLAP + 20:]))
+        self.assertTrue(torch.allclose(images[10], torch.lerp(second[OVERLAP + 10], new[10], 0.5), atol=1e-4))
+
     def test_pin_first_frame_from_latent(self):
         m = self.manager()
         remember = chain_mod.H3RememberClipEnding()
@@ -256,6 +272,13 @@ class VideoChainTests(unittest.TestCase):
         self.assertIs(positive[0][1]["minimax_keyframes"][0]["latent"], guide)
         # clip 1 has no locked frames, so the guide stays the start picture
         self.assertIs(chain_mod.H3PinFirstFrameFromLatent().pin(positive, self.empty())[0], positive)
+        # Reference to Video conditioning has no guide: the pin adds one, and clip 1 stays as it is
+        ref = [[torch.zeros(1, 2), {"minimax_refs": []}]]
+        kf = chain_mod.H3PinFirstFrameFromLatent().pin(ref, latent)[0][0][1]["minimax_keyframes"]
+        self.assertEqual([k["resolved_frame_index"] for k in kf], [0])
+        self.assertTrue(torch.equal(kf[0]["latent"], latent["samples"].tensors[0][:, :, :1]))
+        self.assertNotIn("minimax_keyframes", ref[0][1])
+        self.assertIs(chain_mod.H3PinFirstFrameFromLatent().pin(ref, self.empty())[0], ref)
 
 
 if __name__ == "__main__":
