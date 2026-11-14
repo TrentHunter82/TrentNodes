@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 import torch
+from PIL import Image
 
 import comfy.model_patcher
 import folder_paths
@@ -17,9 +18,11 @@ spec = importlib.util.spec_from_file_location(
     "dials_nodes", os.path.join(os.path.dirname(__file__), "..", "..", "ComfyUI-Dials", "nodes.py"))
 dials = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dials)
+sys.modules["dials_nodes"] = dials
 
 
 class FakeMakeDial:
+    __module__ = "dials_nodes"  # the image path reads Dials' helpers from the Make Dial module
     calls = []
 
     @classmethod
@@ -31,11 +34,37 @@ class FakeMakeDial:
         return dials.io.NodeOutput(dial, "")
 
 
+class MiniMaxH3Model(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.condition_proj = torch.nn.Linear(8, 8)
+        self.token_refiner = torch.nn.Linear(8, 8)
+
+
 class Refiner(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.diffusion_model = torch.nn.Module()
-        self.diffusion_model.token_refiner = torch.nn.Linear(8, 8)
+        self.diffusion_model = MiniMaxH3Model()
+
+    def get_dtype_inference(self):
+        return torch.float32
+
+
+class FakeClip:
+    """3 picture tokens (tag 0, loud) then 4 text tokens (tag 1) that depend on text and picture."""
+
+    def tokenize(self, text, images=()):
+        return text, images[0] if images else None
+
+    def encode_from_tokens_scheduled(self, tokens):
+        text, image = tokens
+        g = torch.Generator().manual_seed(sum(map(ord, text)))
+        t = torch.randn(4, 8, generator=g)
+        if image is None:
+            return [[t[None], {}]]
+        m = image.mean((0, 1, 2))
+        pic = m.repeat(3).reshape(1, 9)[:, :8].expand(3, 8) * 100
+        return [[torch.cat([pic, t + m.mean()])[None], {"minimax_token_tags": [0, 0, 0, 1, 1, 1, 1]}]]
 
 
 class OperatorTests(unittest.TestCase):
@@ -47,10 +76,22 @@ class OperatorTests(unittest.TestCase):
                                                 "DialsApplyDial": dials.ApplyDial})
         FakeMakeDial.calls.clear()
         op.made.clear()
+        self.inputs = tempfile.TemporaryDirectory()
+        folder_paths.set_input_directory(self.inputs.name)
+        os.makedirs(os.path.join(self.inputs.name, "image_dials"))
+        for name, rgb in (("a1", (200, 30, 30)), ("a2", (180, 60, 20)), ("b1", (20, 40, 210)), ("b2", (30, 90, 160))):
+            Image.new("RGB", (320, 180), rgb).save(os.path.join(self.inputs.name, "image_dials", name + ".png"))
+        op.comfy.model_management.load_models_gpu = lambda models: None
+        op.comfy.model_management.get_torch_device = lambda: torch.device("cpu")
         self.model = comfy.model_patcher.ModelPatcher(Refiner(), torch.device("cpu"), torch.device("cpu"))
 
     def tearDown(self):
         self.tmp.cleanup()
+        self.inputs.cleanup()
+
+    def image_slot(self, method="pair", a=("a1", "a2"), b=("b1", "b2"), **kw):
+        return {"id": method, "kind": "image", "method": method, "strength": 1,
+                "pictures_a": [f"image_dials/{x}.png" for x in a], "pictures_b": [f"image_dials/{x}.png" for x in b], **kw}
 
     def run_op(self, state, clip="clip", dial=None):
         folder_paths.filename_list_cache.clear()
@@ -117,6 +158,33 @@ class OperatorTests(unittest.TestCase):
     def test_text_slot_needs_clip(self):
         with self.assertRaisesRegex(ValueError, "connect clip"):
             self.run_op({"slots": [{"id": "1", "a": "a", "b": "b", "strength": 1}]}, clip=None)
+
+    def test_image_pair_and_framing(self):
+        pair = op.make_image_dial(FakeClip(), self.model, self.image_slot("pair"))
+        swapped = op.make_image_dial(FakeClip(), self.model, self.image_slot("pair", a=("b1", "b2"), b=("a1", "a2")))
+        self.assertTrue(torch.allclose(pair["vec"], -swapped["vec"], atol=1e-5))
+        self.assertEqual(pair["meta"]["debias_removed"], "off")
+        look = op.make_image_dial(FakeClip(), self.model, self.image_slot("look"))
+        self.assertNotEqual(look["meta"]["debias_removed"], "off")
+        # framings skip the loud picture tokens, so they come out far smaller than the all-token pair dial
+        self.assertLess(look["vec"].norm() * 10, pair["vec"].norm())
+        uneven = op.make_image_dial(FakeClip(), self.model, self.image_slot("bare", b=("b1",)))
+        self.assertEqual(uneven["meta"]["pair_agreement_cos"], "n/a")
+
+    def test_image_slot_saves_and_reloads_without_clip(self):
+        slot = self.image_slot("pair", save=True)
+        m1 = op.run(self.model, {"slots": [slot]}, "", FakeClip(), [])["result"][0]
+        folder_paths.filename_list_cache.clear()
+        saved = [d for d in op.list_dials() if d["method"] == "pair"]
+        self.assertEqual(saved[0]["pictures_b"], slot["pictures_b"])
+        self.assertTrue(saved[0]["name"].startswith("img_pair_a1_vs_b1"))
+        op.made.clear()
+        m2 = op.run(self.model, {"slots": [dict(slot, save=False)]}, "", None, [])["result"][0]
+        self.assertTrue(torch.allclose(self.shift(m1), self.shift(m2), atol=0.05))
+        with self.assertRaises(ValueError):
+            op.image_key(self.image_slot(a=("../../etc/passwd",)))
+        with self.assertRaisesRegex(ValueError, "not found in input"):
+            op.image_key(self.image_slot(a=("missing",)))
 
     def test_rejects_paths_outside_dials(self):
         with self.assertRaises(ValueError):

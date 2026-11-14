@@ -1,22 +1,32 @@
 /**
- * H3 Dial Operator - several dials on one node face.
+ * H3 Dial Operator and Image Dial Operator - several dials on one node face.
  *
  * All state lives as JSON in the node's hidden "dials" widget, so save,
  * load, undo and the API see plain widget values. This file only draws
  * that state and writes edits back:
  *
- *   { slots: [{ id, on, file, name, a, b, strength, save }],
+ *   { slots: [{ id, on, file, name, strength, save,
+ *               a, b,                                   (text)
+ *               kind: "image", method, pictures_a, pictures_b }],  (image)
  *     input: { on, strength }, mix_name, save_mix }
  *
- * A slot with `file` uses that saved dial; otherwise its A and B terms
+ * A slot with `file` uses that saved dial; otherwise its terms or pictures
  * are made into a dial on the next run (clip needed). Save writes at once
  * when the dial is already made, else it is flagged for the next run.
+ * Pictures dropped on a well are uploaded to input/image_dials.
  */
 
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const NODE_NAME = "H3DialOperator";
+const NODES = { H3DialOperator: "text", H3ImageDialOperator: "image" };
+const METHODS = ["pair", "look", "content", "bare"];
+const METHOD_TIPS = {
+    pair: "pair: whole picture, tested method (h3_img_pair_multi)",
+    look: "look: read for colours, light, lines and texture",
+    content: "content: read for what the picture shows",
+    bare: "bare: plain read of the picture",
+};
 const RANGE = 20;
 const NEW = "";
 
@@ -106,6 +116,35 @@ const CSS = `
 }
 .hdo-add:hover { color: var(--hdo-pos); }
 .hdo-note { color: var(--hdo-muted); font-size: 11px; min-height: 14px; }
+.hdo-well {
+    display: flex; align-items: center; gap: 5px; min-height: 52px; padding: 4px 6px;
+    border-radius: 10px; background: rgba(0,0,0,.35); box-shadow: inset 0 0 0 1px var(--hdo-line);
+    overflow-x: auto; overflow-y: hidden;
+}
+.hdo-well.over { box-shadow: inset 0 0 0 2px var(--hdo-pos); }
+.hdo-well .hdo-side-tag { width: 14px; flex: none; font-weight: 600; font-size: 12px; }
+.hdo-well.a .hdo-side-tag { color: var(--hdo-neg); }
+.hdo-well.b .hdo-side-tag { color: var(--hdo-pos); }
+.hdo-thumb {
+    position: relative; width: 44px; height: 44px; flex: none; border-radius: 6px;
+    background: #111 center / cover no-repeat;
+}
+.hdo-thumb i {
+    position: absolute; left: 2px; top: 1px; font: 600 10px var(--hdo-mono); font-style: normal;
+    color: #fff; text-shadow: 0 0 3px #000;
+}
+.hdo-thumb button {
+    position: absolute; right: -4px; top: -4px; width: 16px; height: 16px; border-radius: 50%;
+    border: 0; padding: 0; font-size: 11px; line-height: 16px; cursor: pointer; display: none;
+    background: #2b2f30; color: var(--hdo-text);
+}
+.hdo-thumb:hover button { display: block; }
+.hdo-plus {
+    width: 44px; height: 44px; flex: none; border-radius: 6px; border: 1px dashed rgba(255,255,255,.25);
+    background: none; color: var(--hdo-muted); font-size: 18px; cursor: pointer;
+}
+.hdo-plus:hover { color: var(--hdo-pos); border-color: var(--hdo-pos); }
+.hdo-hint { color: var(--hdo-muted); font-size: 11px; }
 `;
 
 let dialList = [];
@@ -119,7 +158,7 @@ async function refreshDials() {
         console.error("[H3DialOperator] could not list dials", err);
     }
     for (const node of app.graph?._nodes || []) {
-        if (node.type === NODE_NAME) node.hdoRender?.();
+        if (node.type in NODES) node.hdoRender?.();
     }
 }
 
@@ -181,6 +220,36 @@ function bindTurn(el, get, set) {
     });
 }
 
+function pictureUrl(ref) {
+    const cut = ref.lastIndexOf("/");
+    const sub = cut < 0 ? "" : ref.slice(0, cut);
+    const name = ref.slice(cut + 1);
+    return api.apiURL(`/view?filename=${encodeURIComponent(name)}&subfolder=${encodeURIComponent(sub)}&type=input`);
+}
+
+async function uploadPictures(files) {
+    const refs = [];
+    for (const file of files) {
+        if (!file.type.startsWith("image/")) continue;
+        const body = new FormData();
+        body.append("image", file);
+        body.append("subfolder", "image_dials");
+        body.append("type", "input");
+        const resp = await api.fetchApi("/upload/image", { method: "POST", body });
+        if (resp.status !== 200) throw new Error(`upload failed (${resp.status})`);
+        const out = await resp.json();
+        refs.push(out.subfolder ? `${out.subfolder}/${out.name}` : out.name);
+    }
+    return refs;
+}
+
+function newSlot(kind) {
+    const slot = { id: Date.now().toString(36), on: true, file: null, name: "", strength: 1 };
+    return kind === "image"
+        ? { ...slot, kind: "image", method: "pair", pictures_a: [], pictures_b: [] }
+        : { ...slot, a: "", b: "" };
+}
+
 function h(tag, cls, html) {
     const el = document.createElement(tag);
     if (cls) el.className = cls;
@@ -188,7 +257,7 @@ function h(tag, cls, html) {
     return el;
 }
 
-function attach(node) {
+function attach(node, kind) {
     const data = node.widgets.find((w) => w.name === "dials");
     data.hidden = true;
     data.options = { ...data.options, hidden: true };
@@ -210,9 +279,6 @@ function attach(node) {
         node.graph?.setDirtyCanvas(true, true);
         if (redraw) render();
     };
-    const label = (slot) => slot.name ||
-        (slot.a || slot.b ? `${slot.a || "?"} vs ${slot.b || "?"}` : "new dial");
-
     function strengthRow(get, set, onSave) {
         const row = h("div", "hdo-row");
         const knob = h("div", "hdo-knob", knobSvg(get()));
@@ -265,7 +331,14 @@ function attach(node) {
             const d = dialList.find((x) => x.file === file);
             slot.file = d ? d.file : null;
             slot.name = d ? d.name : "";
-            if (d) { slot.a = d.a; slot.b = d.b; }
+            if (d && kind === "image") {
+                slot.pictures_a = d.pictures_a || [];
+                slot.pictures_b = d.pictures_b || [];
+                slot.method = d.method || slot.method;
+            } else if (d) {
+                slot.a = d.a;
+                slot.b = d.b;
+            }
             slot.save = false;
             commit(s);
         };
@@ -286,35 +359,23 @@ function attach(node) {
         top.append(led, pill, del);
         card.append(top);
 
-        const fileOnly = slot.file && !slot.a && !slot.b;
-        const terms = h("div", "hdo-terms");
-        const a = h("input", "hdo-term a");
-        const b = h("input", "hdo-term b");
-        a.placeholder = "A: e.g. slow motion";
-        b.placeholder = "B: e.g. fast motion";
-        a.value = fileOnly ? "(image or mixed dial)" : slot.a || "";
-        b.value = fileOnly ? "" : slot.b || "";
-        a.readOnly = b.readOnly = !!fileOnly;
-        const edit = () => {
-            slot.a = a.value;
-            slot.b = b.value;
-            if (slot.file) { slot.file = null; slot.name = ""; sel.value = NEW; }
-            slot.save = false;
-            saveBox.className = "hdo-save";
-            commit(s, false);
-        };
-        a.oninput = b.oninput = edit;
-        a.onchange = b.onchange = () => render();
-        terms.append(a, h("span", "hdo-vs", "&#8596;"), b);
-        card.append(terms);
-
         const saveBox = h("div", "hdo-save" + (slot.file ? " done" : slot.save ? " wait" : ""));
+        const edited = () => {
+            if (slot.file) { slot.file = null; slot.name = ""; }
+            slot.save = false;
+        };
+        if (kind === "image") card.append(...pictureRows(s, slot, edited));
+        else card.append(termRow(s, slot, sel, saveBox));
+
         const saveBtn = h("button");
         saveBox.append(h("span", "", "Save"), saveBtn);
         saveBox.title = slot.file ? `Saved: ${slot.file}` :
             slot.save ? "Saves on the next run" : "Save this dial";
         saveBtn.onclick = async () => {
-            if (slot.file || !slot.a?.trim() || !slot.b?.trim()) return;
+            const ready = kind === "image"
+                ? slot.pictures_a?.length && slot.pictures_b?.length
+                : slot.a?.trim() && slot.b?.trim();
+            if (slot.file || !ready) return;
             const subjects = node.widgets.find((w) => w.name === "subjects")?.value ?? "";
             try {
                 const resp = await api.fetchApi("/trent/h3_dial_operator/save", {
@@ -346,6 +407,103 @@ function attach(node) {
         return card;
     }
 
+    function termRow(s, slot, sel, saveBox) {
+        const fileOnly = slot.file && !slot.a && !slot.b;
+        const terms = h("div", "hdo-terms");
+        const a = h("input", "hdo-term a");
+        const b = h("input", "hdo-term b");
+        a.placeholder = "A: e.g. slow motion";
+        b.placeholder = "B: e.g. fast motion";
+        a.value = fileOnly ? "(image or mixed dial)" : slot.a || "";
+        b.value = fileOnly ? "" : slot.b || "";
+        a.readOnly = b.readOnly = !!fileOnly;
+        const edit = () => {
+            slot.a = a.value;
+            slot.b = b.value;
+            if (slot.file) { slot.file = null; slot.name = ""; sel.value = NEW; }
+            slot.save = false;
+            saveBox.className = "hdo-save";
+            commit(s, false);
+        };
+        a.oninput = b.oninput = edit;
+        a.onchange = b.onchange = () => render();
+        terms.append(a, h("span", "hdo-vs", "&#8596;"), b);
+        return terms;
+    }
+
+    function pictureRows(s, slot, edited) {
+        const method = h("div", "hdo-pill");
+        const prev = h("button", "hdo-arrow", "&#9664;");
+        const next = h("button", "hdo-arrow", "&#9654;");
+        const name = h("div", "hdo-val", `Method: ${slot.method || "pair"}`);
+        name.style.cursor = "default";
+        name.title = METHOD_TIPS[slot.method || "pair"];
+        const step = (dir) => {
+            const i = METHODS.indexOf(slot.method || "pair");
+            slot.method = METHODS[(i + dir + METHODS.length) % METHODS.length];
+            edited();
+            commit(s);
+        };
+        prev.onclick = () => step(-1);
+        next.onclick = () => step(1);
+        method.append(prev, name, next);
+        if (slot.file && !slot.pictures_a?.length && !slot.pictures_b?.length) {
+            return [method, h("div", "hdo-hint", "Saved dial without pictures (text, image or mix)")];
+        }
+        return [method, well(s, slot, "a", edited), well(s, slot, "b", edited)];
+    }
+
+    function well(s, slot, side, edited) {
+        const key = `pictures_${side}`;
+        const list = slot[key] = slot[key] || [];
+        const box = h("div", `hdo-well ${side}`);
+        box.append(h("span", "hdo-side-tag", side.toUpperCase()));
+        list.forEach((ref, i) => {
+            const t = h("div", "hdo-thumb");
+            t.style.backgroundImage = `url("${pictureUrl(ref)}")`;
+            t.title = ref;
+            t.append(h("i", "", String(i + 1)));
+            const x = h("button", "", "&times;");
+            x.onclick = () => { list.splice(i, 1); edited(); commit(s); };
+            t.append(x);
+            box.append(t);
+        });
+        const add = async (files) => {
+            try {
+                list.push(...await uploadPictures(files));
+                edited();
+                note = "";
+            } catch (err) {
+                note = `Picture upload failed: ${err.message}`;
+            }
+            commit(s);
+        };
+        const plus = h("button", "hdo-plus", "+");
+        plus.title = `Add ${side.toUpperCase()} pictures (or drop them here). A1 pairs with B1, A2 with B2...`;
+        plus.onclick = () => {
+            const input = h("input");
+            input.type = "file";
+            input.accept = "image/*";
+            input.multiple = true;
+            input.onchange = () => add([...input.files]);
+            input.click();
+        };
+        box.append(plus);
+        box.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            box.classList.add("over");
+        });
+        box.addEventListener("dragleave", () => box.classList.remove("over"));
+        box.addEventListener("drop", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            box.classList.remove("over");
+            add([...(e.dataTransfer?.files || [])]);
+        });
+        return box;
+    }
+
     function render() {
         const s = state();
         root.replaceChildren();
@@ -368,7 +526,7 @@ function attach(node) {
         const foot = h("div", "hdo-foot");
         const add = h("button", "hdo-add", "+ Add dial");
         add.onclick = () => {
-            s.slots.push({ id: Date.now().toString(36), on: true, file: null, name: "", a: "", b: "", strength: 1 });
+            s.slots.push(newSlot(kind));
             commit(s);
         };
         const mix = h("input", "hdo-term");
@@ -395,7 +553,7 @@ function attach(node) {
         });
     }
 
-    const height = () => 14 + 40 + state().slots.length * 152 +
+    const height = () => 14 + 60 + state().slots.length * (kind === "image" ? 276 : 156) +
         (node.inputs?.find((i) => i.name === "dial")?.link != null ? 112 : 0);
     const widget = node.addDOMWidget("dial_operator", "hdo_panel", root, {
         serialize: false,
@@ -422,20 +580,21 @@ app.registerExtension({
     },
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData?.name !== NODE_NAME) return;
+        const kind = NODES[nodeData?.name];
+        if (!kind) return;
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             const result = onNodeCreated?.apply(this, arguments);
-            const ui = attach(this);
+            const ui = attach(this, kind);
             this.hdo = ui;
             const s = ui.state();
             if (!s.slots.length) {
-                s.slots.push({ id: Date.now().toString(36), on: true, file: null, name: "", a: "", b: "", strength: 1 });
+                s.slots.push(newSlot(kind));
                 ui.commit(s);
             }
-            this.color = "#1a4d4a";
-            this.bgcolor = "#0e2322";
+            this.color = kind === "image" ? "#1a3f5c" : "#1a4d4a";
+            this.bgcolor = kind === "image" ? "#0d1d2b" : "#0e2322";
             this.size[0] = Math.max(this.size[0], 440);
             ui.render();
             return result;

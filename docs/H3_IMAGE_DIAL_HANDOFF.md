@@ -409,3 +409,18 @@ comes from applying dials one by one (sequential bf16 adds), not from the dials.
 A strength-0 text slot "slow motion" -> "fast motion" with save saved
 `dials/slow-motion_vs_fast-motion.safetensors` with terms and pairs. Template-made text dials are untested
 for look. Routes 404 until a full server restart (hot reload cannot add aiohttp routes).
+
+## Image Dial Operator (2026-11-03, uncommitted)
+
+Second node in `nodes/h3_dial_operator.py` (`H3ImageDialOperator`, shares save/cache/mix/apply), face in
+`js/h3_dial_operator.js`: per slot A and B picture wells (drop or +, uploads to input/image_dials, paired by
+order) and a method pill. Methods: `pair` (all tokens, 6 crops x 4 plain texts, no debias = the
+h3_img_pair_multi method, but center-crop to 16:9 instead of stretch) and own-wording framings `look` /
+`content` / `bare` (one read through a sentence, text tokens only via minimax_token_tags, Dials nuisance
+debias) - idea from MAINodes (GPL-3), code written fresh.
+
+Real-encoder check on the six multi pairs (input/image_dials/check, strength 0 + save):
+`chk_img_pair` |26.0| agreement 0.728, cos 0.970 with h3_img_pair_multi (|23.6|) -> same method;
+`chk_img_look` |18.8| agreement 0.675, debias removed 0.2%, cos 0.362 with multi and 0.368 with
+h3_text_style (multi vs text_style is 0.18). Look framing points elsewhere; not rendered yet - that is
+Step 1 of the MAINodes A/B plan (render chk_img_look vs multi at matched push).
