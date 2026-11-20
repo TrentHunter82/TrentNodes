@@ -1,0 +1,721 @@
+{
+  "id": "b7c1f6a2-5d7e-4a8b-9a53-0c4e5d1f7a11",
+  "revision": 0,
+  "last_node_id": 106,
+  "last_link_id": 5,
+  "nodes": [
+    {
+      "id": 101,
+      "type": "Label (rgthree)",
+      "pos": [
+        0,
+        -52
+      ],
+      "size": [
+        134,
+        40
+      ],
+      "flags": {
+        "allow_interaction": true
+      },
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "0.6B = best quality.\n0.3B = faster.",
+      "properties": {
+        "fontSize": 12,
+        "fontFamily": "Helvetica",
+        "fontColor": "#ffffff",
+        "textAlign": "left",
+        "backgroundColor": "#000000",
+        "padding": 8,
+        "borderRadius": 4,
+        "angle": 0
+      },
+      "color": "#fff0",
+      "bgcolor": "#fff0"
+    },
+    {
+      "id": 1,
+      "type": "VoxMelLoader",
+      "pos": [
+        0,
+        30
+      ],
+      "size": [
+        500,
+        60
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model_name",
+          "name": "model_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "model_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VOXMEL_MODEL",
+          "name": "VOXMEL_MODEL",
+          "type": "VOXMEL_MODEL",
+          "links": [
+            1
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "trentnodes",
+        "Node name for S&R": "VoxMelLoader"
+      },
+      "widgets_values": [
+        "VoxMel-0.6B.safetensors"
+      ],
+      "widgets_values_named": {
+        "model_name": "VoxMel-0.6B.safetensors"
+      },
+      "color": "#082533",
+      "bgcolor": "#031015"
+    },
+    {
+      "id": 102,
+      "type": "Label (rgthree)",
+      "pos": [
+        0,
+        228
+      ],
+      "size": [
+        193,
+        40
+      ],
+      "flags": {
+        "allow_interaction": true
+      },
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Write the words to speak here.\nEnglish or Chinese.",
+      "properties": {
+        "fontSize": 12,
+        "fontFamily": "Helvetica",
+        "fontColor": "#ffffff",
+        "textAlign": "left",
+        "backgroundColor": "#000000",
+        "padding": 8,
+        "borderRadius": 4,
+        "angle": 0
+      },
+      "color": "#fff0",
+      "bgcolor": "#fff0"
+    },
+    {
+      "id": 2,
+      "type": "PrimitiveStringMultiline",
+      "pos": [
+        0,
+        310
+      ],
+      "size": [
+        500,
+        220
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "value",
+          "name": "value",
+          "type": "STRING",
+          "widget": {
+            "name": "value"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "Node name for S&R": "PrimitiveStringMultiline"
+      },
+      "widgets_values": [
+        "I don't really care what you call me. Respect me and I'll nurture you."
+      ],
+      "widgets_values_named": {
+        "value": "I don't really care what you call me. Respect me and I'll nurture you."
+      },
+      "color": "#156a23",
+      "bgcolor": "#092d0f"
+    },
+    {
+      "id": 103,
+      "type": "Label (rgthree)",
+      "pos": [
+        0,
+        678
+      ],
+      "size": [
+        282,
+        40
+      ],
+      "flags": {
+        "allow_interaction": true
+      },
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "The voice to clone.\nBypass this node (Ctrl+B) for a random voice.",
+      "properties": {
+        "fontSize": 12,
+        "fontFamily": "Helvetica",
+        "fontColor": "#ffffff",
+        "textAlign": "left",
+        "backgroundColor": "#000000",
+        "padding": 8,
+        "borderRadius": 4,
+        "angle": 0
+      },
+      "color": "#fff0",
+      "bgcolor": "#fff0"
+    },
+    {
+      "id": 3,
+      "type": "LoadAudio",
+      "pos": [
+        0,
+        760
+      ],
+      "size": [
+        500,
+        150
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "audio",
+          "name": "audio",
+          "type": "COMBO",
+          "widget": {
+            "name": "audio"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "upload",
+          "name": "upload",
+          "type": "AUDIOUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "AUDIO",
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "Node name for S&R": "LoadAudio"
+      },
+      "widgets_values": [
+        "voxmel_en_01_prompt.wav",
+        null
+      ],
+      "widgets_values_named": {
+        "audio": "voxmel_en_01_prompt.wav",
+        "upload": null
+      },
+      "color": "#1094a6",
+      "bgcolor": "#073e46"
+    },
+    {
+      "id": 104,
+      "type": "Label (rgthree)",
+      "pos": [
+        0,
+        928
+      ],
+      "size": [
+        276,
+        40
+      ],
+      "flags": {
+        "allow_interaction": true
+      },
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Type the exact words of the reference audio.\nA wrong transcript gives bad speech.",
+      "properties": {
+        "fontSize": 12,
+        "fontFamily": "Helvetica",
+        "fontColor": "#ffffff",
+        "textAlign": "left",
+        "backgroundColor": "#000000",
+        "padding": 8,
+        "borderRadius": 4,
+        "angle": 0
+      },
+      "color": "#fff0",
+      "bgcolor": "#fff0"
+    },
+    {
+      "id": 4,
+      "type": "PrimitiveStringMultiline",
+      "pos": [
+        0,
+        1010
+      ],
+      "size": [
+        500,
+        160
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "value",
+          "name": "value",
+          "type": "STRING",
+          "widget": {
+            "name": "value"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            4
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "Node name for S&R": "PrimitiveStringMultiline"
+      },
+      "widgets_values": [
+        "some call me nature, others call me mother nature."
+      ],
+      "widgets_values_named": {
+        "value": "some call me nature, others call me mother nature."
+      },
+      "color": "#1094a6",
+      "bgcolor": "#073e46"
+    },
+    {
+      "id": 105,
+      "type": "Label (rgthree)",
+      "pos": [
+        600,
+        -64
+      ],
+      "size": [
+        435,
+        52
+      ],
+      "flags": {
+        "allow_interaction": true
+      },
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "max_seconds is an upper limit. The speech stops at the end of the text.\ncfg_speaker has an effect only with a voice reference.\nChange the seed for a different reading.",
+      "properties": {
+        "fontSize": 12,
+        "fontFamily": "Helvetica",
+        "fontColor": "#ffffff",
+        "textAlign": "left",
+        "backgroundColor": "#000000",
+        "padding": 8,
+        "borderRadius": 4,
+        "angle": 0
+      },
+      "color": "#fff0",
+      "bgcolor": "#fff0"
+    },
+    {
+      "id": 5,
+      "type": "VoxMelGenerate",
+      "pos": [
+        600,
+        30
+      ],
+      "size": [
+        460,
+        520
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "VOXMEL_MODEL",
+          "link": 1
+        },
+        {
+          "localized_name": "reference_audio",
+          "name": "reference_audio",
+          "type": "AUDIO",
+          "shape": 7,
+          "link": 3
+        },
+        {
+          "localized_name": "text",
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": 2
+        },
+        {
+          "localized_name": "seed",
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "steps",
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "residual_steps",
+          "name": "residual_steps",
+          "type": "INT",
+          "widget": {
+            "name": "residual_steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "cfg_text",
+          "name": "cfg_text",
+          "type": "FLOAT",
+          "widget": {
+            "name": "cfg_text"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "cfg_speaker",
+          "name": "cfg_speaker",
+          "type": "FLOAT",
+          "widget": {
+            "name": "cfg_speaker"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "max_seconds",
+          "name": "max_seconds",
+          "type": "FLOAT",
+          "widget": {
+            "name": "max_seconds"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "reference_text",
+          "name": "reference_text",
+          "type": "STRING",
+          "widget": {
+            "name": "reference_text"
+          },
+          "link": 4,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "AUDIO",
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            5
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "trentnodes",
+        "Node name for S&R": "VoxMelGenerate"
+      },
+      "widgets_values": [
+        "",
+        42,
+        "fixed",
+        32,
+        32,
+        3.5,
+        3.0,
+        30.0,
+        ""
+      ],
+      "widgets_values_named": {
+        "text": "",
+        "seed": 42,
+        "steps": 32,
+        "residual_steps": 32,
+        "cfg_text": 3.5,
+        "cfg_speaker": 3.0,
+        "max_seconds": 30.0,
+        "reference_text": ""
+      },
+      "color": "#222",
+      "bgcolor": "#000"
+    },
+    {
+      "id": 106,
+      "type": "Label (rgthree)",
+      "pos": [
+        1140,
+        -40
+      ],
+      "size": [
+        164,
+        28
+      ],
+      "flags": {
+        "allow_interaction": true
+      },
+      "order": 10,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Files go to output/audio.",
+      "properties": {
+        "fontSize": 12,
+        "fontFamily": "Helvetica",
+        "fontColor": "#ffffff",
+        "textAlign": "left",
+        "backgroundColor": "#000000",
+        "padding": 8,
+        "borderRadius": 4,
+        "angle": 0
+      },
+      "color": "#fff0",
+      "bgcolor": "#fff0"
+    },
+    {
+      "id": 6,
+      "type": "SaveAudio",
+      "pos": [
+        1140,
+        30
+      ],
+      "size": [
+        420,
+        150
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 5
+        },
+        {
+          "localized_name": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "Node name for S&R": "SaveAudio"
+      },
+      "widgets_values": [
+        "audio/VoxMel"
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "audio/VoxMel"
+      },
+      "color": "#3b1218",
+      "bgcolor": "#19080a"
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      5,
+      0,
+      "VOXMEL_MODEL"
+    ],
+    [
+      2,
+      2,
+      0,
+      5,
+      2,
+      "STRING"
+    ],
+    [
+      3,
+      3,
+      0,
+      5,
+      1,
+      "AUDIO"
+    ],
+    [
+      4,
+      4,
+      0,
+      5,
+      9,
+      "STRING"
+    ],
+    [
+      5,
+      5,
+      0,
+      6,
+      0,
+      "AUDIO"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Model",
+      "bounding": [
+        -25,
+        -144,
+        550,
+        259
+      ],
+      "color": "#1a7aa8",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Text to speak",
+      "bounding": [
+        -25,
+        148,
+        550,
+        407
+      ],
+      "color": "#28ca43",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Voice reference",
+      "bounding": [
+        -25,
+        598,
+        550,
+        597
+      ],
+      "color": "#2ed4eb",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "Generate",
+      "bounding": [
+        575,
+        -144,
+        510,
+        719
+      ],
+      "color": "#444",
+      "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "Output",
+      "bounding": [
+        1115,
+        -144,
+        470,
+        349
+      ],
+      "color": "#9f3040",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.8,
+      "offset": [
+        120,
+        280
+      ]
+    }
+  },
+  "version": 0.4
+}

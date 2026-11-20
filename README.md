@@ -777,7 +777,7 @@ The prompt is pruned on the client, the same approach rgthree uses: everything o
 
 Calls the FAL AI Kling O3 Pro video-to-video reference API to generate new video from a reference video and text prompt. Encodes input IMAGE batch frames to mp4, uploads to FAL CDN, and returns the generated video as frames. Supports optional style reference images (@Image1, @Image2) and character/element injection (@Element1, @Element2) with frontal face + reference image pairs. Optional AUDIO input embeds audio into the uploaded video via ffmpeg muxing -- use with keep_audio=True to preserve it in the generated output. Features auto-appending of @tags for connected inputs so you can write natural prompts, plus a built-in @ autocomplete dropdown in the prompt widget that shows available tags based on which inputs are connected. Images are auto-compressed to JPEG and downscaled if needed to stay within FAL's 10 MB upload limit. Costs $0.336 per second of generated video.
 
-### 🔊 Trent/Audio (2 nodes)
+### 🔊 Trent/Audio (4 nodes)
 
 **Audio Length in Seconds**
 
@@ -790,6 +790,12 @@ Calculates the duration of an audio input. Returns both the rounded-up integer (
 Transcribes any AUDIO input with OpenAI Whisper and returns four outputs: plain `text`, LRC-timed `lrc` lyrics, `segments_json` (start/end/text records), and the `duration` in seconds. Audio over 30 seconds uses transformers' sequential long-form decoding, so timestamps stay absolute and words are not cut at a chunk boundary.
 
 Model choice covers large-v3 (most accurate), large-v3-turbo (much faster), medium, small and base, plus any folder dropped into `ComfyUI/models/whisper/` which appears as `local:<name>`. The model stays cached in VRAM between runs unless you turn off `keep_model_loaded`. `precision` defaults to fp16 on CUDA and fp32 on CPU; the features are always cast to the model dtype, which is what makes this work on transformers 5.x (a plain `from_pretrained` there loads the fp16 checkpoint and then crashes with "Input type (float) and bias type (c10::Half) should be the same"). `hint_prompt` biases Whisper toward names or spellings you supply — note that on clips under 30 seconds a prompt disables timestamps, an upstream transformers limitation. Logic is covered by `tests/test_transcribe_lyrics.py`.
+
+**Load VoxMel Model** / **VoxMel Generate Speech**
+
+Zero-shot text-to-speech with [VoxMel](https://github.com/VoxDance-Lab/VoxMel) (English and Chinese, 24 kHz). Connect `reference_audio` and type its exact transcript in `reference_text` to clone a voice; without `reference_audio` the voice is random and changes with the seed. `max_seconds` is an upper limit, the model stops by itself at the end of the text. The model code in `utils/voxmel` is an inference-only port of the upstream `voxcore` package (Apache-2.0), so neither that package nor `vocos` is needed.
+
+Each model is one `.safetensors` file in `ComfyUI/models/voxmel` that holds the VoxMel weights, the Vocos vocoder and the config. Build it with `tools/voxmel_convert.py` from `model_L_final.pt` + `config.yaml` ([VoxMel-0.6B](https://huggingface.co/VoxDance-Lab/VoxMel-0.6B)) or `model_M_final.pt` + `config.yaml` ([VoxMel-0.3B](https://huggingface.co/VoxDance-Lab/VoxMel-0.3B)), `pytorch_model.bin` from [charactr/vocos-mel-24khz](https://huggingface.co/charactr/vocos-mel-24khz), and the Qwen2 `config.json` from the VoxMel repo (`examples/voxmel/qwen_tokenizer` for 0.6B, `examples/voxmel/qwen_configs/qwen2_medium_300m` for 0.3B). Example workflow: `example_workflows/voxmel_voice_clone.json`.
 
 ### 🎥 Trent/MiniMax (8 nodes)
 
