@@ -164,13 +164,18 @@ def find_cuts(wav, sr, max_seconds):
 
 
 def speech_gate(out, perf, sr):
-    """Fade the output to silence where the performance has no speech for more than about 0.3 s. Removes the
-    breaths and "uh" sounds the model can invent in long pauses."""
+    """Fade the output to silence where the performance has no speech. Removes the breaths, noise and "uh" sounds the
+    model can invent in pauses. The gate opens 0.15 s before the original speaks and stays open 0.6 s after, because
+    the new voice can run a little late."""
     hop = int(sr * 0.02)
     rms = _frame_rms(perf, hop)
-    active = (rms > 0.1 * np.percentile(rms, 95)).astype(np.float32)
-    active = np.convolve(active, np.ones(15), mode="same") > 0          # keep 0.15 s around each word
-    gain = np.convolve(active.astype(np.float32), np.ones(3) / 3, mode="same")
+    # with little speech in the clip, 10 % of the loud end can fall below the room noise, so also require 3x the noise floor
+    active = rms > max(0.1 * np.percentile(rms, 99), 3 * np.percentile(rms, 10))
+    before, after = 8, 30
+    count = np.concatenate([[0], np.cumsum(active)])
+    idx = np.arange(len(active))
+    open_ = count[np.minimum(idx + before + 1, len(active))] - count[np.maximum(idx - after, 0)] > 0
+    gain = np.convolve(open_.astype(np.float32), np.ones(3) / 3, mode="same")
     gain = np.interp(np.arange(len(out)), np.arange(len(gain)) * hop + hop / 2, gain)
     return (out * gain).astype(np.float32)
 
