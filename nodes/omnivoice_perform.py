@@ -2,7 +2,9 @@
 # Method by Nathan (SanDiegoDude), OmniVoice Manager, Apache License 2.0. Model: k2-fsa/OmniVoice.
 import os
 
+import numpy as np
 import torch
+import torchaudio
 from huggingface_hub import snapshot_download
 from transformers import pipeline
 
@@ -12,7 +14,7 @@ import folder_paths
 from comfy_api.latest import io
 
 from ..utils.omnivoice.model import OmniVoice
-from ..utils.omnivoice.perform import perform_transfer
+from ..utils.omnivoice.perform import find_cuts, mix_room_tone, perform_transfer, speech_gate
 
 folder_paths.add_model_folder_path("omnivoice", os.path.join(folder_paths.models_dir, "omnivoice"))
 
@@ -86,32 +88,57 @@ class TrentOmniVoicePerformanceTransfer(io.ComfyNode):
                 io.Float.Input("guidance", default=2.0, min=0.0, max=10.0, step=0.1),
                 io.Int.Input("seed", default=0, min=0, max=0xffffffffffffffff, control_after_generate=True),
                 io.String.Input("language", default="en", tooltip="Language code of the words, e.g. en, de, ja."),
-                io.String.Input("text", multiline=True, optional=True, tooltip="The words of the performance. Empty: Whisper transcribes them."),
+                io.Float.Input("max_segment_seconds", default=5.0, min=0.0, max=60.0, step=0.5,
+                               tooltip="Re-voice in pieces of at most this length, cut at the quietest point between words, then join them at the exact length. "
+                                       "Short pieces keep the target voice stronger. 0 = one piece. With more than one piece, each piece is transcribed by Whisper and text is not used."),
+                io.Boolean.Input("gate_silence", default=True,
+                                 tooltip="Fade the output to silence where the performance has no speech. Removes invented breaths and 'uh' sounds in pauses."),
+                io.String.Input("text", multiline=True, optional=True, tooltip="The words of the performance (one piece only). Empty: Whisper transcribes them."),
                 io.String.Input("voice_text", multiline=True, optional=True, tooltip="The words of the voice clip. Empty: Whisper transcribes them."),
+                io.Audio.Input("room_tone", optional=True,
+                               tooltip="The background of the performance without the voice, e.g. the instruments output of MelBandRoFormer. "
+                                       "The new voice is set to the original voice level and mixed over it."),
             ],
             outputs=[io.Audio.Output()],
         )
 
     @classmethod
-    def execute(cls, model, performance, voice, mode, strength, steps, guidance, seed, language, text="", voice_text="") -> io.NodeOutput:
+    def execute(cls, model, performance, voice, mode, strength, steps, guidance, seed, language, max_segment_seconds, gate_silence,
+                text="", voice_text="", room_tone=None) -> io.NodeOutput:
         comfy.model_management.load_models_gpu([model])
         omni = model.model.omni
         perf_wav, perf_sr = _mono(performance)
         voice_wav, voice_sr = _mono(voice)
 
-        text, voice_text = text.strip(), voice_text.strip()
-        if not text or not voice_text:
+        cuts = find_cuts(perf_wav, perf_sr, max_segment_seconds) if max_segment_seconds > 0 else [0, len(perf_wav)]
+        texts = [text.strip()] if len(cuts) == 2 else [""] * (len(cuts) - 1)
+        voice_text = voice_text.strip()
+        if not voice_text or not all(texts):
             asr = pipeline("automatic-speech-recognition", model=snapshot_download(ASR_MODEL, local_files_only=True),
                            dtype=torch.float16 if model.load_device.type == "cuda" else torch.float32, device=model.load_device)
-            if not text:
-                text = asr({"array": perf_wav, "sampling_rate": perf_sr})["text"].strip()
+            texts = [t or asr({"array": perf_wav[a:b], "sampling_rate": perf_sr})["text"].strip() for t, a, b in zip(texts, cuts, cuts[1:])]
             if not voice_text:
                 voice_text = asr({"array": voice_wav, "sampling_rate": voice_sr})["text"].strip()
             del asr
 
         vc_prompt = omni.create_voice_clone_prompt((torch.from_numpy(voice_wav), voice_sr), ref_text=voice_text)
-        out = perform_transfer(omni, text, vc_prompt, perf_wav, perf_sr, mode, strength, seed, language, steps, guidance)
-        return io.NodeOutput({"waveform": torch.from_numpy(out).float().view(1, 1, -1), "sample_rate": omni.sampling_rate})
+        sr = omni.sampling_rate
+        pieces = []
+        for t, a, b in zip(texts, cuts, cuts[1:]):
+            length = round((b - a) * sr / perf_sr)
+            # a piece with no words stays silent: the model would invent speech for it
+            pieces.append(perform_transfer(omni, t, vc_prompt, perf_wav[a:b], perf_sr, mode, strength, seed, language, steps, guidance)
+                          if t else np.zeros(length, dtype=np.float32))
+        out = np.concatenate(pieces)
+        perf_24k = torchaudio.functional.resample(torch.from_numpy(perf_wav), perf_sr, sr).numpy()[: len(out)]
+        if gate_silence:
+            out = speech_gate(out, perf_24k, sr)
+
+        if room_tone is None:
+            return io.NodeOutput({"waveform": torch.from_numpy(out).float().view(1, 1, -1), "sample_rate": sr})
+        room = room_tone["waveform"][0].float().cpu().numpy()
+        mixed = mix_room_tone(out, sr, perf_wav, perf_sr, room, room_tone["sample_rate"])
+        return io.NodeOutput({"waveform": torch.from_numpy(mixed).unsqueeze(0), "sample_rate": room_tone["sample_rate"]})
 
 
 NODE_CLASS_MAPPINGS = {"TrentOmniVoiceLoader": TrentOmniVoiceLoader, "TrentOmniVoicePerformanceTransfer": TrentOmniVoicePerformanceTransfer}

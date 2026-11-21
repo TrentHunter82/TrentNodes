@@ -143,3 +143,49 @@ def perform_transfer(model, text, vc_prompt, perf_wav, perf_sr, mode, strength, 
     if vc_prompt.ref_rms < 0.1:
         audio = audio * vc_prompt.ref_rms / 0.1
     return np.pad(audio, (0, max(0, length - len(audio))))[:length]
+
+
+def _frame_rms(wav, hop):
+    k = len(wav) // hop
+    return np.sqrt((wav[: k * hop].reshape(k, hop) ** 2).mean(axis=1) + 1e-12)
+
+
+def find_cuts(wav, sr, max_seconds):
+    """Sample indices [0, ..., len] that split wav into pieces of at most max_seconds, each cut at the quietest
+    point of the second half of its window, so a cut lands in a pause and not inside a word."""
+    hop = int(sr * 0.02)
+    rms = np.convolve(_frame_rms(wav, hop), np.ones(5) / 5, mode="same")
+    cuts, start, max_len = [0], 0, int(max_seconds * sr)
+    while len(wav) - start > max_len:
+        lo, hi = (start + max_len // 2) // hop, (start + max_len) // hop
+        start = (lo + int(np.argmin(rms[lo:hi]))) * hop + hop // 2
+        cuts.append(start)
+    return cuts + [len(wav)]
+
+
+def speech_gate(out, perf, sr):
+    """Fade the output to silence where the performance has no speech for more than about 0.3 s. Removes the
+    breaths and "uh" sounds the model can invent in long pauses."""
+    hop = int(sr * 0.02)
+    rms = _frame_rms(perf, hop)
+    active = (rms > 0.1 * np.percentile(rms, 95)).astype(np.float32)
+    active = np.convolve(active, np.ones(15), mode="same") > 0          # keep 0.15 s around each word
+    gain = np.convolve(active.astype(np.float32), np.ones(3) / 3, mode="same")
+    gain = np.interp(np.arange(len(out)), np.arange(len(gain)) * hop + hop / 2, gain)
+    return (out * gain).astype(np.float32)
+
+
+def mix_room_tone(voice, voice_sr, perf, perf_sr, room, room_sr):
+    """Mix the re-voiced line over the room tone (the performance's background stem, shape (C, T)). The voice is
+    set to the level of the original voice, measured as performance minus room tone."""
+    length = round(len(perf) * room_sr / perf_sr)
+    room = np.pad(room, ((0, 0), (0, max(0, length - room.shape[1]))))[:, :length]
+    voice = torchaudio.functional.resample(torch.from_numpy(voice), voice_sr, room_sr).numpy()[:length]
+    perf = torchaudio.functional.resample(torch.from_numpy(perf), perf_sr, room_sr).numpy()[:length]
+    original_voice = perf - room.mean(axis=0)[: len(perf)]
+
+    def level(x):
+        return np.sqrt(np.mean(x[np.abs(x) > 0.02 * np.abs(x).max()] ** 2))
+
+    voice = np.pad(voice, (0, length - len(voice))) * (level(original_voice) / level(voice))
+    return (room + voice[None]).astype(np.float32)
