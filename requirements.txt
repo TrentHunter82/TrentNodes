@@ -72,3 +72,7 @@ google-genai>=1.75.0
 # LLAMA_SERVER_BIN, or keep it at ~/llama.cpp/build/bin/llama-server.
 # A zero-sudo build recipe (CUDA toolchain from pip wheels) is in
 # docs/H3_SKILL_PROMPTOR_HANDOFF.md.
+
+# For OmniVoice performance transfer (vendored audio utilities)
+pydub>=0.25.1
+soundfile>=0.12.0

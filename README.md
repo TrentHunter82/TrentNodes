@@ -797,6 +797,16 @@ Zero-shot text-to-speech with [VoxMel](https://github.com/VoxDance-Lab/VoxMel) (
 
 Each model is one `.safetensors` file in `ComfyUI/models/voxmel` that holds the VoxMel weights, the Vocos vocoder and the config. Build it with `tools/voxmel_convert.py` from `model_L_final.pt` + `config.yaml` ([VoxMel-0.6B](https://huggingface.co/VoxDance-Lab/VoxMel-0.6B)) or `model_M_final.pt` + `config.yaml` ([VoxMel-0.3B](https://huggingface.co/VoxDance-Lab/VoxMel-0.3B)), `pytorch_model.bin` from [charactr/vocos-mel-24khz](https://huggingface.co/charactr/vocos-mel-24khz), and the Qwen2 `config.json` from the VoxMel repo (`examples/voxmel/qwen_tokenizer` for 0.6B, `examples/voxmel/qwen_configs/qwen2_medium_300m` for 0.3B). Example workflow: `example_workflows/voxmel_voice_clone.json`.
 
+**Load OmniVoice Model** / **OmniVoice Performance Transfer**
+
+Re-voices a recorded line in another voice and keeps its timing, pauses and emphasis: the output has exactly the length of the `performance` input, so it lines up with the original picture. Connect the line as `performance` and 3 to 10 s of clean speech as `voice`. `text` and `voice_text` are the words of each; leave them empty and Whisper large-v3 (local cache only) transcribes them. Method by Nathan (SanDiegoDude) from [OmniVoice Manager](https://github.com/SanDiegoDude/OmniVoice-Manager) (Apache-2.0): the performance is encoded into [OmniVoice](https://github.com/k2-fsa/OmniVoice)'s 8-codebook token grid, codebook layer 0 (timing and prosody) is pinned, and the rest is generated with the target voice's clone prompt.
+
+- `mode` `voice`: the exact source delivery in the target timbre; layer 0 stays pinned at a token stride. `strength` 1 pins every token, 5 every 6th, 6 every 8th (6 is an extra, untuned step).
+- `mode` `character`: all of layer 0 is pinned, then released partway through, so the target's own delivery takes over (`strength` 4 is the original default).
+- `guidance` 2 to 4 and `steps` 32 to 64 work well. Unlike OmniVoice's own post-process, the output has no 0.1 s edge pad, so the line does not start late.
+
+The model is the `k2-fsa/OmniVoice` folder (`config.json`, `model.safetensors`, tokenizer files and `audio_tokenizer/`) in `ComfyUI/models/omnivoice/<name>`. The inference code in `utils/omnivoice` is the upstream `omnivoice` package (Apache-2.0) with relative imports. Needs transformers 5.3 or newer. The OmniVoice weights are CC-BY-NC (training-data constraint, per the model card).
+
 ### 🎥 Trent/MiniMax (8 nodes)
 
 **H3 Chain Step**
