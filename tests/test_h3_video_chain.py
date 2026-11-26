@@ -167,6 +167,70 @@ class VideoChainTests(unittest.TestCase):
         self.assertEqual(latent["samples"].tensors[0][0, 0, 0, 0, 0].item(), 30.0)
         self.assertIsInstance(start, ExecutionBlocker)
 
+    def test_rolling_keystone(self):
+        class VAE:
+            # layout = gradient direction (rises for even clips, falls for odd), look = red offset 0.1 per clip
+            def decode(self, video):
+                b, _, t, h, w = video.shape
+                code = video[:, :1, :1].mean().item()
+                clip = int(code // 1000) if code < 9000 else int(code - 9000)
+                ramp = torch.linspace(0.2, 0.6, w * 64)  # 64x so the 48 px edge bands stay at the sides
+                frame = (ramp if clip % 2 == 0 else ramp.flip(0)).view(1, 1, -1, 1).expand(1, h * 64, w * 64, 3).clone()
+                frame += 0.05 * torch.rand(frame.shape, generator=torch.Generator().manual_seed(0))  # the same texture, so colours are not all equal
+                frame[..., 0] += 0.1 * clip
+                return frame.unsqueeze(1).expand(b, 1 + 4 * (t - 1), -1, -1, -1).clone()
+
+            def encode(self, frames):
+                # layout (1 = rises left to right) in channel 0, red minus blue in channel 1
+                f = frames[0]
+                out = torch.zeros(1, 24, 1, 4, 6)
+                q = f.shape[1] // 4
+                out[:, 0] = float(f[:, -q, 1].mean() > f[:, q, 1].mean())
+                out[:, 1] = (f[..., 0] - f[..., 2]).mean()
+                return out
+        m = self.manager()
+        cont, remember = chain_mod.H3ContinueFromLastClip(), chain_mod.H3RememberClipEnding()
+        keystones = []
+        for clip in range(5):
+            chain = self.chain(m, clip, clips=5)[0]
+            if clip:
+                latent = cont.continue_clip(chain, self.empty(), "roll", True)[0]
+                k = latent["samples"].tensors[0][0, :2, 0, 0, 0]
+                keystones.append((k[0].item(), round(k[1].item(), 3)))
+            remember.remember(chain, self.sampled(clip), "roll", keystone="last frame", vae=VAE(), refresh_keystone_every=3)
+        # clips 2-4 keep clip 1's keystone (rising, no red tint); clip 5 gets clip 4's own keystone (falling, red +0.3)
+        self.assertEqual(keystones[:3], [(1.0, 0.0)] * 3)
+        self.assertEqual(keystones[3][0], 0.0)
+        self.assertAlmostEqual(keystones[3][1], 0.3, places=1)
+
+    def test_clean_edges_removes_edge_tint(self):
+        image = torch.full((1, 256, 320, 3), 0.4)
+        image[..., 128:, :, :] = 0.6  # a real horizontal edge in the picture must stay
+        image[:, :, -16:, 0] += 0.3  # orange-ish tint in the outer 16 columns
+        out = chain_mod._clean_edges(image)
+        self.assertLess((out[:, 60:100, -16:, 0] - 0.4).abs().mean().item(), 0.02)
+        self.assertTrue(torch.equal(out[:, 100:156, 100:220], image[:, 100:156, 100:220]))
+        self.assertAlmostEqual(out[0, 200, 160, 1].item(), 0.6, places=5)
+
+    def test_clean_edges_matches_edge_colour_strength(self):
+        image = torch.full((1, 256, 320, 3), 0.5)
+        image[:, :128, :, 2] = 0.6  # blue-ish sky
+        image[:, 128:, :, 0] = 0.6  # orange-ish ground
+        image[:, :128, -16:, 2] += 0.2  # the edge gets bluer ...
+        image[:, 128:, -16:, 0] += 0.2  # ... and more orange
+        out = chain_mod._clean_edges(image)
+        def chroma(x):
+            return (x.max(-1).values - x.min(-1).values).mean().item()
+        self.assertLess(abs(chroma(out[:, 20:100, -16:]) - chroma(image[:, 20:100, 100:200])), 0.02)
+        self.assertLess(abs(chroma(out[:, 160:240, -16:]) - chroma(image[:, 160:240, 100:200])), 0.02)
+
+    def test_clean_edges_refills_border_marks(self):
+        image = torch.full((1, 256, 320, 3), 0.5)
+        image[:, 3:7, 50:270, :] = 0.0  # a dark mark along the top border
+        out = chain_mod._clean_edges(image)
+        self.assertLess((out[:, :16, 50:270] - 0.5).abs().max().item(), 1e-6)
+        self.assertTrue(torch.equal(out[:, 100:156, 100:220], image[:, 100:156, 100:220]))
+
     def test_clip_1_clears_old_endings(self):
         m = self.manager()
         remember = chain_mod.H3RememberClipEnding()
@@ -239,6 +303,12 @@ class VideoChainTests(unittest.TestCase):
         self.assertEqual(mask[:13].tolist(), [0.0] + [1.0] * 10 + [0.0, 1.0])
         first_clip = self.empty()
         self.assertIs(chain_mod.H3SwapUnsampledContext().swap(first_clip, first, unsampled)[0], first)
+        # keep the last 17-frame group (latents 7-11) locked for the Join Clips cut
+        out = chain_mod.H3SwapUnsampledContext().swap(latent, first, unsampled, keep_join_latents=5)[0]
+        video = out["samples"].tensors[0]
+        self.assertTrue((video[:, :, 1:7] == 7.0).all())
+        self.assertTrue(torch.equal(video[:, :, 7:12], clean_video[:, :, 7:12]))
+        self.assertEqual(out["noise_mask"].tensors[0][0, 0, :13, 0, 0].tolist(), [0.0] + [1.0] * 6 + [0.0] * 5 + [1.0])
 
     def test_join_matches_colour_across_the_join(self):
         m = self.manager()
@@ -257,6 +327,26 @@ class VideoChainTests(unittest.TestCase):
         self.assertTrue(torch.allclose(images[0], new[0], atol=1e-4))
         self.assertTrue(torch.equal(images[20:], step[20:]))
         self.assertTrue(torch.allclose(images[10], torch.lerp(step[10], new[10], 0.5), atol=1e-4))
+
+    def test_crossfade_at_end_of_previous_cut(self):
+        m = self.manager()
+        # Frame value = time; clip 2 starts 102 frames later and is brighter by 0.5.
+        first = (torch.arange(FRAMES).float() / 1000).view(-1, 1, 1, 1).expand(-1, 2, 2, 3)
+        second = first + 0.102 + 0.5
+        out = []
+        for clip, frames in enumerate((first, second)):
+            chain = self.chain(m, clip, clips=2)[0]
+            saved = chain_mod.H3RememberClipEnding().remember(chain, self.sampled(clip), "low res")[0]
+            out.append(chain_mod.H3JoinClips().join(chain, frames, self.song_cut(clip), saved,
+                                                    cut="end of previous", crossfade_frames=6, cut_frame=30)[0])
+        a, b = out
+        cut = FRAMES - OVERLAP + 30
+        self.assertEqual(a.shape[0], cut)
+        # The fade starts from the frame cut off clip 1 at the same moment and ends on clip 2.
+        before = first[cut:cut + 6]
+        weight = torch.linspace(1.0, 0.0, 8)[1:-1].view(-1, 1, 1, 1)
+        self.assertTrue(torch.allclose(b[:6], torch.lerp(second[30:36], before, weight), atol=1e-3))
+        self.assertTrue(torch.equal(b[6:], second[36:]))
 
     def test_pin_first_frame_from_latent(self):
         m = self.manager()
@@ -281,6 +371,55 @@ class VideoChainTests(unittest.TestCase):
         self.assertTrue(torch.equal(kf[0]["latent"], latent["samples"].tensors[0][:, :, :1]))
         self.assertNotIn("minimax_keyframes", ref[0][1])
         self.assertIs(chain_mod.H3PinFirstFrameFromLatent().pin(ref, self.empty())[0], ref)
+
+    def test_window_prompts_join_one_cond_per_clip(self):
+        calls = []
+
+        def execute(**kw):
+            calls.append(kw)
+            return SimpleNamespace(result=([[torch.zeros(1), {"text": kw["prompt"]}]], None))
+
+        old = chain_mod.MiniMaxH3ReferenceToVideo.execute
+        chain_mod.MiniMaxH3ReferenceToVideo.execute = execute
+        try:
+            image = torch.zeros(1, 8, 8, 3)
+            out = chain_mod.H3WindowPrompts().encode("clip", "vae", image, "one\n=====\ntwo \n=====\nthree", 1920, 1088)[0]
+        finally:
+            chain_mod.MiniMaxH3ReferenceToVideo.execute = old
+        self.assertEqual([d["text"] for _, d in out], ["one", "two", "three"])
+        self.assertTrue(all(c["ref_images"]["ref_image_0"] is image and c["width"] == 1920 for c in calls))
+
+    def test_decode_long_video_parts_join_exactly(self):
+        # a fake H3 VAE: latent i decodes to 1 frame (i % 5 == 0) or 4 frames, each frame holding the value i / 40
+        class VAE:
+            def decode(self, latent):
+                idx = latent[0, 0, :, 0, 0]
+                frames = [torch.full((1, 32, 32, 3), i / 40) for i in idx.tolist() for _ in range(1 if int(i) % 5 == 0 else 4)]
+                return torch.cat(frames)[None]
+
+        total = 37
+        latent = torch.arange(total, dtype=torch.float32).view(1, 1, total, 1, 1).expand(1, 1, total, 2, 2).contiguous()
+        written = []
+
+        class Writer:
+            returncode = 0
+
+            def __init__(self, cmd, stdin):
+                self.stdin = SimpleNamespace(write=written.append, close=lambda: None)
+
+            def wait(self):
+                pass
+
+        old = chain_mod.subprocess.Popen
+        chain_mod.subprocess.Popen = Writer
+        try:
+            ui = chain_mod.H3DecodeLongVideo().decode({"samples": latent}, VAE(), "h3_chain/t", 24.0, 10, 12)["ui"]
+        finally:
+            chain_mod.subprocess.Popen = old
+        got = torch.frombuffer(bytearray(b"".join(written)), dtype=torch.uint8).view(-1, 32, 32, 3)[:, 0, 0, 0]
+        full = VAE().decode(latent)[0][:, 0, 0, 0]
+        self.assertTrue(torch.equal(got, (full * 255 + 0.5).to(torch.uint8)))
+        self.assertTrue(ui["images"][0]["filename"].endswith(".mp4"))
 
 
 if __name__ == "__main__":

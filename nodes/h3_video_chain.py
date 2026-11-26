@@ -16,6 +16,7 @@ pass (e.g. "low res" and "high res").
 import logging
 import os
 import shutil
+import subprocess
 
 import torch
 import safetensors.torch
@@ -24,6 +25,7 @@ import comfy.utils
 import folder_paths
 from comfy.nested_tensor import NestedTensor
 from comfy_execution.graph import ExecutionBlocker
+from comfy_extras.nodes_minimax_h3 import MiniMaxH3ReferenceToVideo
 
 from .h3_chain_batch import H3ChainStep
 from .h3_keystone_graft import MiniMaxH3KeystoneGraft
@@ -244,7 +246,11 @@ class H3ContinueFromLastClip:
         out["noise_mask"] = NestedTensor((video_mask, audio_mask))
 
         if keep_look_of_clip_1:
-            first = safetensors.torch.load_file(_ending_path(name, 0), device="cpu")
+            # the newest keystone: clip 1's, or a later one saved by refresh_keystone_every
+            for k in range(chain["clip"] - 1, -1, -1):
+                first = safetensors.torch.load_file(_ending_path(name, k), device="cpu")
+                if "first_video" in first:
+                    break
             out = MiniMaxH3KeystoneGraft().graft(out, {"samples": [first["first_video"], first["audio"]]}, 0, 0.0)[0]
 
         if vae is None:
@@ -382,11 +388,17 @@ class H3SwapUnsampledContext:
                 "unsampled": ("LATENT", {"tooltip": "The clip before, unsampled from 0 up to the same split sigma "
                                                     "(e.g. Take from Last Time). Ignored on clip 1."}),
             },
+            "optional": {
+                "keep_join_latents": ("INT", {"default": 1, "min": 1, "max": 11,
+                    "tooltip": "How many of the last copied latents stay locked. 5 keeps the last 17-frame group "
+                               "(copied frames 22-38) as the clip before made it, so a Join Clips cut there "
+                               "shows no re-drawn frame."}),
+            },
         }
 
-    def swap(self, latent, sampled, unsampled):
+    def swap(self, latent, sampled, unsampled, keep_join_latents=1):
         held = H3ContextNoise._held(latent)
-        if held <= 2:
+        if held <= keep_join_latents + 1:
             return (sampled,)
         clean_video, clean_audio = latent["samples"].tensors
         video_mask, audio_mask = latent["noise_mask"].tensors
@@ -395,13 +407,14 @@ class H3SwapUnsampledContext:
         # latents. The next sampler reads locked latents as clean, so put the clean ones back.
         video = torch.where(video_mask.to(video.device) == 0, clean_video.to(video), video)
         audio = torch.where(audio_mask.to(audio.device) == 0, clean_audio.to(audio), audio)
-        video[:, :, 1:held - 1] = unsampled["samples"].tensors[0][:, :, -held:][:, :, 1:held - 1].to(video)
+        end = held - keep_join_latents
+        video[:, :, 1:end] = unsampled["samples"].tensors[0][:, :, -held:][:, :, 1:end].to(video)
         video_mask = video_mask.clone()
-        video_mask[:, :, 1:held - 1] = 1.0
+        video_mask[:, :, 1:end] = 1.0
         out = sampled.copy()
         out["samples"] = NestedTensor((video, audio))
         out["noise_mask"] = NestedTensor((video_mask, audio_mask))
-        logging.info("[Video Chain] unsampled context swapped into copied latents 1-%d", held - 2)
+        logging.info("[Video Chain] unsampled context swapped into copied latents 1-%d", end - 1)
         return (out,)
 
 
@@ -428,10 +441,19 @@ class H3RememberClipEnding:
             "optional": {
                 "after": ("H3_SAVED", {"tooltip": "saved from another Remember Clip Ending. "
                                                   "Join Clips then waits for both saves."}),
+                "keystone": (["first frame", "last frame"], {"default": "first frame",
+                    "tooltip": "The frame of clip 1 that keep_look_of_clip_1 copies into every clip. "
+                               "last frame: use it when clip 1 opens on a different framing than the "
+                               "rest of the video (the keystone pulls each part of the picture toward "
+                               "its own part). Needs the vae."}),
+                "vae": ("VAE", {"tooltip": "Video VAE. Needed for keystone = last frame and refresh_keystone_every."}),
+                "refresh_keystone_every": ("INT", {"default": 0, "min": 0, "max": 100,
+                    "tooltip": "Rolling keystone: every this many clips, this clip's last frame becomes the keystone for the "
+                               "clips after it. 0 = clip 1's keystone for the whole video. Needs the vae."}),
             },
         }
 
-    def remember(self, chain, latent, name, after=None):
+    def remember(self, chain, latent, name, after=None, keystone="first frame", vae=None, refresh_keystone_every=0):
         video, audio = _streams(latent, "Remember Clip Ending")
         n = chain["overlap"]
         path = _ending_path(name, chain["clip"])
@@ -443,14 +465,66 @@ class H3RememberClipEnding:
             "video": video[:, :, -_video_steps(n):].detach().cpu().contiguous(),
             "audio": audio[..., -_audio_steps(n):].detach().cpu().contiguous(),
         }
-        if chain["clip"] == 0:
-            # Frame 0 of clip 1 is the keystone for keep_look_of_clip_1.
-            ending["first_video"] = video[:, :, :1].detach().cpu().contiguous()
+        clip = chain["clip"]
+        refresh = clip > 0 and refresh_keystone_every > 0 and clip % refresh_keystone_every == 0
+        if clip == 0 or refresh:
+            # The keystone for keep_look_of_clip_1: frame 0 of clip 1, or the clip's last frame encoded again as a frame-0 latent.
+            if keystone == "last frame" or refresh:
+                if vae is None:
+                    raise ValueError("Remember Clip Ending: connect the video VAE for keystone = last frame.")
+                frames = vae.decode(video)
+                last = frames.reshape(-1, *frames.shape[-3:])[-1:]
+                if refresh:
+                    # a rolling keystone re-pins its own frame edges, so a decoder edge tint would grow clip after clip
+                    last = _clean_edges(last)
+                first = vae.encode(last)
+            else:
+                first = video[:, :, :1]
+            ending["first_video"] = first.detach().cpu().contiguous()
         comfy.utils.save_torch_file(ending, path)
         return ((after or []) + [path],)
 
 
 JOIN_LOOK_FRAMES = 4
+KEYSTONE_FRAMES = 5
+EDGE_BAND = 48
+BORDER = 16
+
+
+def _smooth_rows(x):
+    # [N, H, B, C] -> the same, averaged over 65 rows (the slow colour of each column)
+    n, h, b, c = x.shape
+    y = x.permute(0, 2, 3, 1).reshape(n, b * c, h)
+    y = torch.nn.functional.avg_pool1d(torch.nn.functional.pad(y, (32, 32), mode="replicate"), 65, 1)
+    return y.reshape(n, b, c, h).permute(0, 3, 1, 2)
+
+
+def _clean_edges(image):
+    """Remove the slow colour tint the decoder leaves in the outer EDGE_BAND columns at the right side of an [N, H, W, C] image.
+    The tint is taken as one column profile (its average shape over all rows) times a per-row strength (smoothed over 65 rows),
+    so the correction is smooth from column to column and copies no picture detail. Then the colour strength of the band is
+    matched to the band inside it. Only the right side, where the tint grows:
+    runs that cleaned all four sides grew creases along the top, and per-column corrections left creases in the band."""
+    out = image.clone()
+    weight = (torch.linspace(0.0, 3.0, EDGE_BAND, device=image.device, dtype=image.dtype)).clamp(max=1.0).view(1, 1, -1, 1)
+    outer, inner = out[:, :, -EDGE_BAND:], out[:, :, -2 * EDGE_BAND:-EDGE_BAND]
+    tint = inner.mean(2, keepdim=True) - outer                                     # [N, H, B, C]
+    profile = tint.mean(1, keepdim=True)                                           # [N, 1, B, C]
+    strength = (tint * profile).sum(2, keepdim=True) / (profile * profile).sum(2, keepdim=True).clamp(min=1e-8)
+    outer += _smooth_rows(strength.expand_as(tint)) * profile * weight
+    # the edge also gets more colourful clip after clip (bluer sky, more orange ground), which a tint shift cannot undo:
+    # scale its colour strength down to that of the band inside it, row by row (smoothed)
+    grey = outer.mean(-1, keepdim=True)
+    colour = outer - grey
+    target = _smooth_rows((inner - inner.mean(-1, keepdim=True)).abs().mean(-1, keepdim=True).mean(2, keepdim=True))
+    scale = (target / _smooth_rows(colour.abs().mean(-1, keepdim=True)).clamp(min=1e-4)).clamp(max=1.0)
+    outer.copy_(grey + colour * (1 + (scale - 1) * weight))
+    # the outermost BORDER rows at the top and bottom get a mirror of the rows just inside them, so marks the model draws
+    # along those borders (they grow late in long runs) are not copied into the next clips; a refill at the right edge made
+    # a streak where the mirror meets the picture, and the tint fix above already covers that side
+    out[:, :BORDER] = out[:, BORDER:2 * BORDER].flip(1)
+    out[:, -BORDER:] = out[:, -2 * BORDER:-BORDER].flip(1)
+    return out
 
 
 def _colour_look(frames):
@@ -461,6 +535,16 @@ def _colour_look(frames):
 def _matrix_sqrt(m):
     values, vectors = torch.linalg.eigh(m)
     return (vectors * values.clamp(min=1e-12).sqrt()) @ vectors.T
+
+
+def _match_look(frames, source, target):
+    """Move frames whose colour look is `source` (mean, cov) to the `target` look with a full
+    colour matrix (Monge-Kantorovich); one gain per channel cannot remove a tint."""
+    mean, cov = source
+    root = _matrix_sqrt(cov)
+    inv = torch.linalg.inv(root)
+    matrix = (inv @ _matrix_sqrt(root @ target["cov"] @ root) @ inv).to(frames)
+    return ((frames - mean.to(frames)) @ matrix.T + target["mean"].to(frames)).clamp(0.0, 1.0)
 
 
 class H3JoinClips:
@@ -492,6 +576,23 @@ class H3JoinClips:
                     "tooltip": "0 = off. Each clip starts in the colour the clip before ended in "
                                "and fades to its own colour over this many frames. "
                                "Hides a colour step at the join. Try 48."}),
+                "hold_clip_1_look": ("BOOLEAN", {"default": False,
+                    "tooltip": "Colour-match every later clip to the look of the end of clip 1 (its last "
+                               "overlap_frames), after decoding. "
+                               "With match_colour_frames the clip starts in the colour the clip before "
+                               "ended in and fades to clip 1's look. Stops colour drift without "
+                               "changing the latents."}),
+                "cut": (["start of next", "end of previous"], {"default": "start of next",
+                    "tooltip": "Where the copied overlap is cut. start of next: cut it off the new clip, so the "
+                               "join sits where the new clip's copied frames end. end of previous: cut it off "
+                               "the clip before and keep the new clip whole, so the change from copied to new "
+                               "frames stays inside one decode."}),
+                "cut_frame": ("INT", {"default": KEYSTONE_FRAMES, "min": KEYSTONE_FRAMES, "max": 120,
+                    "tooltip": "end of previous only: the copied frame of the new clip where the cut sits. "
+                               "Later cuts give the new clip more frames to settle on the motion of the clip before."}),
+                "crossfade_frames": ("INT", {"default": 0, "min": 0, "max": 24,
+                    "tooltip": "end of previous only: fade from the frames cut off the clip before into the "
+                               "same moment of the new clip over this many frames, so the cut does not pop."}),
             },
         }
 
@@ -499,30 +600,55 @@ class H3JoinClips:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def join(self, chain, images, audio, saved, match_colour_frames=0):
+    def join(self, chain, images, audio, saved, match_colour_frames=0, hold_clip_1_look=False, cut="start of next",
+             crossfade_frames=0, cut_frame=KEYSTONE_FRAMES):
         clip, manager = chain["clip"], chain["manager"]
-        n = 0 if clip == 0 else chain["overlap"]
-        if n >= images.shape[0]:
-            raise ValueError("Join Clips: the clip has %d frames, the overlap is %d." % (images.shape[0], n))
-        images = images[n:]
+        overlap = chain["overlap"]
+        if overlap >= images.shape[0]:
+            raise ValueError("Join Clips: the clip has %d frames, the overlap is %d." % (images.shape[0], overlap))
+        if cut == "end of previous":
+            # Frames 0-4 of a continued clip decode clip 1's keystone (keep_look_of_clip_1) and its blend into the
+            # copied frames, so the cut sits at least that far into the new clip and that much less off the clip before.
+            cut_frame = min(cut_frame, overlap)
+            n, tail = (0 if clip == 0 else cut_frame), (0 if clip == chain["clips"] - 1 else overlap - cut_frame)
+        else:
+            n, tail = (0 if clip == 0 else overlap), 0
+        ending = images[-overlap:]
         folder = os.path.dirname(saved[-1])
+        fade_path = os.path.join(folder, "cut_fade.safetensors")
+        if cut == "end of previous" and crossfade_frames > 0:
+            # The new clip's frame n shows the same moment as the clip before's first cut-off frame.
+            if clip > 0 and os.path.isfile(fade_path):
+                before = comfy.utils.load_torch_file(fade_path)["frames"].to(images)
+                k = min(before.shape[0], images.shape[0] - n)
+                weight = torch.linspace(1.0, 0.0, k + 2, device=images.device, dtype=images.dtype)[1:-1].view(-1, 1, 1, 1)
+                images = torch.cat((images[:n], torch.lerp(images[n:n + k], before[:k], weight), images[n + k:]))
+            if tail:
+                cut_off = images[images.shape[0] - tail:][:crossfade_frames]
+                comfy.utils.save_torch_file({"frames": cut_off.to(device="cpu", dtype=torch.float16).contiguous()}, fade_path)
+        images = images[n:images.shape[0] - tail]
         look_path = os.path.join(folder, "join_look.safetensors")
+        anchor_path = os.path.join(folder, "clip_1_look.safetensors")
+        held = images
+        if hold_clip_1_look:
+            if clip == 0:
+                # the end of clip 1 (the frames clip 2 continues from), not its opening shot
+                mean, cov = _colour_look(ending)
+                comfy.utils.save_torch_file({"mean": mean, "cov": cov}, anchor_path)
+            elif os.path.isfile(anchor_path):
+                held = _match_look(images, _colour_look(images), comfy.utils.load_torch_file(anchor_path))
         if match_colour_frames > 0:
-            if n > 0 and os.path.isfile(look_path):
+            if clip > 0 and os.path.isfile(look_path):
                 # The picture hardly changes over a few frames, so the difference between the last
                 # frames of the clip before and the first new frames is the colour step of this join.
-                # A full colour matrix (Monge-Kantorovich) removes it; one gain per channel cannot.
                 look = comfy.utils.load_torch_file(look_path)
-                mean, cov = _colour_look(images[:JOIN_LOOK_FRAMES])
-                root = _matrix_sqrt(cov)
-                inv = torch.linalg.inv(root)
-                matrix = (inv @ _matrix_sqrt(root @ look["cov"] @ root) @ inv).to(images)
                 fade = min(match_colour_frames, images.shape[0])
                 weight = torch.linspace(1.0, 0.0, fade + 1, device=images.device, dtype=images.dtype)[:fade].view(-1, 1, 1, 1)
-                matched = ((images[:fade] - mean.to(images)) @ matrix.T + look["mean"].to(images)).clamp(0.0, 1.0)
-                images = torch.cat((torch.lerp(images[:fade], matched, weight), images[fade:]))
-            mean, cov = _colour_look(images[-JOIN_LOOK_FRAMES:])
+                matched = _match_look(images[:fade], _colour_look(images[:JOIN_LOOK_FRAMES]), look)
+                held = torch.cat((torch.lerp(held[:fade], matched, weight), held[fade:]))
+            mean, cov = _colour_look(held[-JOIN_LOOK_FRAMES:])
             comfy.utils.save_torch_file({"mean": mean, "cov": cov}, look_path)
+        images = held
 
         # Cut and pad to the exact picture length, so small sound offsets cannot add up down the chain.
         sr = int(audio["sample_rate"])
@@ -581,8 +707,107 @@ class H3PinFirstFrameFromLatent:
         return (out,)
 
 
+class H3WindowPrompts:
+    CATEGORY = "Trent/MiniMax"
+    DISPLAY_NAME = "Window Prompts"
+    RETURN_TYPES = ("CONDITIONING",)
+    RETURN_NAMES = ("positive",)
+    FUNCTION = "encode"
+    DESCRIPTION = ("One MiniMax H3 Reference to Video prompt per clip, joined in clip order. With MiniMax H3 Context "
+                   "Windows split_conds_to_windows on, each context window gets the prompt of its own clip.")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "clip": ("CLIP",),
+                "vae": ("VAE", {"tooltip": "Video VAE, encodes the reference picture."}),
+                "ref_image": ("IMAGE", {"tooltip": "<Picture 1> of every prompt."}),
+                "prompts": ("STRING", {"multiline": True, "tooltip": "The clip prompts, split by a line with =====. "
+                                                                    "The same text as the Video Chain run."}),
+                "width": ("INT", {"default": 1920, "min": 32, "max": 8192, "step": 32}),
+                "height": ("INT", {"default": 1088, "min": 32, "max": 8192, "step": 32}),
+            },
+        }
+
+    def encode(self, clip, vae, ref_image, prompts, width, height):
+        out = []
+        for text in prompts.split("\n=====\n"):
+            # the conditioning does not depend on the length; the latent output is not used
+            out += MiniMaxH3ReferenceToVideo.execute(clip=clip, vae=vae, prompt=text.strip(), width=width, height=height,
+                                                     length=5, ref_images={"ref_image_0": ref_image}).result[0]
+        return (out,)
+
+
+class H3DecodeLongVideo:
+    CATEGORY = "Trent/MiniMax"
+    DISPLAY_NAME = "Decode Long Video"
+    RETURN_TYPES = ()
+    FUNCTION = "decode"
+    OUTPUT_NODE = True
+    DESCRIPTION = ("Decodes a long MiniMax H3 video latent in parts and writes the frames straight into an mp4 with the "
+                   "sound, so the whole video never sits in memory as pictures. Each part also decodes the 5 latents "
+                   "before it and drops those frames, so the parts join exactly.")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "samples": ("LATENT", {"tooltip": "Video latent (Separate AV Latent video output)."}),
+                "vae": ("VAE",),
+                "filename_prefix": ("STRING", {"default": "h3_chain/long_video"}),
+                "frame_rate": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 120.0}),
+                "latents_per_part": ("INT", {"default": 100, "min": 5, "max": 1000, "step": 5,
+                    "tooltip": "Lower uses less memory. 100 latents = 340 frames."}),
+                "crf": ("INT", {"default": 12, "min": 0, "max": 51, "tooltip": "h264 quality, lower is better."}),
+            },
+            "optional": {
+                "audio": ("AUDIO", {"tooltip": "Sound of the video, cut to the picture length."}),
+            },
+        }
+
+    def decode(self, samples, vae, filename_prefix, frame_rate, latents_per_part, crf, audio=None):
+        latent = samples["samples"]
+        total = latent.shape[2]
+        height, width = latent.shape[3] * 16, latent.shape[4] * 16
+        folder, name, counter, subfolder, _ = folder_paths.get_save_image_path(filename_prefix, folder_paths.get_output_directory())
+        file = "%s_%05d_.mp4" % (name, counter)
+        cmd = ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % (width, height),
+               "-r", str(frame_rate), "-i", "-"]
+        sound = None
+        if audio is not None:
+            wave = audio["waveform"][0].to(device="cpu", dtype=torch.float32)
+            sound = os.path.join(folder, "%s_%05d_.f32" % (name, counter))
+            wave.t().contiguous().numpy().tofile(sound)
+            cmd += ["-f", "f32le", "-ar", str(int(audio["sample_rate"])), "-ac", str(wave.shape[0]), "-i", sound,
+                    "-c:a", "aac", "-b:a", "192k", "-shortest"]
+        cmd += ["-c:v", "libx264", "-crf", str(crf), "-pix_fmt", "yuv420p", os.path.join(folder, file)]
+        writer = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        pbar = comfy.utils.ProgressBar(total)
+        for a in range(0, total, latents_per_part):
+            b = min(a + latents_per_part, total)
+            start = max(0, a - 5)
+            images = vae.decode(latent[:, :, start:min(total, b + 5)])
+            images = images.reshape(-1, *images.shape[-3:])
+            # H3 latents cover 1, 4, 4, 4, 4 frames: 17 frames per 5 latents
+            images = images[17 if a else 0:]
+            if b < total:
+                images = images[:17 * (b - a) // 5]
+            writer.stdin.write(images.mul(255).add_(0.5).clamp_(0, 255).to(torch.uint8).cpu().numpy().tobytes())
+            pbar.update_absolute(b)
+        writer.stdin.close()
+        writer.wait()
+        if sound is not None:
+            os.remove(sound)
+        if writer.returncode:
+            raise RuntimeError("Decode Long Video: ffmpeg failed with code %d." % writer.returncode)
+        return {"ui": {"images": [{"filename": file, "subfolder": subfolder, "type": "output"}], "animated": (True,)}}
+
+
 NODE_CLASS_MAPPINGS = {
     "H3VideoChain": H3VideoChain,
+    "H3WindowPrompts": H3WindowPrompts,
+    "H3DecodeLongVideo": H3DecodeLongVideo,
     "H3ContinueFromLastClip": H3ContinueFromLastClip,
     "H3ContextNoise": H3ContextNoise,
     "H3StoryArc": H3StoryArc,
