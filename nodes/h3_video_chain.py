@@ -727,12 +727,20 @@ class H3WindowPrompts:
                                                                     "The same text as the Video Chain run."}),
                 "width": ("INT", {"default": 1920, "min": 32, "max": 8192, "step": 32}),
                 "height": ("INT", {"default": 1088, "min": 32, "max": 8192, "step": 32}),
+                "clips": ("INT", {"default": 0, "min": 0, "max": 9999,
+                    "tooltip": "Clips in the video (the Video Chain clips). Only the first this many prompts are used, because "
+                               "Context Windows picks each window's prompt by its place in the list. 0 = every prompt."}),
             },
         }
 
-    def encode(self, clip, vae, ref_image, prompts, width, height):
+    def encode(self, clip, vae, ref_image, prompts, width, height, clips=0):
+        texts = prompts.split("\n=====\n")
+        if clips:
+            if clips > len(texts):
+                raise ValueError("Window Prompts: %d clips but only %d prompts." % (clips, len(texts)))
+            texts = texts[:clips]
         out = []
-        for text in prompts.split("\n=====\n"):
+        for text in texts:
             # the conditioning does not depend on the length; the latent output is not used
             out += MiniMaxH3ReferenceToVideo.execute(clip=clip, vae=vae, prompt=text.strip(), width=width, height=height,
                                                      length=5, ref_images={"ref_image_0": ref_image}).result[0]

@@ -387,6 +387,15 @@ class VideoChainTests(unittest.TestCase):
         finally:
             chain_mod.MiniMaxH3ReferenceToVideo.execute = old
         self.assertEqual([d["text"] for _, d in out], ["one", "two", "three"])
+        # only the clips the video has, so Context Windows maps window k to prompt k
+        chain_mod.MiniMaxH3ReferenceToVideo.execute = execute
+        try:
+            two = chain_mod.H3WindowPrompts().encode("clip", "vae", image, "one\n=====\ntwo\n=====\nthree", 1920, 1088, clips=2)[0]
+            with self.assertRaises(ValueError):
+                chain_mod.H3WindowPrompts().encode("clip", "vae", image, "one", 1920, 1088, clips=2)
+        finally:
+            chain_mod.MiniMaxH3ReferenceToVideo.execute = old
+        self.assertEqual([d["text"] for _, d in two], ["one", "two"])
         self.assertTrue(all(c["ref_images"]["ref_image_0"] is image and c["width"] == 1920 for c in calls))
 
     def test_decode_long_video_parts_join_exactly(self):
