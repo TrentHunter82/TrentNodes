@@ -49,6 +49,12 @@ def _ending_path(name, clip):
                         sanitize_slot(name), "clip_%04d.latent" % clip)
 
 
+def _read_small(path):
+    # Read into memory, not memory-mapped: Windows cannot overwrite a file that a live mapping still holds.
+    with open(path, "rb") as f:
+        return safetensors.torch.load(f.read())
+
+
 def _streams(latent, who):
     samples = latent["samples"]
     if not isinstance(samples, NestedTensor):
@@ -619,7 +625,7 @@ class H3JoinClips:
         if cut == "end of previous" and crossfade_frames > 0:
             # The new clip's frame n shows the same moment as the clip before's first cut-off frame.
             if clip > 0 and os.path.isfile(fade_path):
-                before = comfy.utils.load_torch_file(fade_path)["frames"].to(images)
+                before = _read_small(fade_path)["frames"].to(images)
                 k = min(before.shape[0], images.shape[0] - n)
                 weight = torch.linspace(1.0, 0.0, k + 2, device=images.device, dtype=images.dtype)[1:-1].view(-1, 1, 1, 1)
                 images = torch.cat((images[:n], torch.lerp(images[n:n + k], before[:k], weight), images[n + k:]))
@@ -636,12 +642,12 @@ class H3JoinClips:
                 mean, cov = _colour_look(ending)
                 comfy.utils.save_torch_file({"mean": mean, "cov": cov}, anchor_path)
             elif os.path.isfile(anchor_path):
-                held = _match_look(images, _colour_look(images), comfy.utils.load_torch_file(anchor_path))
+                held = _match_look(images, _colour_look(images), _read_small(anchor_path))
         if match_colour_frames > 0:
             if clip > 0 and os.path.isfile(look_path):
                 # The picture hardly changes over a few frames, so the difference between the last
                 # frames of the clip before and the first new frames is the colour step of this join.
-                look = comfy.utils.load_torch_file(look_path)
+                look = _read_small(look_path)
                 fade = min(match_colour_frames, images.shape[0])
                 weight = torch.linspace(1.0, 0.0, fade + 1, device=images.device, dtype=images.dtype)[:fade].view(-1, 1, 1, 1)
                 matched = _match_look(images[:fade], _colour_look(images[:JOIN_LOOK_FRAMES]), look)
@@ -669,7 +675,7 @@ class H3JoinClips:
                 path = os.path.join(folder, "sound_%04d.safetensors" % k)
                 if not os.path.isfile(path):
                     raise ValueError("Join Clips: the sound of clip %d is missing (%s). Queue a fresh run." % (k + 1, path))
-                part = comfy.utils.load_torch_file(path)
+                part = _read_small(path)
                 if int(part["sample_rate"]) != sr or part["waveform"].shape[:-1] != wave.shape[:-1]:
                     raise ValueError("Join Clips: the sample rate or the audio channels changed between clips.")
                 chunks.append(part["waveform"])
